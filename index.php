@@ -5,6 +5,7 @@ echo 'Google should be tracking now!';
 <!DOCTYPE html>
 <html>
     <head>
+        <?php include 'googlekey/googlekey.php';  ?>
         <meta charset="UTF-8">
         <title>Title of the document</title>
     </head>
@@ -12,5 +13,5 @@ echo 'Google should be tracking now!';
     <body>
         Content of the document......
     </body>
-<?php include 'googlekey/googlekey.php';  ?>
+
 </html>
