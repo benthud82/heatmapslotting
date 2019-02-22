@@ -1,7 +1,4 @@
 <?php
+include 'googlekey/googlekey.php';
 
-
-echo 'New Index File';
-echo 'Updated in dev';
-
-
+echo 'Google should be tracking now!';
