@@ -48,6 +48,7 @@
     </style>
     <head>
         <?php include 'googlekey/googlekey.php'; ?>
+        <?php include 'includes/headerincludes.php'; ?>
         <meta charset="UTF-8">
         <title>Title of the document</title>
     </head>
@@ -58,6 +59,18 @@
                 <span class="border">SLOTTING</span>
             </div>
         </div>
+
+        <div class="wrapper container">
+            <div class="row">
+                <div class="col-md-3 ">
+                    test222
+                </div>
+                <div class="col-md-9">
+                    TEST
+                </div>
+            </div>
+        </div>
+
     </body>
 
 
