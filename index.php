@@ -61,12 +61,18 @@
         </div>
 
         <div class="wrapper container">
-            <div class="row">
-                <div class="col-md-3 ">
-                    test222
-                </div>
-                <div class="col-md-9">
-                    TEST
+
+            <div class="text_jpeg_group">
+                <div class="row">
+                    <div class="col-md-5">
+                        <div class="in-middle">
+                            <h1 style="text-align: right;">Fully Automated Dashboard</h1>
+                            <p style="text-align: right;">Utilizing your data, dashboard updates based on your timing to provide real-time trends and results.</p>
+                        </div>
+                    </div>
+                    <div class="col-md-7">
+                        <img src="images/heatmap.jpg" style="width:500px;height:300px;">
+                    </div>
                 </div>
             </div>
         </div>
