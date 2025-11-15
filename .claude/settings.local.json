@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:www.claude.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(/plugin install:*)",
+      "Bash(curl:*)",
+      "Bash(node test-connection.js:*)",
+      "Bash(ping:*)",
+      "Bash(ipconfig /flushdns:*)",
+      "Bash(npm install:*)",
+      "Skill(example-skills:frontend-design)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
