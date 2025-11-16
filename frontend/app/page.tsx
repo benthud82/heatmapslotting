@@ -5,7 +5,7 @@ import { nanoid } from 'nanoid';
 import ElementToolbar from '@/components/ElementToolbar';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import { layoutApi, elementsApi } from '@/lib/api';
-import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS } from '@/lib/types';
+import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 
 export default function Home() {
   const [layout, setLayout] = useState<Layout | null>(null);
@@ -15,6 +15,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
 
   // Load initial data
   useEffect(() => {
@@ -47,12 +48,21 @@ export default function Home() {
       const tempId = nanoid();
       const config = ELEMENT_CONFIGS[selectedType];
 
+      // Generate abbreviated label based on element type
+      const typeCount = elements.filter(el => el.element_type === selectedType).length + 1;
+      const abbreviations: Record<ElementType, string> = {
+        bay: 'B',
+        flow_rack: 'FR',
+        full_pallet: 'P',
+      };
+      const abbreviatedLabel = `${abbreviations[selectedType]}${typeCount}`;
+
       // Optimistically add to UI
       const tempElement: WarehouseElement = {
         id: tempId,
         layout_id: layout?.id || '',
         element_type: selectedType,
-        label: `${config.displayName} ${elements.length + 1}`,
+        label: abbreviatedLabel,
         x_coordinate: x,
         y_coordinate: y,
         width: config.width,
@@ -278,6 +288,8 @@ export default function Home() {
         onSelectType={setSelectedType}
         onDelete={handleElementDelete}
         hasSelection={selectedElementId !== null}
+        labelDisplayMode={labelDisplayMode}
+        onLabelModeChange={setLabelDisplayMode}
       />
 
       {/* Canvas */}
@@ -287,6 +299,7 @@ export default function Home() {
             elements={elements}
             selectedType={selectedType}
             selectedElementId={selectedElementId}
+            labelDisplayMode={labelDisplayMode}
             onElementClick={(id) => {
               setSelectedElementId(id);
               // Keep selectedType active so user can continue placing elements

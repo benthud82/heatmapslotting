@@ -1,16 +1,17 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Stage, Layer, Rect, Text, Transformer, Line } from 'react-konva';
+import { Stage, Layer, Rect, Text, Transformer, Line, Group } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
-import { WarehouseElement, ElementType, ELEMENT_CONFIGS } from '@/lib/types';
+import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 import { findSnapPoints, clampToCanvas, snapRotation } from '@/lib/snapping';
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
   selectedType: ElementType | null;
   selectedElementId: string | null;
+  labelDisplayMode: LabelDisplayMode;
   onElementClick: (id: string) => void;
   onElementCreate: (x: number, y: number) => void;
   onElementUpdate: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string }) => void;
@@ -23,6 +24,7 @@ export default function WarehouseCanvas({
   elements,
   selectedType,
   selectedElementId,
+  labelDisplayMode,
   onElementClick,
   onElementCreate,
   onElementUpdate,
@@ -35,6 +37,7 @@ export default function WarehouseCanvas({
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Rect>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
+  const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
 
   // Update transformer when selection changes
   useEffect(() => {
@@ -226,6 +229,7 @@ export default function WarehouseCanvas({
             {elements.map((element) => {
               const config = ELEMENT_CONFIGS[element.element_type];
               const isSelected = element.id === selectedElementId;
+              const isHovered = element.id === hoveredElementId;
 
               return (
                 <ElementShape
@@ -233,7 +237,9 @@ export default function WarehouseCanvas({
                   element={element}
                   config={config}
                   isSelected={isSelected}
+                  isHovered={isHovered}
                   isEditing={editingLabel === element.id}
+                  labelDisplayMode={labelDisplayMode}
                   ref={isSelected ? selectedShapeRef : null}
                   onClick={() => onElementClick(element.id)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
@@ -242,6 +248,8 @@ export default function WarehouseCanvas({
                   onTransform={(e) => handleElementTransform(element, e)}
                   onTransformEnd={(e) => handleElementTransformEnd(element, e)}
                   onLabelChange={(newLabel) => handleLabelChange(element.id, newLabel)}
+                  onMouseEnter={() => setHoveredElementId(element.id)}
+                  onMouseLeave={() => setHoveredElementId(null)}
                 />
               );
             })}
@@ -335,7 +343,9 @@ interface ElementShapeProps {
   element: WarehouseElement;
   config: { width: number; height: number; color: string; displayName: string; description: string };
   isSelected: boolean;
+  isHovered: boolean;
   isEditing: boolean;
+  labelDisplayMode: LabelDisplayMode;
   onClick: () => void;
   onDoubleClick: () => void;
   onDragMove: (e: KonvaEventObject<DragEvent>) => void;
@@ -343,6 +353,8 @@ interface ElementShapeProps {
   onTransform: (e: KonvaEventObject<Event>) => void;
   onTransformEnd: (e: KonvaEventObject<Event>) => void;
   onLabelChange: (newLabel: string) => void;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }
 
 const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
@@ -351,7 +363,9 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
       element,
       config,
       isSelected,
+      isHovered,
       isEditing,
+      labelDisplayMode,
       onClick,
       onDoubleClick,
       onDragMove,
@@ -359,6 +373,8 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
       onTransform,
       onTransformEnd,
       onLabelChange,
+      onMouseEnter,
+      onMouseLeave,
     },
     ref
   ) => {
@@ -377,65 +393,69 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
       }
     };
 
+    // Calculate if label should be visible based on display mode
+    const shouldShowLabel = (() => {
+      if (labelDisplayMode === 'none') return false;
+      if (labelDisplayMode === 'all') return true;
+      if (labelDisplayMode === 'selected') return isSelected;
+      if (labelDisplayMode === 'hover') return isHovered;
+      return false;
+    })();
+
+    // Calculate proportional font size based on element width
+    // Small elements (24px) get ~8px font, large elements (120px) get ~12px font
+    const fontSize = Math.max(8, Math.min(12, Number(element.width) / 8));
+
     return (
-      <>
+      <Group
+        x={Number(element.x_coordinate) + Number(element.width) / 2}
+        y={Number(element.y_coordinate) + Number(element.height) / 2}
+        rotation={Number(element.rotation)}
+        draggable={true}
+        onClick={onClick}
+        onDblClick={onDoubleClick}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+        onTransform={onTransform}
+        onTransformEnd={onTransformEnd}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
         {/* Main Element Rectangle */}
         <Rect
           ref={ref}
-          x={Number(element.x_coordinate) + Number(element.width) / 2}
-          y={Number(element.y_coordinate) + Number(element.height) / 2}
+          x={0}
+          y={0}
           width={Number(element.width)}
           height={Number(element.height)}
           offsetX={Number(element.width) / 2}
           offsetY={Number(element.height) / 2}
-          rotation={Number(element.rotation)}
           fill={config.color}
           opacity={isSelected ? 0.9 : 0.7}
           stroke={isSelected ? '#3b82f6' : '#1e293b'}
           strokeWidth={isSelected ? 3 : 1}
-          draggable={true}
-          onClick={onClick}
-          onDblClick={onDoubleClick}
-          onDragMove={onDragMove}
-          onDragEnd={onDragEnd}
-          onTransform={onTransform}
-          onTransformEnd={onTransformEnd}
           shadowColor={isSelected ? config.color : 'transparent'}
           shadowBlur={isSelected ? 20 : 0}
           shadowOpacity={0.6}
         />
 
-        {/* Element Label */}
-        <Text
-          x={Number(element.x_coordinate) + 4}
-          y={Number(element.y_coordinate) + 4}
-          text={element.label}
-          fontSize={11}
-          fontFamily="monospace"
-          fontStyle="bold"
-          fill={isSelected ? '#ffffff' : '#e2e8f0'}
-          listening={false}
-          shadowColor="#000000"
-          shadowBlur={4}
-          shadowOpacity={0.8}
-        />
-
-        {/* Element Dimensions Label (shown on selection) */}
-        {isSelected && (
+        {/* Element Label - conditionally rendered based on display mode */}
+        {shouldShowLabel && (
           <Text
-            x={Number(element.x_coordinate) + 4}
-            y={Number(element.y_coordinate) + Number(element.height) - 16}
-            text={`${element.width} × ${element.height} px`}
-            fontSize={9}
+            x={-Number(element.width) / 2 + 4}
+            y={-Number(element.height) / 2 + 4}
+            text={element.label}
+            fontSize={fontSize}
             fontFamily="monospace"
-            fill="#94a3b8"
+            fontStyle="bold"
+            fill={isSelected ? '#ffffff' : '#e2e8f0'}
             listening={false}
             shadowColor="#000000"
-            shadowBlur={2}
+            shadowBlur={4}
             shadowOpacity={0.8}
           />
         )}
-      </>
+      </Group>
     );
   }
 );

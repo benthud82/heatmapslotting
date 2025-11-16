@@ -1,12 +1,14 @@
 'use client';
 
-import { ElementType, ELEMENT_CONFIGS } from '@/lib/types';
+import { ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 
 interface ElementToolbarProps {
   selectedType: ElementType | null;
   onSelectType: (type: ElementType | null) => void;
   onDelete: () => void;
   hasSelection: boolean;
+  labelDisplayMode: LabelDisplayMode;
+  onLabelModeChange: (mode: LabelDisplayMode) => void;
 }
 
 export default function ElementToolbar({
@@ -14,6 +16,8 @@ export default function ElementToolbar({
   onSelectType,
   onDelete,
   hasSelection,
+  labelDisplayMode,
+  onLabelModeChange,
 }: ElementToolbarProps) {
   const elementTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
 
@@ -107,6 +111,48 @@ export default function ElementToolbar({
                   </>
                 )}
               </p>
+            </div>
+          </div>
+
+          {/* Label Display Mode Selector */}
+          <div className="flex-shrink-0">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="w-2 h-2 bg-purple-500 rotate-45"></div>
+              <h2 className="text-xs font-bold tracking-widest text-slate-400 uppercase">
+                Label Display
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { mode: 'all' as LabelDisplayMode, label: 'All', icon: '👁', desc: 'Always visible' },
+                { mode: 'hover' as LabelDisplayMode, label: 'Hover', icon: '👆', desc: 'On hover only' },
+                { mode: 'selected' as LabelDisplayMode, label: 'Selected', icon: '✓', desc: 'Selected only' },
+                { mode: 'none' as LabelDisplayMode, label: 'None', icon: '🚫', desc: 'Hidden' },
+              ].map(({ mode, label, icon, desc }) => {
+                const isActive = labelDisplayMode === mode;
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => onLabelModeChange(mode)}
+                    className={`px-4 py-2.5 rounded-lg border-2 transition-all duration-300 ${
+                      isActive
+                        ? 'border-purple-500 bg-purple-500/20 shadow-lg shadow-purple-900/50'
+                        : 'border-slate-700 bg-slate-800/50 hover:border-purple-400 hover:bg-slate-800'
+                    }`}
+                  >
+                    <div className="text-center">
+                      <div className="text-lg mb-1">{icon}</div>
+                      <div className={`text-xs font-bold ${isActive ? 'text-purple-300' : 'text-slate-400'}`}>
+                        {label}
+                      </div>
+                      <div className="text-[9px] text-slate-500 mt-0.5">
+                        {desc}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

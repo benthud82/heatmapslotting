@@ -2,6 +2,8 @@
 
 export type ElementType = 'bay' | 'flow_rack' | 'full_pallet';
 
+export type LabelDisplayMode = 'none' | 'hover' | 'selected' | 'all';
+
 export interface WarehouseElement {
   id: string;
   layout_id: string;

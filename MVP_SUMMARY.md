@@ -18,10 +18,10 @@ Your warehouse element placement MVP has been successfully implemented. This doc
    - 1 inch = 1 pixel scale
 
 2. **Element Manipulation**
-   - Drag to move elements
-   - Rotate elements (rotation handles when selected)
-   - Edit labels (double-click)
-   - Delete selected elements
+   - Drag to move elements with edge/center snapping between elements
+   - Rotate elements (rotation handles when selected) with 45° snap assist
+   - Label editing path wired (double-click to trigger, overlay UX still to be improved)
+   - Delete selected elements via toolbar action or Delete/Backspace key
    - Visual selection feedback
 
 3. **Auto-Save**
@@ -66,10 +66,11 @@ DELETE /api/elements/:id      - Delete element
 
 **Files Created:**
 - `frontend/lib/types.ts` - TypeScript interfaces and element configs
-- `frontend/lib/api.ts` - API client with fetch wrappers
-- `frontend/components/ElementToolbar.tsx` - Element type selector + delete button
-- `frontend/components/WarehouseCanvas.tsx` - react-konva canvas with all interactions
-- `frontend/app/page.tsx` - Main app with state management
+- `frontend/lib/api.ts` - API client with fetch wrappers and rich error messages
+- `frontend/lib/snapping.ts` - Snapping, clamping, and rotation utilities for canvas interactions
+- `frontend/components/ElementToolbar.tsx` - Element type selector + delete/deselect controls
+- `frontend/components/WarehouseCanvas.tsx` - react-konva canvas with grid, snapping, and interactions
+- `frontend/app/page.tsx` - Main app with state management and optimistic updates
 - `frontend/.env.local` - Environment configuration
 
 **Key Technologies:**
@@ -176,8 +177,9 @@ All changes auto-save immediately!
 2. **Mock Authentication** - Focus on core functionality, add real auth later
 3. **Single Layout** - Auto-saving simplifies UX, no need for save button
 4. **Optimistic Updates** - UI updates immediately, then syncs to DB
-5. **Free Positioning** - No grid snapping (per user request)
-6. **No Collision Detection** - User said "if it complicates too much, don't worry"
+5. **Guided Positioning** - Elements remain freely placeable but snap to each other and respect canvas bounds (no rigid grid)
+6. **Rotation Assistance** - Elements snap toward 45° increments for cleaner layouts
+7. **No Collision Detection** - User said "if it complicates too much, don't worry"
 
 ### Element Sizes (Real-World Dimensions)
 
@@ -196,7 +198,6 @@ These were explicitly excluded from the MVP scope:
 - ❌ User authentication (using mock auth)
 - ❌ Multiple layouts (single auto-save layout)
 - ❌ Collision detection
-- ❌ Grid snapping
 - ❌ Undo/redo
 - ❌ Export to PDF/image
 - ❌ Dataset upload
@@ -261,8 +262,8 @@ See `TESTING_GUIDE.md` for detailed testing checklist.
 
 ## Known Issues / Limitations
 
-1. **Label Editing UX** - Double-click works but needs better UI (input field overlay)
-2. **No Keyboard Shortcuts** - Only mouse/click interactions
+1. **Label Editing UX** - Double-click pathway is wired, but a proper text-input overlay still needs to be implemented
+2. **Limited Keyboard Shortcuts** - Delete/Backspace works for deletion, but there are no shortcuts for selection, rotation, or mode switching
 3. **No Multi-select** - Can only select one element at a time
 4. **Canvas Size Fixed** - 1200×800px (configurable in DB)
 
