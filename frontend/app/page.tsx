@@ -148,6 +148,19 @@ export default function Home() {
     }
   }, [selectedElementId, elements]);
 
+  // Keyboard shortcut: Delete key to delete selected element
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId && !saving) {
+        e.preventDefault();
+        handleElementDelete();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedElementId, handleElementDelete, saving]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
@@ -274,10 +287,16 @@ export default function Home() {
             elements={elements}
             selectedType={selectedType}
             selectedElementId={selectedElementId}
-            onElementClick={setSelectedElementId}
+            onElementClick={(id) => {
+              setSelectedElementId(id);
+              // Keep selectedType active so user can continue placing elements
+            }}
             onElementCreate={handleElementCreate}
             onElementUpdate={handleElementUpdate}
-            onCanvasClick={() => setSelectedElementId(null)}
+            onCanvasClick={() => {
+              // Clear element selection but keep placement mode active
+              setSelectedElementId(null);
+            }}
             canvasWidth={layout?.canvas_width || 1200}
             canvasHeight={layout?.canvas_height || 800}
           />

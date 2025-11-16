@@ -2,7 +2,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Stage, Layer, Rect, Text, Transformer, Line } from 'react-konva';
-import Konva from 'konva';
+import type { KonvaEventObject } from 'konva/lib/Node';
+import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS } from '@/lib/types';
 
 interface WarehouseCanvasProps {
@@ -28,6 +29,8 @@ export default function WarehouseCanvas({
   canvasWidth = 1200,
   canvasHeight = 800,
 }: WarehouseCanvasProps) {
+  const stageRef = useRef<Konva.Stage>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Rect>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
@@ -43,27 +46,45 @@ export default function WarehouseCanvas({
     }
   }, [selectedElementId]);
 
-  const handleStageClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    const clickedOnEmpty = e.target === e.target.getStage();
+  const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    // Check if clicked on empty space (Stage, Layer, background Rect, or grid lines)
+    const targetType = e.target.getType();
+    const clickedOnEmpty =
+      e.target === stage ||
+      e.target === stage.getLayers()[0] ||
+      e.target.name() === 'background' || // Background Rect
+      targetType === 'Line'; // Grid lines
 
     if (clickedOnEmpty) {
+      // If placement mode is active, place new element at click position
       if (selectedType) {
-        // Place new element
-        const stage = e.target.getStage();
-        if (!stage) return;
-
+        // Get pointer position relative to the Stage
         const pointerPosition = stage.getPointerPosition();
         if (!pointerPosition) return;
 
-        onElementCreate(pointerPosition.x, pointerPosition.y);
+        // Use exact click coordinates relative to Stage canvas
+        const x = pointerPosition.x;
+        const y = pointerPosition.y;
+
+        console.log('Placing element at:', { x, y }); // Debug log
+
+        onElementCreate(x, y);
+
+        // Clear any element selection after placing
+        if (selectedElementId) {
+          onCanvasClick();
+        }
       } else {
-        // Deselect
+        // No placement mode, just deselect any selected element
         onCanvasClick();
       }
     }
   };
 
-  const handleElementDragEnd = (element: WarehouseElement, e: Konva.KonvaEventObject<DragEvent>) => {
+  const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
     const node = e.target;
     onElementUpdate(element.id, {
       x_coordinate: node.x(),
@@ -71,7 +92,7 @@ export default function WarehouseCanvas({
     });
   };
 
-  const handleElementTransformEnd = (element: WarehouseElement, e: Konva.KonvaEventObject<Event>) => {
+  const handleElementTransformEnd = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
     const node = e.target as Konva.Rect;
     onElementUpdate(element.id, {
       rotation: node.rotation(),
@@ -121,12 +142,14 @@ export default function WarehouseCanvas({
     <div className="relative">
       {/* Canvas Container with Blueprint Styling */}
       <div
+        ref={containerRef}
         className="relative border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl"
         style={{
           background: 'linear-gradient(to bottom, #020617, #0f172a)',
         }}
       >
         <Stage
+          ref={stageRef}
           width={canvasWidth}
           height={canvasHeight}
           onClick={handleStageClick}
@@ -134,11 +157,13 @@ export default function WarehouseCanvas({
           <Layer>
             {/* Grid Background */}
             <Rect
+              name="background"
               x={0}
               y={0}
               width={canvasWidth}
               height={canvasHeight}
               fill="#0a0f1e"
+              listening={true}
             />
             {gridLines}
 
@@ -232,7 +257,7 @@ export default function WarehouseCanvas({
                 {(() => {
                   const elem = elements.find(e => e.id === selectedElementId);
                   if (!elem) return 'N/A';
-                  return `${ELEMENT_CONFIGS[elem.element_type].displayName} @ ${Math.round(elem.x_coordinate)}, ${Math.round(elem.y_coordinate)}`;
+                  return `${ELEMENT_CONFIGS[elem.element_type].displayName} @ ${Math.round(Number(elem.x_coordinate))}, ${Math.round(Number(elem.y_coordinate))}`;
                 })()}
               </div>
             </>
@@ -256,8 +281,8 @@ interface ElementShapeProps {
   isEditing: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
-  onDragEnd: (e: Konva.KonvaEventObject<DragEvent>) => void;
-  onTransformEnd: (e: Konva.KonvaEventObject<Event>) => void;
+  onDragEnd: (e: KonvaEventObject<DragEvent>) => void;
+  onTransformEnd: (e: KonvaEventObject<Event>) => void;
   onLabelChange: (newLabel: string) => void;
 }
 
@@ -277,7 +302,6 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
     ref
   ) => {
     const [labelInput, setLabelInput] = useState(element.label);
-    const [isHovered, setIsHovered] = useState(false);
 
     useEffect(() => {
       setLabelInput(element.label);
@@ -297,22 +321,20 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
         {/* Main Element Rectangle */}
         <Rect
           ref={ref}
-          x={element.x_coordinate}
-          y={element.y_coordinate}
-          width={element.width}
-          height={element.height}
-          rotation={element.rotation}
+          x={Number(element.x_coordinate)}
+          y={Number(element.y_coordinate)}
+          width={Number(element.width)}
+          height={Number(element.height)}
+          rotation={Number(element.rotation)}
           fill={config.color}
-          opacity={isSelected ? 0.9 : isHovered ? 0.8 : 0.7}
-          stroke={isSelected ? '#3b82f6' : isHovered ? '#60a5fa' : '#1e293b'}
-          strokeWidth={isSelected ? 3 : isHovered ? 2 : 1}
+          opacity={isSelected ? 0.9 : 0.7}
+          stroke={isSelected ? '#3b82f6' : '#1e293b'}
+          strokeWidth={isSelected ? 3 : 1}
           draggable={true}
           onClick={onClick}
           onDblClick={onDoubleClick}
           onDragEnd={onDragEnd}
           onTransformEnd={onTransformEnd}
-          onMouseEnter={() => setIsHovered(true)}
-          onMouseLeave={() => setIsHovered(false)}
           shadowColor={isSelected ? config.color : 'transparent'}
           shadowBlur={isSelected ? 20 : 0}
           shadowOpacity={0.6}
@@ -320,8 +342,8 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
 
         {/* Element Label */}
         <Text
-          x={element.x_coordinate + 4}
-          y={element.y_coordinate + 4}
+          x={Number(element.x_coordinate) + 4}
+          y={Number(element.y_coordinate) + 4}
           text={element.label}
           fontSize={11}
           fontFamily="monospace"
@@ -333,11 +355,11 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
           shadowOpacity={0.8}
         />
 
-        {/* Element Dimensions Label (shown on hover or selection) */}
-        {(isSelected || isHovered) && (
+        {/* Element Dimensions Label (shown on selection) */}
+        {isSelected && (
           <Text
-            x={element.x_coordinate + 4}
-            y={element.y_coordinate + element.height - 16}
+            x={Number(element.x_coordinate) + 4}
+            y={Number(element.y_coordinate) + Number(element.height) - 16}
             text={`${element.width} × ${element.height} px`}
             fontSize={9}
             fontFamily="monospace"

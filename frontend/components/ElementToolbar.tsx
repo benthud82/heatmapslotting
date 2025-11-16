@@ -4,7 +4,7 @@ import { ElementType, ELEMENT_CONFIGS } from '@/lib/types';
 
 interface ElementToolbarProps {
   selectedType: ElementType | null;
-  onSelectType: (type: ElementType) => void;
+  onSelectType: (type: ElementType | null) => void;
   onDelete: () => void;
   hasSelection: boolean;
 }
@@ -99,11 +99,11 @@ export default function ElementToolbar({
               <p className="text-xs font-mono text-slate-400 leading-relaxed">
                 {selectedType ? (
                   <>
-                    <span className="text-white font-bold">PLACEMENT MODE:</span> Click canvas to place {ELEMENT_CONFIGS[selectedType].displayName.toLowerCase()} ({ELEMENT_CONFIGS[selectedType].description})
+                    <span className="text-white font-bold">PLACEMENT MODE:</span> Click canvas to place {ELEMENT_CONFIGS[selectedType].displayName.toLowerCase()} ({ELEMENT_CONFIGS[selectedType].description}). <span className="text-blue-400">Click multiple times to place more!</span> Switch types by clicking a different element button.
                   </>
                 ) : (
                   <>
-                    <span className="text-white font-bold">INSTRUCTIONS:</span> Select element → Click canvas to place → Drag to move → Select & rotate
+                    <span className="text-white font-bold">INSTRUCTIONS:</span> Select element type → Click canvas to place → <span className="text-blue-400">Click element to select</span> → Drag to move → Rotate with handles → <span className="text-red-400">Click DELETE button or press Del key to remove</span>
                   </>
                 )}
               </p>
@@ -128,12 +128,19 @@ export default function ElementToolbar({
                   : 'bg-slate-700 text-slate-500 cursor-not-allowed opacity-50'
               }`}
             >
-              {hasSelection ? '✕ DELETE' : 'NO SELECTION'}
+              {hasSelection ? (
+                <span className="flex flex-col items-center">
+                  <span>✕ DELETE</span>
+                  <span className="text-[10px] font-normal mt-0.5 opacity-75">(or Del key)</span>
+                </span>
+              ) : (
+                'NO SELECTION'
+              )}
             </button>
 
             {selectedType && (
               <button
-                onClick={() => onSelectType(selectedType)}
+                onClick={() => onSelectType(null)}
                 className="px-6 py-3 rounded-lg font-bold text-sm tracking-wide bg-slate-700 text-slate-300 hover:bg-slate-600 transition-all duration-300"
               >
                 ⟲ DESELECT

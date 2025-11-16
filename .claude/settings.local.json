@@ -10,7 +10,9 @@
       "Bash(ping:*)",
       "Bash(ipconfig /flushdns:*)",
       "Bash(npm install:*)",
-      "Skill(example-skills:frontend-design)"
+      "Skill(example-skills:frontend-design)",
+      "Bash(npm run dev:*)",
+      "Bash(dir routes:*)"
     ],
     "deny": [],
     "ask": []
