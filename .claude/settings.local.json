@@ -12,7 +12,9 @@
       "Bash(npm install:*)",
       "Skill(example-skills:frontend-design)",
       "Bash(npm run dev:*)",
-      "Bash(dir routes:*)"
+      "Bash(dir routes:*)",
+      "WebFetch(domain:konvajs.org)",
+      "WebFetch(domain:www.bigbinary.com)"
     ],
     "deny": [],
     "ask": []

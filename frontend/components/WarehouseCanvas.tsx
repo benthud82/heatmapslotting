@@ -5,6 +5,7 @@ import { Stage, Layer, Rect, Text, Transformer, Line } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS } from '@/lib/types';
+import { findSnapPoints, clampToCanvas, snapRotation } from '@/lib/snapping';
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
@@ -84,12 +85,66 @@ export default function WarehouseCanvas({
     }
   };
 
+  const handleElementDragMove = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
+    const node = e.target;
+
+    // Get other elements (exclude current element being dragged)
+    const otherElements = elements.filter(el => el.id !== element.id);
+
+    // Convert center position to top-left for snap calculations
+    const halfWidth = Number(element.width) / 2;
+    const halfHeight = Number(element.height) / 2;
+    const topLeftX = node.x() - halfWidth;
+    const topLeftY = node.y() - halfHeight;
+
+    // Find snap points for current position (using top-left coordinates)
+    const snapResult = findSnapPoints(
+      {
+        x: topLeftX,
+        y: topLeftY,
+        width: Number(element.width),
+        height: Number(element.height),
+      },
+      otherElements
+    );
+
+    // Apply snap if found (converting back to center coordinates)
+    let newTopLeftX = snapResult.snapX !== null ? snapResult.snapX : topLeftX;
+    let newTopLeftY = snapResult.snapY !== null ? snapResult.snapY : topLeftY;
+
+    // Clamp to canvas bounds (using top-left coordinates)
+    const clamped = clampToCanvas(
+      newTopLeftX,
+      newTopLeftY,
+      Number(element.width),
+      Number(element.height),
+      canvasWidth,
+      canvasHeight
+    );
+
+    // Convert back to center coordinates for node position
+    node.x(clamped.x + halfWidth);
+    node.y(clamped.y + halfHeight);
+  };
+
   const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
     const node = e.target;
+    // Subtract offset to get top-left corner coordinates for storage
     onElementUpdate(element.id, {
-      x_coordinate: node.x(),
-      y_coordinate: node.y(),
+      x_coordinate: node.x() - Number(element.width) / 2,
+      y_coordinate: node.y() - Number(element.height) / 2,
     });
+  };
+
+  const handleElementTransform = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
+    const node = e.target as Konva.Rect;
+
+    // Get current rotation and apply snap
+    const currentRotation = node.rotation();
+    const snappedRotation = snapRotation(currentRotation);
+
+    // Apply snapped rotation in real-time
+    node.rotation(snappedRotation);
   };
 
   const handleElementTransformEnd = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
@@ -182,7 +237,9 @@ export default function WarehouseCanvas({
                   ref={isSelected ? selectedShapeRef : null}
                   onClick={() => onElementClick(element.id)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
+                  onDragMove={(e) => handleElementDragMove(element, e)}
                   onDragEnd={(e) => handleElementDragEnd(element, e)}
+                  onTransform={(e) => handleElementTransform(element, e)}
                   onTransformEnd={(e) => handleElementTransformEnd(element, e)}
                   onLabelChange={(newLabel) => handleLabelChange(element.id, newLabel)}
                 />
@@ -281,7 +338,9 @@ interface ElementShapeProps {
   isEditing: boolean;
   onClick: () => void;
   onDoubleClick: () => void;
+  onDragMove: (e: KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: KonvaEventObject<DragEvent>) => void;
+  onTransform: (e: KonvaEventObject<Event>) => void;
   onTransformEnd: (e: KonvaEventObject<Event>) => void;
   onLabelChange: (newLabel: string) => void;
 }
@@ -295,7 +354,9 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
       isEditing,
       onClick,
       onDoubleClick,
+      onDragMove,
       onDragEnd,
+      onTransform,
       onTransformEnd,
       onLabelChange,
     },
@@ -321,10 +382,12 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
         {/* Main Element Rectangle */}
         <Rect
           ref={ref}
-          x={Number(element.x_coordinate)}
-          y={Number(element.y_coordinate)}
+          x={Number(element.x_coordinate) + Number(element.width) / 2}
+          y={Number(element.y_coordinate) + Number(element.height) / 2}
           width={Number(element.width)}
           height={Number(element.height)}
+          offsetX={Number(element.width) / 2}
+          offsetY={Number(element.height) / 2}
           rotation={Number(element.rotation)}
           fill={config.color}
           opacity={isSelected ? 0.9 : 0.7}
@@ -333,7 +396,9 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
           draggable={true}
           onClick={onClick}
           onDblClick={onDoubleClick}
+          onDragMove={onDragMove}
           onDragEnd={onDragEnd}
+          onTransform={onTransform}
           onTransformEnd={onTransformEnd}
           shadowColor={isSelected ? config.color : 'transparent'}
           shadowBlur={isSelected ? 20 : 0}
