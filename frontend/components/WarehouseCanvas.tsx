@@ -10,9 +10,9 @@ import { findSnapPoints, snapRotation } from '@/lib/snapping';
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
   selectedType: ElementType | null;
-  selectedElementId: string | null;
+  selectedElementIds: string[];
   labelDisplayMode: LabelDisplayMode;
-  onElementClick: (id: string) => void;
+  onElementClick: (id: string, ctrlKey: boolean, metaKey: boolean) => void;
   onElementCreate: (x: number, y: number) => void;
   onElementUpdate: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string }) => void;
   onCanvasClick: () => void;
@@ -23,7 +23,7 @@ interface WarehouseCanvasProps {
 export default function WarehouseCanvas({
   elements,
   selectedType,
-  selectedElementId,
+  selectedElementIds,
   labelDisplayMode,
   onElementClick,
   onElementCreate,
@@ -37,6 +37,9 @@ export default function WarehouseCanvas({
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Group>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
+  const [editingPosition, setEditingPosition] = useState<{ x: number; y: number } | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
 
   // Zoom and pan state
@@ -44,16 +47,16 @@ export default function WarehouseCanvas({
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
-  // Update transformer when selection changes
+  // Update transformer when selection changes (only for single selection)
   useEffect(() => {
-    if (transformerRef.current && selectedShapeRef.current && selectedElementId) {
+    if (transformerRef.current && selectedShapeRef.current && selectedElementIds.length === 1) {
       transformerRef.current.nodes([selectedShapeRef.current]);
       transformerRef.current.getLayer()?.batchDraw();
     } else if (transformerRef.current) {
       transformerRef.current.nodes([]);
       transformerRef.current.getLayer()?.batchDraw();
     }
-  }, [selectedElementId]);
+  }, [selectedElementIds]);
 
   // Keyboard listener for spacebar pan mode
   useEffect(() => {
@@ -118,11 +121,11 @@ export default function WarehouseCanvas({
         onElementCreate(canvasPosition.x, canvasPosition.y);
 
         // Clear any element selection after placing
-        if (selectedElementId) {
+        if (selectedElementIds.length > 0) {
           onCanvasClick();
         }
       } else {
-        // No placement mode, just deselect any selected element
+        // No placement mode, just deselect any selected elements
         onCanvasClick();
       }
     }
@@ -235,13 +238,68 @@ export default function WarehouseCanvas({
     });
   };
 
+  // Convert canvas coordinates to screen coordinates (accounting for zoom and pan)
+  const canvasToScreenCoords = (canvasX: number, canvasY: number) => {
+    const stage = stageRef.current;
+    const container = containerRef.current;
+    if (!stage || !container) return null;
+
+    // Apply stage transform (scale and position)
+    const screenX = canvasX * stageScale + stagePosition.x;
+    const screenY = canvasY * stageScale + stagePosition.y;
+
+    return { x: screenX, y: screenY };
+  };
+
   const handleElementDoubleClick = (elementId: string) => {
+    const element = elements.find((el) => el.id === elementId);
+    if (!element) return;
+
+    // Calculate screen position for the input overlay
+    // Position at the top-left corner of the element (plus center offset)
+    const canvasX = Number(element.x_coordinate) + Number(element.width) / 2;
+    const canvasY = Number(element.y_coordinate) + Number(element.height) / 2 - 10; // Slightly above center
+
+    const screenPos = canvasToScreenCoords(canvasX, canvasY);
+    if (!screenPos) return;
+
     setEditingLabel(elementId);
+    setEditingValue(element.label);
+    setEditingPosition(screenPos);
+    setValidationError(null);
   };
 
   const handleLabelChange = (elementId: string, newLabel: string) => {
-    onElementUpdate(elementId, { label: newLabel });
+    // Validate: check for duplicate names (excluding current element)
+    const trimmedLabel = newLabel.trim();
+
+    if (!trimmedLabel) {
+      setValidationError('Label cannot be empty');
+      return;
+    }
+
+    const isDuplicate = elements.some(
+      (el) => el.id !== elementId && el.label.toLowerCase() === trimmedLabel.toLowerCase()
+    );
+
+    if (isDuplicate) {
+      setValidationError(`Name "${trimmedLabel}" already exists`);
+      return;
+    }
+
+    // Valid - save changes
+    onElementUpdate(elementId, { label: trimmedLabel });
     setEditingLabel(null);
+    setEditingValue('');
+    setEditingPosition(null);
+    setValidationError(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingLabel(null);
+    setEditingValue('');
+    setEditingPosition(null);
+    setValidationError(null);
   };
 
   // Zoom control handlers
@@ -359,8 +417,9 @@ export default function WarehouseCanvas({
             {/* Render all elements */}
             {elements.map((element) => {
               const config = ELEMENT_CONFIGS[element.element_type];
-              const isSelected = element.id === selectedElementId;
+              const isSelected = selectedElementIds.includes(element.id);
               const isHovered = element.id === hoveredElementId;
+              const isSingleSelection = isSelected && selectedElementIds.length === 1;
 
               return (
                 <ElementShape
@@ -371,8 +430,8 @@ export default function WarehouseCanvas({
                   isHovered={isHovered}
                   isEditing={editingLabel === element.id}
                   labelDisplayMode={labelDisplayMode}
-                  ref={isSelected ? selectedShapeRef : null}
-                  onClick={() => onElementClick(element.id)}
+                  ref={isSingleSelection ? selectedShapeRef : null}
+                  onClick={(e) => onElementClick(element.id, e.evt.ctrlKey, e.evt.metaKey)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
                   onDragMove={(e) => handleElementDragMove(element, e)}
                   onDragEnd={(e) => handleElementDragEnd(element, e)}
@@ -385,8 +444,8 @@ export default function WarehouseCanvas({
               );
             })}
 
-            {/* Transformer for selected element (rotation handles) */}
-            {selectedElementId && (
+            {/* Transformer for selected element (rotation handles) - only for single selection */}
+            {selectedElementIds.length === 1 && (
               <Transformer
                 ref={transformerRef}
                 rotateEnabled={true}
@@ -467,6 +526,57 @@ export default function WarehouseCanvas({
             Hold <span className="text-purple-400 font-bold">SPACE</span> to pan
           </div>
         )}
+
+        {/* Inline Label Editing Overlay */}
+        {editingLabel && editingPosition && (
+          <div
+            className="absolute z-50"
+            style={{
+              left: `${editingPosition.x}px`,
+              top: `${editingPosition.y}px`,
+              transform: 'translate(-50%, -50%)',
+            }}
+          >
+            <div className="flex flex-col gap-1">
+              <input
+                type="text"
+                value={editingValue}
+                onChange={(e) => setEditingValue(e.target.value)}
+                onKeyDown={(e) => {
+                  // Prevent event from bubbling to prevent global keyboard shortcuts
+                  e.stopPropagation();
+
+                  if (e.key === 'Enter') {
+                    handleLabelChange(editingLabel, editingValue);
+                  } else if (e.key === 'Escape') {
+                    handleCancelEdit();
+                  }
+                }}
+                onBlur={() => {
+                  if (!validationError) {
+                    handleLabelChange(editingLabel, editingValue);
+                  }
+                }}
+                autoFocus
+                maxLength={100}
+                className={`px-3 py-2 bg-slate-900 text-white font-mono text-sm rounded-lg shadow-2xl min-w-[150px] focus:outline-none focus:ring-2 ${
+                  validationError
+                    ? 'border-2 border-red-500 focus:ring-red-500'
+                    : 'border-2 border-blue-500 focus:ring-blue-500'
+                }`}
+                placeholder="Enter label..."
+              />
+              {validationError && (
+                <div className="px-2 py-1 bg-red-600 text-white text-xs font-mono rounded shadow-lg">
+                  {validationError}
+                </div>
+              )}
+              <div className="text-xs text-slate-400 font-mono text-center">
+                Enter to save • Esc to cancel
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Canvas Info Panel */}
@@ -500,26 +610,32 @@ export default function WarehouseCanvas({
         {/* Selected Element Info */}
         <div className="bg-slate-900 border border-slate-700 rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
-            <div className={`w-2 h-2 rounded-full ${selectedElementId ? 'bg-amber-500' : 'bg-slate-600'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${selectedElementIds.length > 0 ? 'bg-amber-500' : 'bg-slate-600'}`}></div>
             <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">Selection</div>
           </div>
-          {selectedElementId ? (
+          {selectedElementIds.length > 0 ? (
             <>
               <div className="text-xl font-mono font-bold text-white">
-                {elements.find(e => e.id === selectedElementId)?.label}
+                {selectedElementIds.length === 1
+                  ? elements.find(e => e.id === selectedElementIds[0])?.label
+                  : `${selectedElementIds.length} elements`}
               </div>
               <div className="text-xs font-mono text-slate-500 mt-1">
-                {(() => {
-                  const elem = elements.find(e => e.id === selectedElementId);
-                  if (!elem) return 'N/A';
-                  return `${ELEMENT_CONFIGS[elem.element_type].displayName} @ ${Math.round(Number(elem.x_coordinate))}, ${Math.round(Number(elem.y_coordinate))}`;
-                })()}
+                {selectedElementIds.length === 1 ? (
+                  (() => {
+                    const elem = elements.find(e => e.id === selectedElementIds[0]);
+                    if (!elem) return 'N/A';
+                    return `${ELEMENT_CONFIGS[elem.element_type].displayName} @ ${Math.round(Number(elem.x_coordinate))}, ${Math.round(Number(elem.y_coordinate))}`;
+                  })()
+                ) : (
+                  'Multi-select active (Ctrl+click)'
+                )}
               </div>
             </>
           ) : (
             <>
               <div className="text-xl font-mono font-bold text-slate-600">None</div>
-              <div className="text-xs font-mono text-slate-600 mt-1">Click element to select</div>
+              <div className="text-xs font-mono text-slate-600 mt-1">Click to select • Ctrl+click to multi-select</div>
             </>
           )}
         </div>
@@ -536,7 +652,7 @@ interface ElementShapeProps {
   isHovered: boolean;
   isEditing: boolean;
   labelDisplayMode: LabelDisplayMode;
-  onClick: () => void;
+  onClick: (e: KonvaEventObject<MouseEvent>) => void;
   onDoubleClick: () => void;
   onDragMove: (e: KonvaEventObject<DragEvent>) => void;
   onDragEnd: (e: KonvaEventObject<DragEvent>) => void;

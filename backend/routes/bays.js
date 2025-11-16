@@ -83,6 +83,23 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
+    // If label is being updated, check for duplicates (case-insensitive)
+    if (label) {
+      const duplicateCheck = await query(
+        `SELECT id FROM warehouse_elements
+         WHERE layout_id = $1
+           AND LOWER(label) = LOWER($2)
+           AND id != $3`,
+        [layoutId, label, elementId]
+      );
+
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(409).json({
+          error: `Element with label "${label}" already exists in this layout`
+        });
+      }
+    }
+
     const result = await query(
       `UPDATE warehouse_elements
        SET label = COALESCE($1, label),

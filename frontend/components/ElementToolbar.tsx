@@ -7,6 +7,8 @@ interface ElementToolbarProps {
   onSelectType: (type: ElementType | null) => void;
   onDelete: () => void;
   hasSelection: boolean;
+  selectedCount?: number;
+  onBulkRename?: () => void;
   labelDisplayMode: LabelDisplayMode;
   onLabelModeChange: (mode: LabelDisplayMode) => void;
 }
@@ -16,6 +18,8 @@ export default function ElementToolbar({
   onSelectType,
   onDelete,
   hasSelection,
+  selectedCount = 0,
+  onBulkRename,
   labelDisplayMode,
   onLabelModeChange,
 }: ElementToolbarProps) {
@@ -165,6 +169,19 @@ export default function ElementToolbar({
               </h2>
             </div>
 
+            {/* Bulk Rename Button - only shown when 2+ elements selected */}
+            {selectedCount >= 2 && onBulkRename && (
+              <button
+                onClick={onBulkRename}
+                className="px-6 py-3 rounded-lg font-bold text-sm tracking-wide bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-900/50 hover:scale-105 transition-all duration-300"
+              >
+                <span className="flex flex-col items-center">
+                  <span>✏ BULK RENAME</span>
+                  <span className="text-[10px] font-normal mt-0.5 opacity-75">({selectedCount} selected)</span>
+                </span>
+              </button>
+            )}
+
             <button
               onClick={onDelete}
               disabled={!hasSelection}
@@ -177,7 +194,9 @@ export default function ElementToolbar({
               {hasSelection ? (
                 <span className="flex flex-col items-center">
                   <span>✕ DELETE</span>
-                  <span className="text-[10px] font-normal mt-0.5 opacity-75">(or Del key)</span>
+                  <span className="text-[10px] font-normal mt-0.5 opacity-75">
+                    ({selectedCount === 1 ? 'or Del key' : `${selectedCount} elements`})
+                  </span>
                 </span>
               ) : (
                 'NO SELECTION'

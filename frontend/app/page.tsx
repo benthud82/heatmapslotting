@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { nanoid } from 'nanoid';
 import ElementToolbar from '@/components/ElementToolbar';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
+import ElementPropertiesPanel from '@/components/ElementPropertiesPanel';
+import BulkRenameModal from '@/components/BulkRenameModal';
 import { layoutApi, elementsApi } from '@/lib/api';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 
@@ -11,11 +13,13 @@ export default function Home() {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [elements, setElements] = useState<WarehouseElement[]>([]);
   const [selectedType, setSelectedType] = useState<ElementType | null>(null);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
+  const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
+  const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -134,34 +138,36 @@ export default function Home() {
     []
   );
 
-  // Delete element
+  // Delete element(s)
   const handleElementDelete = useCallback(async () => {
-    if (!selectedElementId) return;
+    if (selectedElementIds.length === 0) return;
 
-    const elementToDelete = elements.find((el) => el.id === selectedElementId);
-    if (!elementToDelete) return;
+    const elementsToDelete = elements.filter((el) => selectedElementIds.includes(el.id));
+    if (elementsToDelete.length === 0) return;
 
     // Optimistically remove from UI
-    setElements((prev) => prev.filter((el) => el.id !== selectedElementId));
-    setSelectedElementId(null);
+    setElements((prev) => prev.filter((el) => !selectedElementIds.includes(el.id)));
+    setSelectedElementIds([]);
 
     try {
       setSaving(true);
-      await elementsApi.delete(selectedElementId);
+      // Delete all selected elements
+      await Promise.all(selectedElementIds.map((id) => elementsApi.delete(id)));
     } catch (err) {
       // Revert on error
-      setElements((prev) => [...prev, elementToDelete]);
-      setError(err instanceof Error ? err.message : 'Failed to delete element');
+      setElements((prev) => [...prev, ...elementsToDelete]);
+      setError(err instanceof Error ? err.message : 'Failed to delete element(s)');
       console.error('Delete error:', err);
     } finally {
       setSaving(false);
     }
-  }, [selectedElementId, elements]);
+  }, [selectedElementIds, elements]);
 
-  // Keyboard shortcut: Delete key to delete selected element
+  // Keyboard shortcut: Delete key to delete selected element(s)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedElementId && !saving) {
+      // Only Delete key triggers deletion (not Backspace)
+      if (e.key === 'Delete' && selectedElementIds.length > 0 && !saving) {
         e.preventDefault();
         handleElementDelete();
       }
@@ -169,7 +175,57 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElementId, handleElementDelete, saving]);
+  }, [selectedElementIds, handleElementDelete, saving]);
+
+  // Handle element click with multi-select support
+  const handleElementClick = useCallback(
+    (id: string, ctrlKey: boolean, metaKey: boolean) => {
+      const isMultiSelect = ctrlKey || metaKey;
+
+      if (isMultiSelect) {
+        // Toggle selection
+        setSelectedElementIds((prev) =>
+          prev.includes(id) ? prev.filter((selectedId) => selectedId !== id) : [...prev, id]
+        );
+      } else {
+        // Single select
+        setSelectedElementIds([id]);
+        // Show properties panel when single element is selected
+        setShowPropertiesPanel(true);
+      }
+    },
+    []
+  );
+
+  // Handle bulk rename
+  const handleBulkRename = useCallback(async (renames: { id: string; newLabel: string }[]) => {
+    try {
+      setSaving(true);
+
+      // Apply all renames
+      for (const { id, newLabel } of renames) {
+        await handleElementUpdate(id, { label: newLabel });
+      }
+
+      // Close modal and clear selection
+      setShowBulkRenameModal(false);
+      setSelectedElementIds([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rename elements');
+      console.error('Bulk rename error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [handleElementUpdate]);
+
+  // Auto-show properties panel when single element is selected
+  useEffect(() => {
+    if (selectedElementIds.length === 1) {
+      setShowPropertiesPanel(true);
+    } else if (selectedElementIds.length === 0) {
+      setShowPropertiesPanel(false);
+    }
+  }, [selectedElementIds]);
 
   if (loading) {
     return (
@@ -287,34 +343,58 @@ export default function Home() {
         selectedType={selectedType}
         onSelectType={setSelectedType}
         onDelete={handleElementDelete}
-        hasSelection={selectedElementId !== null}
+        hasSelection={selectedElementIds.length > 0}
+        selectedCount={selectedElementIds.length}
+        onBulkRename={() => setShowBulkRenameModal(true)}
         labelDisplayMode={labelDisplayMode}
         onLabelModeChange={setLabelDisplayMode}
       />
 
-      {/* Canvas */}
-      <main className="p-6">
-        <div className="max-w-7xl mx-auto">
-          <WarehouseCanvas
-            elements={elements}
-            selectedType={selectedType}
-            selectedElementId={selectedElementId}
-            labelDisplayMode={labelDisplayMode}
-            onElementClick={(id) => {
-              setSelectedElementId(id);
-              // Keep selectedType active so user can continue placing elements
-            }}
-            onElementCreate={handleElementCreate}
-            onElementUpdate={handleElementUpdate}
-            onCanvasClick={() => {
-              // Clear element selection but keep placement mode active
-              setSelectedElementId(null);
-            }}
-            canvasWidth={layout?.canvas_width || 1200}
-            canvasHeight={layout?.canvas_height || 800}
-          />
-        </div>
-      </main>
+      {/* Main Content with Properties Panel */}
+      <div className="flex">
+        {/* Canvas */}
+        <main className="flex-1 p-6">
+          <div className="max-w-7xl mx-auto">
+            <WarehouseCanvas
+              elements={elements}
+              selectedType={selectedType}
+              selectedElementIds={selectedElementIds}
+              labelDisplayMode={labelDisplayMode}
+              onElementClick={handleElementClick}
+              onElementCreate={handleElementCreate}
+              onElementUpdate={handleElementUpdate}
+              onCanvasClick={() => {
+                // Clear element selection but keep placement mode active
+                setSelectedElementIds([]);
+              }}
+              canvasWidth={layout?.canvas_width || 1200}
+              canvasHeight={layout?.canvas_height || 800}
+            />
+          </div>
+        </main>
+
+        {/* Properties Panel (Sidebar) */}
+        {showPropertiesPanel && selectedElementIds.length === 1 && (
+          <aside className="w-96 border-l-2 border-slate-800">
+            <ElementPropertiesPanel
+              element={elements.find((el) => el.id === selectedElementIds[0]) || null}
+              allElements={elements}
+              onUpdate={handleElementUpdate}
+              onClose={() => setShowPropertiesPanel(false)}
+            />
+          </aside>
+        )}
+      </div>
+
+      {/* Bulk Rename Modal */}
+      {showBulkRenameModal && (
+        <BulkRenameModal
+          selectedElements={elements.filter((el) => selectedElementIds.includes(el.id))}
+          allElements={elements}
+          onApply={handleBulkRename}
+          onCancel={() => setShowBulkRenameModal(false)}
+        />
+      )}
     </div>
   );
 }
