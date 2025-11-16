@@ -19,7 +19,6 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
-  const [showPropertiesPanel, setShowPropertiesPanel] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -190,8 +189,6 @@ export default function Home() {
       } else {
         // Single select
         setSelectedElementIds([id]);
-        // Show properties panel when single element is selected
-        setShowPropertiesPanel(true);
       }
     },
     []
@@ -217,15 +214,6 @@ export default function Home() {
       setSaving(false);
     }
   }, [handleElementUpdate]);
-
-  // Auto-show properties panel when single element is selected
-  useEffect(() => {
-    if (selectedElementIds.length === 1) {
-      setShowPropertiesPanel(true);
-    } else if (selectedElementIds.length === 0) {
-      setShowPropertiesPanel(false);
-    }
-  }, [selectedElementIds]);
 
   if (loading) {
     return (
@@ -373,17 +361,15 @@ export default function Home() {
           </div>
         </main>
 
-        {/* Properties Panel (Sidebar) */}
-        {showPropertiesPanel && selectedElementIds.length === 1 && (
-          <aside className="w-96 border-l-2 border-slate-800">
-            <ElementPropertiesPanel
-              element={elements.find((el) => el.id === selectedElementIds[0]) || null}
-              allElements={elements}
-              onUpdate={handleElementUpdate}
-              onClose={() => setShowPropertiesPanel(false)}
-            />
-          </aside>
-        )}
+        {/* Properties Panel (Sidebar) - Always visible */}
+        <aside className="w-96 border-l-2 border-slate-800">
+          <ElementPropertiesPanel
+            element={selectedElementIds.length === 1 ? elements.find((el) => el.id === selectedElementIds[0]) || null : null}
+            allElements={elements}
+            onUpdate={handleElementUpdate}
+            onClose={() => {}} // No-op since panel is always visible
+          />
+        </aside>
       </div>
 
       {/* Bulk Rename Modal */}

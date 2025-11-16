@@ -28,11 +28,9 @@ export default function ElementPropertiesPanel({
     }
   }, [element]);
 
-  if (!element) return null;
-
-  const config = ELEMENT_CONFIGS[element.element_type];
-
   const handleLabelSave = async () => {
+    if (!element) return;
+
     const trimmedLabel = labelValue.trim();
 
     // Validation: empty check
@@ -69,23 +67,47 @@ export default function ElementPropertiesPanel({
     if (e.key === 'Enter') {
       handleLabelSave();
     } else if (e.key === 'Escape') {
-      setLabelValue(element.label); // Reset to original
-      setValidationError(null);
+      if (element) {
+        setLabelValue(element.label); // Reset to original
+        setValidationError(null);
+      }
     }
   };
+
+  // Show empty state if no element is selected
+  if (!element) {
+    return (
+      <div className="h-full bg-slate-900 border-l-2 border-slate-700 flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <h2 className="text-lg font-mono font-bold text-white">Element Properties</h2>
+        </div>
+
+        {/* Empty State */}
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="text-center">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
+              <svg className="w-10 h-10 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-mono font-bold text-slate-400 mb-2">No Element Selected</h3>
+            <p className="text-sm text-slate-500 font-mono max-w-xs mx-auto">
+              Click on an element in the canvas to view and edit its properties
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const config = ELEMENT_CONFIGS[element.element_type];
 
   return (
     <div className="h-full bg-slate-900 border-l-2 border-slate-700 flex flex-col shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-700">
         <h2 className="text-lg font-mono font-bold text-white">Element Properties</h2>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 flex items-center justify-center rounded bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors"
-          title="Close panel"
-        >
-          ✕
-        </button>
       </div>
 
       {/* Content */}
