@@ -18,6 +18,7 @@ interface WarehouseCanvasProps {
   onCanvasClick: () => void;
   canvasWidth?: number;
   canvasHeight?: number;
+  isReadOnly?: boolean;
 }
 
 export default function WarehouseCanvas({
@@ -31,6 +32,7 @@ export default function WarehouseCanvas({
   onCanvasClick,
   canvasWidth = 1200,
   canvasHeight = 800,
+  isReadOnly = false,
 }: WarehouseCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,8 +60,10 @@ export default function WarehouseCanvas({
     }
   }, [selectedElementIds]);
 
-  // Keyboard listener for spacebar pan mode
+  // Keyboard listener for spacebar pan mode (disabled in read-only mode)
   useEffect(() => {
+    if (isReadOnly) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !isPanning) {
         e.preventDefault();
@@ -81,7 +85,7 @@ export default function WarehouseCanvas({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isPanning]);
+  }, [isPanning, isReadOnly]);
 
   // Coordinate conversion utility: screen coordinates → canvas coordinates
   // Accounts for zoom (scale) and pan (position offset)
@@ -105,13 +109,13 @@ export default function WarehouseCanvas({
     const targetType = e.target.getType();
     const clickedOnEmpty =
       e.target === stage ||
-      e.target === stage.getLayers()[0] ||
+      e.target === stage.getLayers()[0] as any ||
       e.target.name() === 'background' || // Background Rect
       targetType === 'Line'; // Grid lines
 
     if (clickedOnEmpty) {
-      // If placement mode is active, place new element at click position
-      if (selectedType) {
+      // If placement mode is active and not read-only, place new element at click position
+      if (selectedType && !isReadOnly) {
         // Get pointer position accounting for zoom and pan
         const canvasPosition = getRelativePointerPosition();
         if (!canvasPosition) return;
@@ -179,6 +183,8 @@ export default function WarehouseCanvas({
   };
 
   const handleElementDragMove = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
+    if (isReadOnly) return;
+
     const node = e.target;
 
     // Get other elements (exclude current element being dragged)
@@ -212,6 +218,8 @@ export default function WarehouseCanvas({
   };
 
   const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
+    if (isReadOnly) return;
+
     const node = e.target;
     // Subtract offset to get top-left corner coordinates for storage
     onElementUpdate(element.id, {
@@ -221,6 +229,8 @@ export default function WarehouseCanvas({
   };
 
   const handleElementTransform = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
+    if (isReadOnly) return;
+
     const node = e.target as Konva.Group;
 
     // Get current rotation and apply snap
@@ -232,6 +242,8 @@ export default function WarehouseCanvas({
   };
 
   const handleElementTransformEnd = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
+    if (isReadOnly) return;
+
     const node = e.target as Konva.Group;
     onElementUpdate(element.id, {
       rotation: node.rotation(),
@@ -252,6 +264,8 @@ export default function WarehouseCanvas({
   };
 
   const handleElementDoubleClick = (elementId: string) => {
+    if (isReadOnly) return;
+
     const element = elements.find((el) => el.id === elementId);
     if (!element) return;
 
@@ -433,10 +447,10 @@ export default function WarehouseCanvas({
                   ref={isSingleSelection ? selectedShapeRef : null}
                   onClick={(e) => onElementClick(element.id, e.evt.ctrlKey, e.evt.metaKey)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
-                  onDragMove={(e) => handleElementDragMove(element, e)}
-                  onDragEnd={(e) => handleElementDragEnd(element, e)}
-                  onTransform={(e) => handleElementTransform(element, e)}
-                  onTransformEnd={(e) => handleElementTransformEnd(element, e)}
+                  onDragMove={isReadOnly ? undefined : (e) => handleElementDragMove(element, e)}
+                  onDragEnd={isReadOnly ? undefined : (e) => handleElementDragEnd(element, e)}
+                  onTransform={isReadOnly ? undefined : (e) => handleElementTransform(element, e)}
+                  onTransformEnd={isReadOnly ? undefined : (e) => handleElementTransformEnd(element, e)}
                   onLabelChange={(newLabel) => handleLabelChange(element.id, newLabel)}
                   onMouseEnter={() => setHoveredElementId(element.id)}
                   onMouseLeave={() => setHoveredElementId(null)}
@@ -461,8 +475,8 @@ export default function WarehouseCanvas({
           </Layer>
         </Stage>
 
-        {/* Crosshair Cursor Indicator when placing */}
-        {selectedType && (
+        {/* Crosshair Cursor Indicator when placing (disabled in read-only mode) */}
+        {selectedType && !isReadOnly && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-blue-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-blue-400 animate-pulse">
             PLACEMENT MODE: {ELEMENT_CONFIGS[selectedType].displayName.toUpperCase()}
           </div>
@@ -513,15 +527,15 @@ export default function WarehouseCanvas({
           </button>
         </div>
 
-        {/* Pan Mode Indicator */}
-        {isPanning && (
+        {/* Pan Mode Indicator (disabled in read-only mode) */}
+        {isPanning && !isReadOnly && (
           <div className="absolute top-4 right-4 px-4 py-2 bg-purple-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-purple-400">
             PAN MODE: DRAG TO MOVE
           </div>
         )}
 
-        {/* Spacebar Hint - show when not panning and not placing */}
-        {!isPanning && !selectedType && (
+        {/* Spacebar Hint - show when not panning and not placing (disabled in read-only mode) */}
+        {!isPanning && !selectedType && !isReadOnly && (
           <div className="absolute bottom-4 left-4 px-3 py-2 bg-slate-800/90 text-slate-400 text-xs font-mono rounded border border-slate-600">
             Hold <span className="text-purple-400 font-bold">SPACE</span> to pan
           </div>
@@ -654,10 +668,10 @@ interface ElementShapeProps {
   labelDisplayMode: LabelDisplayMode;
   onClick: (e: KonvaEventObject<MouseEvent>) => void;
   onDoubleClick: () => void;
-  onDragMove: (e: KonvaEventObject<DragEvent>) => void;
-  onDragEnd: (e: KonvaEventObject<DragEvent>) => void;
-  onTransform: (e: KonvaEventObject<Event>) => void;
-  onTransformEnd: (e: KonvaEventObject<Event>) => void;
+  onDragMove?: (e: KonvaEventObject<DragEvent>) => void;
+  onDragEnd?: (e: KonvaEventObject<DragEvent>) => void;
+  onTransform?: (e: KonvaEventObject<Event>) => void;
+  onTransformEnd?: (e: KonvaEventObject<Event>) => void;
   onLabelChange: (newLabel: string) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
@@ -718,7 +732,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
         x={Number(element.x_coordinate) + Number(element.width) / 2}
         y={Number(element.y_coordinate) + Number(element.height) / 2}
         rotation={Number(element.rotation)}
-        draggable={true}
+        draggable={!onDragMove ? false : true}
         onClick={onClick}
         onDblClick={onDoubleClick}
         onDragMove={onDragMove}
