@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Stage, Layer, Rect, Text, Transformer, Line, Group } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
-import { findSnapPoints, clampToCanvas, snapRotation } from '@/lib/snapping';
+import { findSnapPoints, snapRotation } from '@/lib/snapping';
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
@@ -35,9 +35,14 @@ export default function WarehouseCanvas({
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
-  const selectedShapeRef = useRef<Konva.Rect>(null);
+  const selectedShapeRef = useRef<Konva.Group>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
+
+  // Zoom and pan state
+  const [stageScale, setStageScale] = useState(1);
+  const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
 
   // Update transformer when selection changes
   useEffect(() => {
@@ -49,6 +54,45 @@ export default function WarehouseCanvas({
       transformerRef.current.getLayer()?.batchDraw();
     }
   }, [selectedElementId]);
+
+  // Keyboard listener for spacebar pan mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !isPanning) {
+        e.preventDefault();
+        setIsPanning(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && isPanning) {
+        e.preventDefault();
+        setIsPanning(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isPanning]);
+
+  // Coordinate conversion utility: screen coordinates → canvas coordinates
+  // Accounts for zoom (scale) and pan (position offset)
+  const getRelativePointerPosition = () => {
+    const stage = stageRef.current;
+    if (!stage) return null;
+
+    const pointerPosition = stage.getPointerPosition();
+    if (!pointerPosition) return null;
+
+    // Get the transform matrix and invert it to convert screen → canvas
+    const transform = stage.getAbsoluteTransform().copy().invert();
+    return transform.point(pointerPosition);
+  };
 
   const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current;
@@ -65,17 +109,13 @@ export default function WarehouseCanvas({
     if (clickedOnEmpty) {
       // If placement mode is active, place new element at click position
       if (selectedType) {
-        // Get pointer position relative to the Stage
-        const pointerPosition = stage.getPointerPosition();
-        if (!pointerPosition) return;
+        // Get pointer position accounting for zoom and pan
+        const canvasPosition = getRelativePointerPosition();
+        if (!canvasPosition) return;
 
-        // Use exact click coordinates relative to Stage canvas
-        const x = pointerPosition.x;
-        const y = pointerPosition.y;
+        console.log('Placing element at:', canvasPosition); // Debug log
 
-        console.log('Placing element at:', { x, y }); // Debug log
-
-        onElementCreate(x, y);
+        onElementCreate(canvasPosition.x, canvasPosition.y);
 
         // Clear any element selection after placing
         if (selectedElementId) {
@@ -85,6 +125,53 @@ export default function WarehouseCanvas({
         // No placement mode, just deselect any selected element
         onCanvasClick();
       }
+    }
+  };
+
+  // Mouse wheel zoom handler - zoom centered on cursor position
+  const handleWheel = (e: KonvaEventObject<WheelEvent>) => {
+    e.evt.preventDefault();
+
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    const scaleBy = 1.1; // Zoom factor per wheel step
+    const oldScale = stageScale;
+
+    // Determine zoom direction
+    const direction = e.evt.deltaY > 0 ? -1 : 1;
+    const newScale = direction > 0 ? oldScale * scaleBy : oldScale / scaleBy;
+
+    // Clamp zoom between 0.1x and 3x
+    const clampedScale = Math.max(0.1, Math.min(3, newScale));
+
+    // Get pointer position relative to stage
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    // Calculate new position to zoom toward cursor
+    const mousePointTo = {
+      x: (pointer.x - stagePosition.x) / oldScale,
+      y: (pointer.y - stagePosition.y) / oldScale,
+    };
+
+    const newPosition = {
+      x: pointer.x - mousePointTo.x * clampedScale,
+      y: pointer.y - mousePointTo.y * clampedScale,
+    };
+
+    setStageScale(clampedScale);
+    setStagePosition(newPosition);
+  };
+
+  // Stage drag end handler - update pan position
+  const handleStageDragEnd = (e: KonvaEventObject<DragEvent>) => {
+    // Only update position if we're actually dragging the stage (not a child element)
+    if (e.target === stageRef.current) {
+      setStagePosition({
+        x: e.target.x(),
+        y: e.target.y(),
+      });
     }
   };
 
@@ -112,22 +199,13 @@ export default function WarehouseCanvas({
     );
 
     // Apply snap if found (converting back to center coordinates)
-    let newTopLeftX = snapResult.snapX !== null ? snapResult.snapX : topLeftX;
-    let newTopLeftY = snapResult.snapY !== null ? snapResult.snapY : topLeftY;
+    const newTopLeftX = snapResult.snapX !== null ? snapResult.snapX : topLeftX;
+    const newTopLeftY = snapResult.snapY !== null ? snapResult.snapY : topLeftY;
 
-    // Clamp to canvas bounds (using top-left coordinates)
-    const clamped = clampToCanvas(
-      newTopLeftX,
-      newTopLeftY,
-      Number(element.width),
-      Number(element.height),
-      canvasWidth,
-      canvasHeight
-    );
-
+    // No canvas bounds clamping - elements can be placed anywhere on infinite grid
     // Convert back to center coordinates for node position
-    node.x(clamped.x + halfWidth);
-    node.y(clamped.y + halfHeight);
+    node.x(newTopLeftX + halfWidth);
+    node.y(newTopLeftY + halfHeight);
   };
 
   const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
@@ -140,7 +218,7 @@ export default function WarehouseCanvas({
   };
 
   const handleElementTransform = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
-    const node = e.target as Konva.Rect;
+    const node = e.target as Konva.Group;
 
     // Get current rotation and apply snap
     const currentRotation = node.rotation();
@@ -151,7 +229,7 @@ export default function WarehouseCanvas({
   };
 
   const handleElementTransformEnd = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
-    const node = e.target as Konva.Rect;
+    const node = e.target as Konva.Group;
     onElementUpdate(element.id, {
       rotation: node.rotation(),
     });
@@ -166,35 +244,80 @@ export default function WarehouseCanvas({
     setEditingLabel(null);
   };
 
-  // Generate grid lines
-  const gridSpacing = 50; // 50px grid
-  const gridLines = [];
+  // Zoom control handlers
+  const handleZoomIn = () => {
+    const newScale = Math.min(3, stageScale * 1.2);
+    setStageScale(newScale);
+  };
 
-  // Vertical lines
-  for (let i = 0; i <= canvasWidth; i += gridSpacing) {
-    gridLines.push(
-      <Line
-        key={`v-${i}`}
-        points={[i, 0, i, canvasHeight]}
-        stroke={i % 100 === 0 ? '#1e293b' : '#0f172a'}
-        strokeWidth={i % 100 === 0 ? 1 : 0.5}
-        listening={false}
-      />
-    );
-  }
+  const handleZoomOut = () => {
+    const newScale = Math.max(0.1, stageScale / 1.2);
+    setStageScale(newScale);
+  };
 
-  // Horizontal lines
-  for (let i = 0; i <= canvasHeight; i += gridSpacing) {
-    gridLines.push(
-      <Line
-        key={`h-${i}`}
-        points={[0, i, canvasWidth, i]}
-        stroke={i % 100 === 0 ? '#1e293b' : '#0f172a'}
-        strokeWidth={i % 100 === 0 ? 1 : 0.5}
-        listening={false}
-      />
-    );
-  }
+  const handleResetZoom = () => {
+    setStageScale(1);
+    setStagePosition({ x: 0, y: 0 });
+  };
+
+  // Helper: Snap value to nearest grid line
+  const snapToGrid = (value: number, gridSize: number = 50): number => {
+    return Math.floor(value / gridSize) * gridSize;
+  };
+
+  // Generate infinite viewport-based grid lines
+  const gridSpacing = 50; // 50px grid spacing (constant at all zoom levels)
+
+  const { gridLines, viewportBounds } = useMemo(() => {
+    const lines = [];
+    const padding = 500; // Extra grid beyond viewport edges
+
+    // Calculate visible viewport bounds based on zoom and pan
+    const viewportWidth = canvasWidth / stageScale;
+    const viewportHeight = canvasHeight / stageScale;
+
+    const startX = (-stagePosition.x / stageScale) - padding;
+    const endX = startX + viewportWidth + (padding * 2);
+    const startY = (-stagePosition.y / stageScale) - padding;
+    const endY = startY + viewportHeight + (padding * 2);
+
+    // Snap bounds to grid for alignment
+    const gridStartX = snapToGrid(startX, gridSpacing);
+    const gridEndX = Math.ceil(endX / gridSpacing) * gridSpacing;
+    const gridStartY = snapToGrid(startY, gridSpacing);
+    const gridEndY = Math.ceil(endY / gridSpacing) * gridSpacing;
+
+    // Generate vertical lines
+    for (let x = gridStartX; x <= gridEndX; x += gridSpacing) {
+      lines.push(
+        <Line
+          key={`v-${x}`}
+          points={[x, gridStartY, x, gridEndY]}
+          stroke={x % 100 === 0 ? '#1e293b' : '#0f172a'}
+          strokeWidth={x % 100 === 0 ? 1 : 0.5}
+          listening={false}
+        />
+      );
+    }
+
+    // Generate horizontal lines
+    for (let y = gridStartY; y <= gridEndY; y += gridSpacing) {
+      lines.push(
+        <Line
+          key={`h-${y}`}
+          points={[gridStartX, y, gridEndX, y]}
+          stroke={y % 100 === 0 ? '#1e293b' : '#0f172a'}
+          strokeWidth={y % 100 === 0 ? 1 : 0.5}
+          listening={false}
+        />
+      );
+    }
+
+    return {
+      gridLines: lines,
+      viewportBounds: { startX: gridStartX, endX: gridEndX, startY: gridStartY, endY: gridEndY },
+    };
+  }, [stageScale, stagePosition.x, stagePosition.y, canvasWidth, canvasHeight]);
 
   return (
     <div className="relative">
@@ -204,22 +327,30 @@ export default function WarehouseCanvas({
         className="relative border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl"
         style={{
           background: 'linear-gradient(to bottom, #020617, #0f172a)',
+          cursor: isPanning ? 'grab' : 'default',
         }}
       >
         <Stage
           ref={stageRef}
           width={canvasWidth}
           height={canvasHeight}
+          scaleX={stageScale}
+          scaleY={stageScale}
+          x={stagePosition.x}
+          y={stagePosition.y}
+          draggable={isPanning}
           onClick={handleStageClick}
+          onWheel={handleWheel}
+          onDragEnd={handleStageDragEnd}
         >
           <Layer>
-            {/* Grid Background */}
+            {/* Infinite Grid Background */}
             <Rect
               name="background"
-              x={0}
-              y={0}
-              width={canvasWidth}
-              height={canvasHeight}
+              x={viewportBounds.startX}
+              y={viewportBounds.startY}
+              width={viewportBounds.endX - viewportBounds.startX}
+              height={viewportBounds.endY - viewportBounds.startY}
               fill="#0a0f1e"
               listening={true}
             />
@@ -275,6 +406,65 @@ export default function WarehouseCanvas({
         {selectedType && (
           <div className="absolute top-4 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-blue-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-blue-400 animate-pulse">
             PLACEMENT MODE: {ELEMENT_CONFIGS[selectedType].displayName.toUpperCase()}
+          </div>
+        )}
+
+        {/* Zoom Controls */}
+        <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-slate-900/95 border-2 border-slate-700 rounded-lg p-2 shadow-2xl">
+          {/* Zoom In */}
+          <button
+            onClick={handleZoomIn}
+            disabled={stageScale >= 3}
+            className={`w-10 h-10 flex items-center justify-center rounded font-bold text-lg transition-all ${
+              stageScale >= 3
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-110'
+            }`}
+            title="Zoom In (Ctrl + Scroll)"
+          >
+            +
+          </button>
+
+          {/* Zoom Level Display */}
+          <div className="w-10 h-8 flex items-center justify-center bg-slate-800 rounded text-xs font-mono font-bold text-blue-400">
+            {Math.round(stageScale * 100)}%
+          </div>
+
+          {/* Zoom Out */}
+          <button
+            onClick={handleZoomOut}
+            disabled={stageScale <= 0.1}
+            className={`w-10 h-10 flex items-center justify-center rounded font-bold text-lg transition-all ${
+              stageScale <= 0.1
+                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                : 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-110'
+            }`}
+            title="Zoom Out (Ctrl + Scroll)"
+          >
+            −
+          </button>
+
+          {/* Reset/Fit to View */}
+          <button
+            onClick={handleResetZoom}
+            className="w-10 h-10 flex items-center justify-center rounded bg-slate-700 text-white hover:bg-slate-600 hover:scale-110 transition-all text-xs font-bold"
+            title="Reset View (Fit to 100%)"
+          >
+            ⊡
+          </button>
+        </div>
+
+        {/* Pan Mode Indicator */}
+        {isPanning && (
+          <div className="absolute top-4 right-4 px-4 py-2 bg-purple-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-purple-400">
+            PAN MODE: DRAG TO MOVE
+          </div>
+        )}
+
+        {/* Spacebar Hint - show when not panning and not placing */}
+        {!isPanning && !selectedType && (
+          <div className="absolute bottom-4 left-4 px-3 py-2 bg-slate-800/90 text-slate-400 text-xs font-mono rounded border border-slate-600">
+            Hold <span className="text-purple-400 font-bold">SPACE</span> to pan
           </div>
         )}
       </div>
@@ -357,7 +547,7 @@ interface ElementShapeProps {
   onMouseLeave: () => void;
 }
 
-const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
+const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
   (
     {
       element,
@@ -408,6 +598,7 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
 
     return (
       <Group
+        ref={ref}
         x={Number(element.x_coordinate) + Number(element.width) / 2}
         y={Number(element.y_coordinate) + Number(element.height) / 2}
         rotation={Number(element.rotation)}
@@ -423,7 +614,6 @@ const ElementShape = React.forwardRef<Konva.Rect, ElementShapeProps>(
       >
         {/* Main Element Rectangle */}
         <Rect
-          ref={ref}
           x={0}
           y={0}
           width={Number(element.width)}
