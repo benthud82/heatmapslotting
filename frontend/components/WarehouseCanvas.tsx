@@ -19,6 +19,61 @@ interface WarehouseCanvasProps {
   canvasWidth?: number;
   canvasHeight?: number;
   isReadOnly?: boolean;
+  pickData?: Map<string, number>; // Map of element_id -> total_picks for heatmap
+}
+
+// Heatmap color gradient function
+// Maps pick count to color: blue (low) → yellow (medium) → red (high)
+function getHeatmapColor(picks: number, minPicks: number, maxPicks: number): string {
+  if (maxPicks === minPicks) {
+    return '#3b82f6'; // Blue if all same value
+  }
+
+  // Normalize pick count to 0-1 range
+  const normalized = (picks - minPicks) / (maxPicks - minPicks);
+
+  // Color scale: blue → cyan → green → yellow → orange → red
+  if (normalized < 0.2) {
+    // Blue → Cyan (0-20%)
+    const t = normalized / 0.2;
+    return interpolateColor('#3b82f6', '#06b6d4', t);
+  } else if (normalized < 0.4) {
+    // Cyan → Green (20-40%)
+    const t = (normalized - 0.2) / 0.2;
+    return interpolateColor('#06b6d4', '#10b981', t);
+  } else if (normalized < 0.6) {
+    // Green → Yellow (40-60%)
+    const t = (normalized - 0.4) / 0.2;
+    return interpolateColor('#10b981', '#fbbf24', t);
+  } else if (normalized < 0.8) {
+    // Yellow → Orange (60-80%)
+    const t = (normalized - 0.6) / 0.2;
+    return interpolateColor('#fbbf24', '#f97316', t);
+  } else {
+    // Orange → Red (80-100%)
+    const t = (normalized - 0.8) / 0.2;
+    return interpolateColor('#f97316', '#ef4444', t);
+  }
+}
+
+// Helper function to interpolate between two hex colors
+function interpolateColor(color1: string, color2: string, factor: number): string {
+  const c1 = parseInt(color1.slice(1), 16);
+  const c2 = parseInt(color2.slice(1), 16);
+
+  const r1 = (c1 >> 16) & 0xff;
+  const g1 = (c1 >> 8) & 0xff;
+  const b1 = c1 & 0xff;
+
+  const r2 = (c2 >> 16) & 0xff;
+  const g2 = (c2 >> 8) & 0xff;
+  const b2 = c2 & 0xff;
+
+  const r = Math.round(r1 + factor * (r2 - r1));
+  const g = Math.round(g1 + factor * (g2 - g1));
+  const b = Math.round(b1 + factor * (b2 - b1));
+
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 export default function WarehouseCanvas({
@@ -33,6 +88,7 @@ export default function WarehouseCanvas({
   canvasWidth = 1200,
   canvasHeight = 800,
   isReadOnly = false,
+  pickData,
 }: WarehouseCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +104,19 @@ export default function WarehouseCanvas({
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+
+  // Calculate min/max picks for heatmap color scaling
+  const { minPicks, maxPicks } = useMemo(() => {
+    if (!pickData || pickData.size === 0) {
+      return { minPicks: 0, maxPicks: 0 };
+    }
+
+    const pickValues = Array.from(pickData.values());
+    return {
+      minPicks: Math.min(...pickValues),
+      maxPicks: Math.max(...pickValues),
+    };
+  }, [pickData]);
 
   // Update transformer when selection changes (only for single selection)
   useEffect(() => {
@@ -435,6 +504,13 @@ export default function WarehouseCanvas({
               const isHovered = element.id === hoveredElementId;
               const isSingleSelection = isSelected && selectedElementIds.length === 1;
 
+              // Calculate heatmap color if pick data exists for this element
+              let heatmapColor: string | undefined;
+              if (pickData && pickData.has(element.id)) {
+                const picks = pickData.get(element.id)!;
+                heatmapColor = getHeatmapColor(picks, minPicks, maxPicks);
+              }
+
               return (
                 <ElementShape
                   key={element.id}
@@ -454,6 +530,7 @@ export default function WarehouseCanvas({
                   onLabelChange={(newLabel) => handleLabelChange(element.id, newLabel)}
                   onMouseEnter={() => setHoveredElementId(element.id)}
                   onMouseLeave={() => setHoveredElementId(null)}
+                  heatmapColor={heatmapColor}
                 />
               );
             })}
@@ -675,6 +752,7 @@ interface ElementShapeProps {
   onLabelChange: (newLabel: string) => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  heatmapColor?: string; // Optional heatmap color override
 }
 
 const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
@@ -695,6 +773,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       onLabelChange,
       onMouseEnter,
       onMouseLeave,
+      heatmapColor,
     },
     ref
   ) => {
@@ -750,11 +829,11 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
           height={Number(element.height)}
           offsetX={Number(element.width) / 2}
           offsetY={Number(element.height) / 2}
-          fill={config.color}
+          fill={heatmapColor || config.color}
           opacity={isSelected ? 0.9 : 0.7}
           stroke={isSelected ? '#3b82f6' : '#1e293b'}
           strokeWidth={isSelected ? 3 : 1}
-          shadowColor={isSelected ? config.color : 'transparent'}
+          shadowColor={isSelected ? (heatmapColor || config.color) : 'transparent'}
           shadowBlur={isSelected ? 20 : 0}
           shadowOpacity={0.6}
         />

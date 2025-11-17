@@ -28,6 +28,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/layouts', require('./routes/layouts'));
 app.use('/api/elements', require('./routes/bays')); // warehouse elements (bays, flow racks, full pallets)
+app.use('/api/picks', require('./routes/picks')); // pick transactions for heatmap
 
 // Error handling middleware
 app.use((err, req, res, next) => {

@@ -1,6 +1,6 @@
 // API client for warehouse element placement
 
-import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest } from './types';
+import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -103,6 +103,85 @@ export const elementsApi = {
   // Delete an element
   delete: (id: string) =>
     apiFetch<{ message: string; id: string }>(`/api/elements/${id}`, {
+      method: 'DELETE',
+    }),
+};
+
+// Picks API
+export const picksApi = {
+  // Upload CSV file with pick data
+  uploadCSV: async (file: File): Promise<UploadPicksResponse> => {
+    const url = `${API_URL}/api/picks/upload`;
+    console.log(`[API] Uploading CSV: POST ${url}`);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        body: formData,
+        // Don't set Content-Type header - browser will set it with boundary for multipart/form-data
+      });
+
+      if (!response.ok) {
+        const error: UploadPicksError = await response.json().catch(() => ({
+          error: 'An error occurred during upload'
+        }));
+        throw error;
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error(`[API] Error uploading CSV:`, error);
+
+      // Re-throw UploadPicksError objects (with validation details)
+      if (typeof error === 'object' && error !== null && 'error' in error) {
+        throw error;
+      }
+
+      // Handle network errors
+      if (error instanceof TypeError) {
+        throw new Error(`Failed to connect to backend server at ${API_URL}. Make sure the backend is running on port 3001.`);
+      }
+
+      throw error;
+    }
+  },
+
+  // Get raw pick transactions with optional date filters
+  getTransactions: (startDate?: string, endDate?: string): Promise<PickTransaction[]> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/picks${queryString ? `?${queryString}` : ''}`;
+
+    return apiFetch<PickTransaction[]>(endpoint);
+  },
+
+  // Get aggregated pick counts per element with optional date filters
+  getAggregated: async (startDate?: string, endDate?: string): Promise<AggregatedPickData[]> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/picks/aggregated${queryString ? `?${queryString}` : ''}`;
+
+    const data = await apiFetch<any[]>(endpoint);
+    // Normalize numbers
+    return data.map(item => ({
+      ...item,
+      total_picks: Number(item.total_picks),
+      days_count: Number(item.days_count),
+    }));
+  },
+
+  // Clear all pick data
+  clearAll: () =>
+    apiFetch<{ message: string; rowsDeleted: number }>('/api/picks', {
       method: 'DELETE',
     }),
 };

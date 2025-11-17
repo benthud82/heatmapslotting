@@ -36,8 +36,23 @@ CREATE TABLE IF NOT EXISTS warehouse_elements (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Pick transactions for heatmap visualization
+CREATE TABLE IF NOT EXISTS pick_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    layout_id UUID REFERENCES layouts(id) ON DELETE CASCADE,
+    element_id UUID REFERENCES warehouse_elements(id) ON DELETE CASCADE,
+    pick_date DATE NOT NULL,
+    pick_count INTEGER NOT NULL CHECK (pick_count >= 0),
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(element_id, pick_date)  -- Prevent duplicate entries for same element/date
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_layouts_user ON layouts(user_id);
 CREATE INDEX IF NOT EXISTS idx_warehouse_elements_layout ON warehouse_elements(layout_id);
 CREATE INDEX IF NOT EXISTS idx_warehouse_elements_type ON warehouse_elements(element_type);
+CREATE INDEX IF NOT EXISTS idx_pick_transactions_layout ON pick_transactions(layout_id);
+CREATE INDEX IF NOT EXISTS idx_pick_transactions_element ON pick_transactions(element_id);
+CREATE INDEX IF NOT EXISTS idx_pick_transactions_date ON pick_transactions(pick_date);
+CREATE INDEX IF NOT EXISTS idx_pick_transactions_layout_date ON pick_transactions(layout_id, pick_date);
 

@@ -43,6 +43,34 @@ export interface UpdateElementRequest {
   rotation?: number;
 }
 
+export interface PickTransaction {
+  element_id: string;
+  element_name: string;
+  pick_date: string;
+  pick_count: number;
+}
+
+export interface AggregatedPickData {
+  element_id: string;
+  element_name: string;
+  total_picks: number;
+  days_count: number;
+  first_date: string;
+  last_date: string;
+}
+
+export interface UploadPicksResponse {
+  message: string;
+  rowsProcessed: number;
+}
+
+export interface UploadPicksError {
+  error: string;
+  unmatchedElements?: string[];
+  details?: string[];
+  message?: string;
+}
+
 // Element type configurations with actual pixel dimensions (1 inch = 1 pixel)
 export const ELEMENT_CONFIGS: Record<
   ElementType,

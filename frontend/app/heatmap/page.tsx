@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
-import { layoutApi, elementsApi } from '@/lib/api';
-import { WarehouseElement, Layout } from '@/lib/types';
+import UploadPicksModal from '@/components/UploadPicksModal';
+import { layoutApi, picksApi } from '@/lib/api';
+import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
 
 export default function Heatmap() {
   const [layout, setLayout] = useState<Layout | null>(null);
@@ -12,10 +13,28 @@ export default function Heatmap() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Upload modal state
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+  // Date range state
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+
+  // Pick data state
+  const [pickData, setPickData] = useState<Map<string, number>>(new Map());
+  const [hasPickData, setHasPickData] = useState(false);
+
   // Load initial data
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load pick data when date range changes
+  useEffect(() => {
+    if (hasPickData) {
+      loadPickData();
+    }
+  }, [startDate, endDate]);
 
   const loadData = async () => {
     try {
@@ -27,12 +46,41 @@ export default function Heatmap() {
       setLayout(layoutData);
       setElements(elementsData);
       setError(null);
+
+      // Try to load pick data (might be empty if none uploaded yet)
+      await loadPickData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Load error:', err);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadPickData = async () => {
+    try {
+      const aggregatedData = await picksApi.getAggregated(
+        startDate || undefined,
+        endDate || undefined
+      );
+
+      // Convert array to Map<element_id, total_picks>
+      const pickMap = new Map<string, number>();
+      aggregatedData.forEach(item => {
+        pickMap.set(item.element_id, item.total_picks);
+      });
+
+      setPickData(pickMap);
+      setHasPickData(aggregatedData.length > 0);
+    } catch (err) {
+      console.error('Failed to load pick data:', err);
+      // Don't set error - pick data is optional
+    }
+  };
+
+  const handleUploadSuccess = () => {
+    // Reload pick data after successful upload
+    loadPickData();
   };
 
   // No-op handlers for read-only mode
@@ -97,22 +145,79 @@ export default function Heatmap() {
 
             {/* Navigation */}
             <div className="flex items-center gap-4">
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-sm rounded transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                UPLOAD PICKS
+              </button>
               <Link
                 href="/"
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-mono text-sm rounded transition-colors border border-slate-600"
               >
-                ← BACK TO HOME
+                ← HOME
               </Link>
               <Link
                 href="/designer"
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-mono text-sm rounded transition-colors"
               >
-                OPEN DESIGNER
+                DESIGNER
               </Link>
             </div>
           </div>
+
+          {/* Date Range Filters - Only show if we have pick data */}
+          {hasPickData && (
+            <div className="mt-4 flex items-center gap-4 border-t border-slate-700 pt-4">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <span className="text-sm font-mono text-slate-400">Date Range:</span>
+              </div>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+                placeholder="Start date"
+              />
+              <span className="text-slate-600">to</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+                placeholder="End date"
+              />
+              {(startDate || endDate) && (
+                <button
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+              <div className="ml-auto text-sm font-mono text-slate-500">
+                {pickData.size} elements with pick data
+              </div>
+            </div>
+          )}
         </div>
       </header>
+
+      {/* Upload Modal */}
+      <UploadPicksModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onSuccess={handleUploadSuccess}
+      />
 
       {/* Error Message */}
       {error && (
@@ -144,10 +249,20 @@ export default function Heatmap() {
       {/* Main Content */}
       <main className="p-6">
         <div className="max-w-7xl mx-auto">
-          <div className="mb-6">
+          <div className="mb-6 flex items-center justify-between">
             <p className="text-slate-400 font-mono text-sm">
-              This is a read-only visualization of your warehouse layout. Use the designer to make changes.
+              {hasPickData
+                ? 'Heatmap colors represent pick intensity (blue = low, yellow = medium, red = high)'
+                : 'This is a read-only visualization of your warehouse layout. Upload pick data to see the heatmap.'}
             </p>
+            {!hasPickData && (
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
+                className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-sm rounded transition-colors"
+              >
+                Upload Pick Data
+              </button>
+            )}
           </div>
 
           <WarehouseCanvas
@@ -162,6 +277,7 @@ export default function Heatmap() {
             canvasWidth={layout?.canvas_width || 1200}
             canvasHeight={layout?.canvas_height || 800}
             isReadOnly={true} // Read-only visualization
+            pickData={hasPickData ? pickData : undefined} // Pass pick data for heatmap
           />
         </div>
       </main>
