@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
+import HeatmapLegend from '@/components/HeatmapLegend';
 import UploadPicksModal from '@/components/UploadPicksModal';
 import { layoutApi, picksApi } from '@/lib/api';
 import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
@@ -23,6 +24,17 @@ export default function Heatmap() {
   // Pick data state
   const [pickData, setPickData] = useState<Map<string, number>>(new Map());
   const [hasPickData, setHasPickData] = useState(false);
+
+  // Helper function to convert date to YYYY-MM-DD format for date inputs
+  const formatDateForInput = (dateString: string): string => {
+    if (!dateString) return '';
+    // Extract just the date portion (YYYY-MM-DD) from ISO string or date string
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   // Load initial data
   useEffect(() => {
@@ -48,7 +60,34 @@ export default function Heatmap() {
       setError(null);
 
       // Try to load pick data (might be empty if none uploaded yet)
-      await loadPickData();
+      // First load without date filters to find the most recent date
+      const allAggregatedData = await picksApi.getAggregated(undefined, undefined);
+      
+      if (allAggregatedData.length > 0) {
+        // Find the most recent date across all elements
+        const mostRecentDate = allAggregatedData.reduce((latest, item) => {
+          const itemDate = new Date(item.last_date);
+          const latestDate = new Date(latest);
+          return itemDate > latestDate ? item.last_date : latest;
+        }, allAggregatedData[0].last_date);
+
+        // Set both start and end date to the most recent day (format for date input)
+        const formattedDate = formatDateForInput(mostRecentDate);
+        setStartDate(formattedDate);
+        setEndDate(formattedDate);
+        
+        // Load pick data for the most recent day (use formatted date for API)
+        const recentDayData = await picksApi.getAggregated(formattedDate, formattedDate);
+        const pickMap = new Map<string, number>();
+        recentDayData.forEach(item => {
+          pickMap.set(item.element_id, item.total_picks);
+        });
+        setPickData(pickMap);
+        setHasPickData(recentDayData.length > 0);
+      } else {
+        // No pick data, load normally
+        await loadPickData();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Load error:', err);
@@ -88,6 +127,18 @@ export default function Heatmap() {
   const handleElementCreate = () => {};
   const handleElementUpdate = () => {};
   const handleCanvasClick = () => {};
+
+  // Calculate min/max picks for legend and heatmap color scaling
+  const { minPicks, maxPicks } = useMemo(() => {
+    if (!pickData || pickData.size === 0) {
+      return { minPicks: 0, maxPicks: 0 };
+    }
+    const pickValues = Array.from(pickData.values());
+    return {
+      minPicks: Math.min(...pickValues),
+      maxPicks: Math.max(...pickValues),
+    };
+  }, [pickData]);
 
   if (loading) {
     return (
@@ -171,42 +222,57 @@ export default function Heatmap() {
 
           {/* Date Range Filters - Only show if we have pick data */}
           {hasPickData && (
-            <div className="mt-4 flex items-center gap-4 border-t border-slate-700 pt-4">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="text-sm font-mono text-slate-400">Date Range:</span>
+            <div className="mt-4 border-t border-slate-700 pt-4">
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-sm font-mono text-slate-400">Date Range:</span>
+                </div>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+                  placeholder="Start date"
+                />
+                <span className="text-slate-600">to</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
+                  placeholder="End date"
+                />
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => {
+                      setStartDate('');
+                      setEndDate('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+                <div className="ml-auto text-sm font-mono text-slate-500">
+                  {pickData.size} elements with pick data
+                </div>
               </div>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
-                placeholder="Start date"
-              />
-              <span className="text-slate-600">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-600 rounded text-sm text-white font-mono focus:outline-none focus:border-blue-500"
-                placeholder="End date"
-              />
+              {/* Display selected date range */}
               {(startDate || endDate) && (
-                <button
-                  onClick={() => {
-                    setStartDate('');
-                    setEndDate('');
-                  }}
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
-                >
-                  Clear
-                </button>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-500">Showing picks from:</span>
+                  <span className="text-sm font-mono font-bold text-blue-400">
+                    {startDate ? new Date(startDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '...'}
+                  </span>
+                  <span className="text-slate-600">to</span>
+                  <span className="text-sm font-mono font-bold text-blue-400">
+                    {endDate ? new Date(endDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '...'}
+                  </span>
+                </div>
               )}
-              <div className="ml-auto text-sm font-mono text-slate-500">
-                {pickData.size} elements with pick data
-              </div>
             </div>
           )}
         </div>
@@ -265,20 +331,32 @@ export default function Heatmap() {
             )}
           </div>
 
-          <WarehouseCanvas
-            elements={elements}
-            selectedType={null} // No placement mode
-            selectedElementIds={[]} // No element selection
-            labelDisplayMode="all" // Show all labels for visualization
-            onElementClick={handleElementClick}
-            onElementCreate={handleElementCreate}
-            onElementUpdate={handleElementUpdate}
-            onCanvasClick={handleCanvasClick}
-            canvasWidth={layout?.canvas_width || 1200}
-            canvasHeight={layout?.canvas_height || 800}
-            isReadOnly={true} // Read-only visualization
-            pickData={hasPickData ? pickData : undefined} // Pass pick data for heatmap
-          />
+          {/* Canvas and Legend Container */}
+          <div className="flex gap-8 items-start justify-center">
+            <WarehouseCanvas
+              elements={elements}
+              selectedType={null} // No placement mode
+              selectedElementIds={[]} // No element selection
+              labelDisplayMode="all" // Show all labels for visualization
+              onElementClick={handleElementClick}
+              onElementCreate={handleElementCreate}
+              onElementUpdate={handleElementUpdate}
+              onCanvasClick={handleCanvasClick}
+              canvasWidth={layout?.canvas_width || 1200}
+              canvasHeight={layout?.canvas_height || 800}
+              isReadOnly={true} // Read-only visualization
+              pickData={hasPickData ? pickData : undefined} // Pass pick data for heatmap
+            />
+
+            {/* Color Legend - only show when pick data exists */}
+            {hasPickData && (
+              <HeatmapLegend
+                minPicks={minPicks}
+                maxPicks={maxPicks}
+                pickData={pickData}
+              />
+            )}
+          </div>
         </div>
       </main>
     </div>

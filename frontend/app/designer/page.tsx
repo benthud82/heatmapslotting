@@ -19,6 +19,7 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
+  const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
 
   // Load initial data
   useEffect(() => {
@@ -162,19 +163,118 @@ export default function Home() {
     }
   }, [selectedElementIds, elements]);
 
-  // Keyboard shortcut: Delete key to delete selected element(s)
+  // Copy selected elements
+  const handleCopy = useCallback(() => {
+    if (selectedElementIds.length === 0) return;
+
+    const elementsToCopy = elements.filter((el) => selectedElementIds.includes(el.id));
+    setCopiedElements(elementsToCopy);
+  }, [selectedElementIds, elements]);
+
+  // Paste copied elements
+  const handlePaste = useCallback(async () => {
+    if (copiedElements.length === 0) return;
+
+    const newElementIds: string[] = [];
+    const PASTE_OFFSET = 20; // Offset in pixels for pasted elements
+
+    try {
+      setSaving(true);
+
+      for (const copiedElement of copiedElements) {
+        const tempId = nanoid();
+        const config = ELEMENT_CONFIGS[copiedElement.element_type];
+
+        // Generate next available label for this element type
+        const typeCount = elements.filter(el => el.element_type === copiedElement.element_type).length + 1;
+        const abbreviations: Record<ElementType, string> = {
+          bay: 'B',
+          flow_rack: 'FR',
+          full_pallet: 'P',
+        };
+        const newLabel = `${abbreviations[copiedElement.element_type]}${typeCount}`;
+
+        // Create new element with offset position
+        const newElement: WarehouseElement = {
+          id: tempId,
+          layout_id: layout?.id || '',
+          element_type: copiedElement.element_type,
+          label: newLabel,
+          x_coordinate: copiedElement.x_coordinate + PASTE_OFFSET,
+          y_coordinate: copiedElement.y_coordinate + PASTE_OFFSET,
+          width: config.width,
+          height: config.height,
+          rotation: copiedElement.rotation,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        // Optimistically add to UI
+        setElements((prev) => [...prev, newElement]);
+        newElementIds.push(tempId);
+
+        // Create on backend
+        const created = await elementsApi.create({
+          element_type: copiedElement.element_type,
+          label: newElement.label,
+          x_coordinate: newElement.x_coordinate,
+          y_coordinate: newElement.y_coordinate,
+          rotation: newElement.rotation,
+        });
+
+        // Replace temp element with real one from backend
+        setElements((prev) => prev.map((el) => (el.id === tempId ? created : el)));
+
+        // Update the newElementIds with the real ID
+        const index = newElementIds.indexOf(tempId);
+        if (index !== -1) {
+          newElementIds[index] = created.id;
+        }
+      }
+
+      // Auto-select all newly pasted elements
+      setSelectedElementIds(newElementIds);
+    } catch (err) {
+      // Revert on error
+      setElements((prev) => prev.filter((el) => !newElementIds.includes(el.id)));
+      setError(err instanceof Error ? err.message : 'Failed to paste elements');
+      console.error('Paste error:', err);
+    } finally {
+      setSaving(false);
+    }
+  }, [copiedElements, elements, layout]);
+
+  // Keyboard shortcuts: Delete, Ctrl+C, Ctrl+V
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Only Delete key triggers deletion (not Backspace)
+      // Ignore if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      // Delete key to delete selected element(s)
       if (e.key === 'Delete' && selectedElementIds.length > 0 && !saving) {
         e.preventDefault();
         handleElementDelete();
+      }
+      // Ctrl+C / Cmd+C to copy
+      else if (cmdOrCtrl && e.key === 'c' && selectedElementIds.length > 0) {
+        e.preventDefault();
+        handleCopy();
+      }
+      // Ctrl+V / Cmd+V to paste
+      else if (cmdOrCtrl && e.key === 'v' && copiedElements.length > 0 && !saving) {
+        e.preventDefault();
+        handlePaste();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedElementIds, handleElementDelete, saving]);
+  }, [selectedElementIds, copiedElements, handleElementDelete, handleCopy, handlePaste, saving]);
 
   // Handle element click with multi-select support
   const handleElementClick = useCallback(

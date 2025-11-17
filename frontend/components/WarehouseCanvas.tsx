@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { Stage, Layer, Rect, Text, Transformer, Line, Group } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 import { findSnapPoints, snapRotation } from '@/lib/snapping';
+import { getHeatmapColor } from '@/lib/heatmapColors';
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
@@ -20,60 +21,6 @@ interface WarehouseCanvasProps {
   canvasHeight?: number;
   isReadOnly?: boolean;
   pickData?: Map<string, number>; // Map of element_id -> total_picks for heatmap
-}
-
-// Heatmap color gradient function
-// Maps pick count to color: blue (low) → yellow (medium) → red (high)
-function getHeatmapColor(picks: number, minPicks: number, maxPicks: number): string {
-  if (maxPicks === minPicks) {
-    return '#3b82f6'; // Blue if all same value
-  }
-
-  // Normalize pick count to 0-1 range
-  const normalized = (picks - minPicks) / (maxPicks - minPicks);
-
-  // Color scale: blue → cyan → green → yellow → orange → red
-  if (normalized < 0.2) {
-    // Blue → Cyan (0-20%)
-    const t = normalized / 0.2;
-    return interpolateColor('#3b82f6', '#06b6d4', t);
-  } else if (normalized < 0.4) {
-    // Cyan → Green (20-40%)
-    const t = (normalized - 0.2) / 0.2;
-    return interpolateColor('#06b6d4', '#10b981', t);
-  } else if (normalized < 0.6) {
-    // Green → Yellow (40-60%)
-    const t = (normalized - 0.4) / 0.2;
-    return interpolateColor('#10b981', '#fbbf24', t);
-  } else if (normalized < 0.8) {
-    // Yellow → Orange (60-80%)
-    const t = (normalized - 0.6) / 0.2;
-    return interpolateColor('#fbbf24', '#f97316', t);
-  } else {
-    // Orange → Red (80-100%)
-    const t = (normalized - 0.8) / 0.2;
-    return interpolateColor('#f97316', '#ef4444', t);
-  }
-}
-
-// Helper function to interpolate between two hex colors
-function interpolateColor(color1: string, color2: string, factor: number): string {
-  const c1 = parseInt(color1.slice(1), 16);
-  const c2 = parseInt(color2.slice(1), 16);
-
-  const r1 = (c1 >> 16) & 0xff;
-  const g1 = (c1 >> 8) & 0xff;
-  const b1 = c1 & 0xff;
-
-  const r2 = (c2 >> 16) & 0xff;
-  const g2 = (c2 >> 8) & 0xff;
-  const b2 = c2 & 0xff;
-
-  const r = Math.round(r1 + factor * (r2 - r1));
-  const g = Math.round(g1 + factor * (g2 - g1));
-  const b = Math.round(b1 + factor * (b2 - b1));
-
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 export default function WarehouseCanvas({
@@ -99,11 +46,16 @@ export default function WarehouseCanvas({
   const [editingPosition, setEditingPosition] = useState<{ x: number; y: number } | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Zoom and pan state
   const [stageScale, setStageScale] = useState(1);
   const [stagePosition, setStagePosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
+
+  // Multi-select drag state
+  const [isGroupDragging, setIsGroupDragging] = useState(false);
+  const [groupDragStart, setGroupDragStart] = useState<{ x: number; y: number } | null>(null);
 
   // Calculate min/max picks for heatmap color scaling
   const { minPicks, maxPicks } = useMemo(() => {
@@ -118,6 +70,56 @@ export default function WarehouseCanvas({
     };
   }, [pickData]);
 
+  // Fit view to show all elements with padding
+  const fitToElements = useCallback(() => {
+    if (elements.length === 0) {
+      // No elements, reset to default view
+      setStageScale(1);
+      setStagePosition({ x: 0, y: 0 });
+      return;
+    }
+
+    // Calculate bounding box around all elements
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    elements.forEach(el => {
+      const x = Number(el.x_coordinate);
+      const y = Number(el.y_coordinate);
+      const width = Number(el.width);
+      const height = Number(el.height);
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + width);
+      maxY = Math.max(maxY, y + height);
+    });
+
+    // Add padding around the bounding box
+    const padding = 50; // 50px padding on all sides
+    const contentWidth = maxX - minX + padding * 2;
+    const contentHeight = maxY - minY + padding * 2;
+
+    // Calculate scale to fit content in canvas
+    const scaleX = canvasWidth / contentWidth;
+    const scaleY = canvasHeight / contentHeight;
+    const newScale = Math.min(scaleX, scaleY, 3); // Cap at 3x zoom
+
+    // Calculate position to center the content
+    const contentCenterX = minX + (maxX - minX) / 2;
+    const contentCenterY = minY + (maxY - minY) / 2;
+
+    const newPosition = {
+      x: canvasWidth / 2 - contentCenterX * newScale,
+      y: canvasHeight / 2 - contentCenterY * newScale,
+    };
+
+    setStageScale(newScale);
+    setStagePosition(newPosition);
+  }, [elements, canvasWidth, canvasHeight]);
+
   // Update transformer when selection changes (only for single selection)
   useEffect(() => {
     if (transformerRef.current && selectedShapeRef.current && selectedElementIds.length === 1) {
@@ -128,6 +130,17 @@ export default function WarehouseCanvas({
       transformerRef.current.getLayer()?.batchDraw();
     }
   }, [selectedElementIds]);
+
+  // Fit to elements on initial load
+  useEffect(() => {
+    if (elements.length > 0) {
+      // Small delay to ensure canvas is mounted
+      const timer = setTimeout(() => {
+        fitToElements();
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [elements.length, fitToElements]);
 
   // Keyboard listener for spacebar pan mode (disabled in read-only mode)
   useEffect(() => {
@@ -251,11 +264,66 @@ export default function WarehouseCanvas({
     }
   };
 
+  const handleElementDragStart = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
+    if (isReadOnly) return;
+
+    // If dragging a selected element in a multi-selection, initialize group drag
+    if (selectedElementIds.length > 1 && selectedElementIds.includes(element.id)) {
+      const node = e.target;
+      setIsGroupDragging(true);
+      setGroupDragStart({
+        x: node.x(),
+        y: node.y(),
+      });
+    }
+  };
+
   const handleElementDragMove = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
     if (isReadOnly) return;
 
     const node = e.target;
 
+    // Multi-select group drag
+    if (isGroupDragging && groupDragStart && selectedElementIds.length > 1 && selectedElementIds.includes(element.id)) {
+      // Calculate the delta from the drag start position
+      const deltaX = node.x() - groupDragStart.x;
+      const deltaY = node.y() - groupDragStart.y;
+
+      // Move all other selected elements by the same delta
+      const stage = stageRef.current;
+      if (!stage) return;
+
+      const layer = stage.getLayers()[0];
+      if (!layer) return;
+
+      // Find and update all selected element nodes
+      selectedElementIds.forEach((selectedId) => {
+        if (selectedId === element.id) return; // Skip the currently dragging element
+
+        const selectedElement = elements.find(el => el.id === selectedId);
+        if (!selectedElement) return;
+
+        // Find the Konva node for this element
+        const selectedNode = layer.findOne((node: any) => {
+          return node.getType() === 'Group' &&
+                 node.x() === Number(selectedElement.x_coordinate) + Number(selectedElement.width) / 2 &&
+                 node.y() === Number(selectedElement.y_coordinate) + Number(selectedElement.height) / 2;
+        });
+
+        if (selectedNode) {
+          // Calculate new position for this element
+          const originalX = Number(selectedElement.x_coordinate) + Number(selectedElement.width) / 2;
+          const originalY = Number(selectedElement.y_coordinate) + Number(selectedElement.height) / 2;
+          selectedNode.x(originalX + deltaX);
+          selectedNode.y(originalY + deltaY);
+        }
+      });
+
+      layer.batchDraw();
+      return;
+    }
+
+    // Single element drag with snapping
     // Get other elements (exclude current element being dragged)
     const otherElements = elements.filter(el => el.id !== element.id);
 
@@ -290,6 +358,34 @@ export default function WarehouseCanvas({
     if (isReadOnly) return;
 
     const node = e.target;
+
+    // Multi-select group drag end
+    if (isGroupDragging && groupDragStart && selectedElementIds.length > 1) {
+      // Calculate the final delta
+      const deltaX = node.x() - groupDragStart.x;
+      const deltaY = node.y() - groupDragStart.y;
+
+      // Update all selected elements in the backend
+      selectedElementIds.forEach((selectedId) => {
+        const selectedElement = elements.find(el => el.id === selectedId);
+        if (!selectedElement) return;
+
+        const newX = Number(selectedElement.x_coordinate) + deltaX;
+        const newY = Number(selectedElement.y_coordinate) + deltaY;
+
+        onElementUpdate(selectedId, {
+          x_coordinate: newX,
+          y_coordinate: newY,
+        });
+      });
+
+      // Reset group drag state
+      setIsGroupDragging(false);
+      setGroupDragStart(null);
+      return;
+    }
+
+    // Single element drag end
     // Subtract offset to get top-left corner coordinates for storage
     onElementUpdate(element.id, {
       x_coordinate: node.x() - Number(element.width) / 2,
@@ -523,17 +619,83 @@ export default function WarehouseCanvas({
                   ref={isSingleSelection ? selectedShapeRef : null}
                   onClick={(e) => onElementClick(element.id, e.evt.ctrlKey, e.evt.metaKey)}
                   onDoubleClick={() => handleElementDoubleClick(element.id)}
+                  onDragStart={isReadOnly ? undefined : (e) => handleElementDragStart(element, e)}
                   onDragMove={isReadOnly ? undefined : (e) => handleElementDragMove(element, e)}
                   onDragEnd={isReadOnly ? undefined : (e) => handleElementDragEnd(element, e)}
                   onTransform={isReadOnly ? undefined : (e) => handleElementTransform(element, e)}
                   onTransformEnd={isReadOnly ? undefined : (e) => handleElementTransformEnd(element, e)}
                   onLabelChange={(newLabel) => handleLabelChange(element.id, newLabel)}
-                  onMouseEnter={() => setHoveredElementId(element.id)}
-                  onMouseLeave={() => setHoveredElementId(null)}
+                  onMouseEnter={(e) => {
+                    setHoveredElementId(element.id);
+                    const stage = stageRef.current;
+                    if (stage) {
+                      const pointerPos = stage.getPointerPosition();
+                      if (pointerPos) {
+                        setTooltipPosition({ x: pointerPos.x, y: pointerPos.y });
+                      }
+                    }
+                  }}
+                  onMouseMove={(e) => {
+                    const stage = stageRef.current;
+                    if (stage && hoveredElementId === element.id) {
+                      const pointerPos = stage.getPointerPosition();
+                      if (pointerPos) {
+                        setTooltipPosition({ x: pointerPos.x, y: pointerPos.y });
+                      }
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    setHoveredElementId(null);
+                    setTooltipPosition(null);
+                  }}
                   heatmapColor={heatmapColor}
                 />
               );
             })}
+
+            {/* Bounding box for multi-select */}
+            {selectedElementIds.length > 1 && (() => {
+              // Calculate bounding box around all selected elements
+              const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
+              if (selectedElements.length === 0) return null;
+
+              // Find min/max coordinates
+              let minX = Infinity;
+              let minY = Infinity;
+              let maxX = -Infinity;
+              let maxY = -Infinity;
+
+              selectedElements.forEach(el => {
+                const x = Number(el.x_coordinate);
+                const y = Number(el.y_coordinate);
+                const width = Number(el.width);
+                const height = Number(el.height);
+
+                minX = Math.min(minX, x);
+                minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x + width);
+                maxY = Math.max(maxY, y + height);
+              });
+
+              const padding = 10; // Padding around the bounding box
+              const boundingWidth = maxX - minX + padding * 2;
+              const boundingHeight = maxY - minY + padding * 2;
+
+              return (
+                <Rect
+                  x={minX - padding}
+                  y={minY - padding}
+                  width={boundingWidth}
+                  height={boundingHeight}
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dash={[10, 5]}
+                  fill="transparent"
+                  listening={false}
+                  opacity={isGroupDragging ? 1 : 0.6}
+                />
+              );
+            })()}
 
             {/* Transformer for selected element (rotation handles) - only for single selection */}
             {selectedElementIds.length === 1 && (
@@ -594,11 +756,11 @@ export default function WarehouseCanvas({
             −
           </button>
 
-          {/* Reset/Fit to View */}
+          {/* Fit to Elements */}
           <button
-            onClick={handleResetZoom}
+            onClick={fitToElements}
             className="w-10 h-10 flex items-center justify-center rounded bg-slate-700 text-white hover:bg-slate-600 hover:scale-110 transition-all text-xs font-bold"
-            title="Reset View (Fit to 100%)"
+            title="Fit to Elements"
           >
             ⊡
           </button>
@@ -664,6 +826,26 @@ export default function WarehouseCanvas({
               )}
               <div className="text-xs text-slate-400 font-mono text-center">
                 Enter to save • Esc to cancel
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pick Count Tooltip */}
+        {hoveredElementId && tooltipPosition && pickData?.has(hoveredElementId) && (
+          <div
+            className="absolute z-50 pointer-events-none"
+            style={{
+              left: `${tooltipPosition.x + 15}px`,
+              top: `${tooltipPosition.y - 15}px`,
+            }}
+          >
+            <div className="bg-slate-900 border-2 border-blue-500 rounded-lg px-3 py-2 shadow-2xl">
+              <div className="text-xs font-mono font-bold text-blue-400 uppercase tracking-wider mb-1">
+                {elements.find(e => e.id === hoveredElementId)?.label}
+              </div>
+              <div className="text-sm font-mono font-bold text-white">
+                {pickData.get(hoveredElementId)?.toLocaleString()} picks
               </div>
             </div>
           </div>
@@ -745,14 +927,17 @@ interface ElementShapeProps {
   labelDisplayMode: LabelDisplayMode;
   onClick: (e: KonvaEventObject<MouseEvent>) => void;
   onDoubleClick: () => void;
+  onDragStart?: (e: KonvaEventObject<DragEvent>) => void;
   onDragMove?: (e: KonvaEventObject<DragEvent>) => void;
   onDragEnd?: (e: KonvaEventObject<DragEvent>) => void;
   onTransform?: (e: KonvaEventObject<Event>) => void;
   onTransformEnd?: (e: KonvaEventObject<Event>) => void;
   onLabelChange: (newLabel: string) => void;
-  onMouseEnter: () => void;
+  onMouseEnter: (e: KonvaEventObject<MouseEvent>) => void;
+  onMouseMove?: (e: KonvaEventObject<MouseEvent>) => void;
   onMouseLeave: () => void;
   heatmapColor?: string; // Optional heatmap color override
+  pickCount?: number;
 }
 
 const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
@@ -766,14 +951,17 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       labelDisplayMode,
       onClick,
       onDoubleClick,
+      onDragStart,
       onDragMove,
       onDragEnd,
       onTransform,
       onTransformEnd,
       onLabelChange,
       onMouseEnter,
+      onMouseMove,
       onMouseLeave,
       heatmapColor,
+      pickCount,
     },
     ref
   ) => {
@@ -814,11 +1002,13 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
         draggable={!onDragMove ? false : true}
         onClick={onClick}
         onDblClick={onDoubleClick}
+        onDragStart={onDragStart}
         onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onTransform={onTransform}
         onTransformEnd={onTransformEnd}
         onMouseEnter={onMouseEnter}
+        onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
       >
         {/* Main Element Rectangle */}
