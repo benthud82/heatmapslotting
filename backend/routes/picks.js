@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
-const { authenticateToken } = require('../middleware/auth');
+const authMiddleware = require('../middleware/auth');
 const { query } = require('../db');
 
 // Configure multer for memory storage (CSV files are small)
@@ -22,7 +22,7 @@ const upload = multer({
 });
 
 // POST /api/picks/upload - Upload CSV with pick data
-router.post('/upload', authenticateToken, upload.single('file'), async (req, res, next) => {
+router.post('/upload', authMiddleware, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -152,7 +152,7 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
 });
 
 // GET /api/picks - Get pick data with optional date filters
-router.get('/', authenticateToken, async (req, res, next) => {
+router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { start_date, end_date } = req.query;
@@ -203,7 +203,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/picks/aggregated - Get aggregated pick counts per element
-router.get('/aggregated', authenticateToken, async (req, res, next) => {
+router.get('/aggregated', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { start_date, end_date } = req.query;
@@ -256,7 +256,7 @@ router.get('/aggregated', authenticateToken, async (req, res, next) => {
 });
 
 // DELETE /api/picks - Clear all pick data for the user's layout
-router.delete('/', authenticateToken, async (req, res, next) => {
+router.delete('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
 

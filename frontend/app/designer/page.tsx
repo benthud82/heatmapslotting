@@ -6,6 +6,7 @@ import ElementToolbar from '@/components/ElementToolbar';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import ElementPropertiesPanel from '@/components/ElementPropertiesPanel';
 import BulkRenameModal from '@/components/BulkRenameModal';
+import Header from '@/components/Header';
 import { layoutApi, elementsApi } from '@/lib/api';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 
@@ -113,12 +114,12 @@ export default function Home() {
         prev.map((el) =>
           el.id === id
             ? {
-                ...el,
-                ...(updates.x_coordinate !== undefined && { x_coordinate: updates.x_coordinate }),
-                ...(updates.y_coordinate !== undefined && { y_coordinate: updates.y_coordinate }),
-                ...(updates.rotation !== undefined && { rotation: updates.rotation }),
-                ...(updates.label !== undefined && { label: updates.label }),
-              }
+              ...el,
+              ...(updates.x_coordinate !== undefined && { x_coordinate: updates.x_coordinate }),
+              ...(updates.y_coordinate !== undefined && { y_coordinate: updates.y_coordinate }),
+              ...(updates.rotation !== undefined && { rotation: updates.rotation }),
+              ...(updates.label !== undefined && { label: updates.label }),
+            }
             : el
         )
       );
@@ -338,65 +339,36 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-950">
       {/* Header */}
-      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b-2 border-blue-500 shadow-2xl shadow-blue-900/20">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              {/* Logo/Icon */}
-              <div className="relative">
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/50">
-                  <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" />
-                  </svg>
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-slate-900"></div>
-              </div>
-
-              {/* Title */}
-              <div>
-                <h1 className="text-2xl font-bold text-white tracking-tight">
-                  Warehouse Slotting Designer
-                </h1>
-                <div className="flex items-center gap-3 mt-1">
-                  <p className="text-sm font-mono text-blue-400">
-                    {layout?.name || 'Primary Layout'}
-                  </p>
-                  <span className="text-slate-600">•</span>
-                  <p className="text-xs font-mono text-slate-500">
-                    {layout?.canvas_width || 1200} × {layout?.canvas_height || 800} px
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Status Indicators */}
-            <div className="flex items-center gap-4">
-              {/* Element Count */}
-              <div className="px-4 py-2 bg-slate-800 rounded-lg border border-slate-700">
-                <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">ELEMENTS</div>
-                <div className="text-2xl font-bold text-white font-mono">{elements.length}</div>
-              </div>
-
-              {/* Save Status */}
-              {saving && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/30 border border-blue-700 rounded-lg">
-                  <div className="relative w-5 h-5">
-                    <div className="absolute inset-0 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                  <span className="text-sm font-mono font-bold text-blue-400">SYNCING</span>
-                </div>
-              )}
-
-              {!saving && (
-                <div className="flex items-center gap-2 px-4 py-2 bg-green-900/30 border border-green-700 rounded-lg">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-sm font-mono font-bold text-green-400">SAVED</span>
-                </div>
-              )}
-            </div>
+      <Header
+        title="Warehouse Slotting Designer"
+        subtitle={`${layout?.name || 'Primary Layout'} • ${layout?.canvas_width || 1200} × ${layout?.canvas_height || 800} px`}
+      >
+        {/* Status Indicators */}
+        <div className="flex items-center gap-4">
+          {/* Element Count */}
+          <div className="px-4 py-2 bg-slate-800 rounded-lg border border-slate-700 hidden sm:block">
+            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">ELEMENTS</div>
+            <div className="text-2xl font-bold text-white font-mono">{elements.length}</div>
           </div>
+
+          {/* Save Status */}
+          {saving && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/30 border border-blue-700 rounded-lg">
+              <div className="relative w-5 h-5">
+                <div className="absolute inset-0 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <span className="text-sm font-mono font-bold text-blue-400 hidden sm:inline">SYNCING</span>
+            </div>
+          )}
+
+          {!saving && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-green-900/30 border border-green-700 rounded-lg">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-mono font-bold text-green-400 hidden sm:inline">SAVED</span>
+            </div>
+          )}
         </div>
-      </header>
+      </Header>
 
       {/* Error Message */}
       {error && (
@@ -466,7 +438,7 @@ export default function Home() {
             element={selectedElementIds.length === 1 ? elements.find((el) => el.id === selectedElementIds[0]) || null : null}
             allElements={elements}
             onUpdate={handleElementUpdate}
-            onClose={() => {}} // No-op since panel is always visible
+            onClose={() => { }} // No-op since panel is always visible
           />
         </aside>
       </div>

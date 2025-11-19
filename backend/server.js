@@ -17,18 +17,21 @@ app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development'
   });
 });
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/layouts', require('./routes/layouts'));
-app.use('/api/elements', require('./routes/bays')); // warehouse elements (bays, flow racks, full pallets)
-app.use('/api/picks', require('./routes/picks')); // pick transactions for heatmap
+const authMiddleware = require('./middleware/auth');
+
+// Routes
+
+app.use('/api/layouts', authMiddleware, require('./routes/layouts'));
+app.use('/api/elements', authMiddleware, require('./routes/bays')); // warehouse elements
+app.use('/api/picks', authMiddleware, require('./routes/picks')); // pick transactions
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -48,7 +51,7 @@ const startServer = async () => {
   try {
     // Test database connection
     await testConnection();
-    
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running on http://localhost:${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);

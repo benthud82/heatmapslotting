@@ -1,25 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../middleware/auth');
+const authMiddleware = require('../middleware/auth');
 const { query } = require('../db');
 
 // GET /api/layouts - Get or create user's single layout
-router.get('/', authenticateToken, async (req, res, next) => {
+router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // Ensure mock user exists (for development with mock auth)
-    // In production, user will already exist from registration
-    try {
-      await query(
-        `INSERT INTO users (id, email, password_hash)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (id) DO NOTHING`,
-        [userId, req.user.email || 'mock@example.com', 'mock-hash']
-      );
-    } catch (err) {
-      // User might already exist, continue
-    }
+    // User is already authenticated via Supabase middleware
+    // and exists in public.users via database trigger
 
     // Try to get existing layout
     let result = await query(
@@ -44,7 +34,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
 });
 
 // PUT /api/layouts - Update layout properties
-router.put('/', authenticateToken, async (req, res, next) => {
+router.put('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { name, canvas_width, canvas_height } = req.body;
@@ -71,7 +61,7 @@ router.put('/', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/layouts/elements - Get all warehouse elements for user's layout
-router.get('/elements', authenticateToken, async (req, res, next) => {
+router.get('/elements', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
 

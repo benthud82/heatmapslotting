@@ -1,36 +1,42 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
+import Header from '@/components/Header';
 
 export default function Home() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push('/login');
+      } else {
+        setLoading(false);
+      }
+    };
+    checkUser();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <div className="text-blue-500 text-xl font-mono animate-pulse">Loading warehouse...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-950">
       {/* Header */}
-      <header className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b-2 border-blue-500 shadow-2xl shadow-blue-900/20">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-center">
-            <div className="flex items-center gap-4">
-              {/* Logo/Icon */}
-              <div className="relative">
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/50">
-                  <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" />
-                  </svg>
-                </div>
-                <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-slate-900"></div>
-              </div>
-
-              {/* Title */}
-              <div>
-                <h1 className="text-3xl font-bold text-white tracking-tight">
-                  Warehouse Heatmap Slotting
-                </h1>
-                <p className="text-sm font-mono text-blue-400 mt-1">
-                  Design and visualize optimal warehouse layouts
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </header>
+      <Header
+        title="Warehouse Heatmap Slotting"
+        subtitle="Design and visualize optimal warehouse layouts"
+      />
 
       {/* Main Content */}
       <main className="flex items-center justify-center min-h-[calc(100vh-120px)] px-6">

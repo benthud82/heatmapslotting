@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../middleware/auth');
+const authMiddleware = require('../middleware/auth');
 const { query } = require('../db');
 
 // Element type configurations (dimensions in pixels, 1 pixel = 1 inch)
@@ -20,7 +20,7 @@ async function getUserLayoutId(userId) {
 }
 
 // POST /api/elements - Create a new warehouse element
-router.post('/', authenticateToken, async (req, res, next) => {
+router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { element_type, label, x_coordinate, y_coordinate, rotation } = req.body;
@@ -30,17 +30,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid element_type. Must be: bay, flow_rack, or full_pallet' });
     }
 
-    // Ensure mock user exists (for development with mock auth)
-    try {
-      await query(
-        `INSERT INTO users (id, email, password_hash)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (id) DO NOTHING`,
-        [userId, 'mock@example.com', 'mock-hash']
-      );
-    } catch (err) {
-      // User might already exist, continue
-    }
+    // User is already authenticated via Supabase middleware
 
     // Get or create layout
     let layoutId = await getUserLayoutId(userId);
@@ -71,7 +61,7 @@ router.post('/', authenticateToken, async (req, res, next) => {
 });
 
 // PUT /api/elements/:id - Update an existing warehouse element
-router.put('/:id', authenticateToken, async (req, res, next) => {
+router.put('/:id', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const elementId = req.params.id;
@@ -123,7 +113,7 @@ router.put('/:id', authenticateToken, async (req, res, next) => {
 });
 
 // DELETE /api/elements/:id - Delete a warehouse element
-router.delete('/:id', authenticateToken, async (req, res, next) => {
+router.delete('/:id', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const elementId = req.params.id;
