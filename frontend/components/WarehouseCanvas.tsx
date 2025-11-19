@@ -1,12 +1,18 @@
 'use client';
 
-import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback, useImperativeHandle } from 'react';
 import { Stage, Layer, Rect, Text, Transformer, Line, Group } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 import { findSnapPoints, snapRotation } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
+import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
+
+export interface WarehouseCanvasRef {
+  exportAsPNG: () => void;
+  exportAsPDF: () => void;
+}
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
@@ -26,7 +32,7 @@ interface WarehouseCanvasProps {
   isHeatmap?: boolean;
 }
 
-export default function WarehouseCanvas({
+const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
   elements,
   selectedType,
   selectedElementIds,
@@ -42,9 +48,23 @@ export default function WarehouseCanvas({
   onZoomChange,
   onCursorMove,
   isHeatmap = false,
-}: WarehouseCanvasProps) {
+}, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Expose export methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    exportAsPNG: () => {
+      if (stageRef.current) {
+        exportStageAsPNG(stageRef.current);
+      }
+    },
+    exportAsPDF: () => {
+      if (stageRef.current) {
+        exportStageAsPDF(stageRef.current);
+      }
+    },
+  }));
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Group>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
@@ -53,6 +73,7 @@ export default function WarehouseCanvas({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const [cursorCanvasPos, setCursorCanvasPos] = useState<{ x: number; y: number } | null>(null);
 
   // Zoom and pan state
   const [stageScale, setStageScale] = useState(1);
@@ -605,6 +626,17 @@ export default function WarehouseCanvas({
           width={containerSize.width}
           height={containerSize.height}
           scaleX={stageScale}
+          onMouseMove={(e) => {
+            // Track cursor position for ghost preview
+            const pos = getRelativePointerPosition();
+            if (pos) {
+              setCursorCanvasPos(pos);
+              onCursorMove?.(pos.x, pos.y);
+            }
+          }}
+          onMouseLeave={() => {
+            setCursorCanvasPos(null);
+          }}
           scaleY={stageScale}
           x={stagePosition.x}
           y={stagePosition.y}
@@ -733,6 +765,28 @@ export default function WarehouseCanvas({
                   fill="transparent"
                   listening={false}
                   opacity={isGroupDragging ? 1 : 0.6}
+                />
+              );
+            })()}
+
+            {/* Ghost/Preview element when drawing */}
+            {selectedType && !isReadOnly && cursorCanvasPos && (() => {
+              const config = ELEMENT_CONFIGS[selectedType];
+              return (
+                <Rect
+                  x={cursorCanvasPos.x - Number(config.width) / 2}
+                  y={cursorCanvasPos.y - Number(config.height) / 2}
+                  width={Number(config.width)}
+                  height={Number(config.height)}
+                  fill={config.color}
+                  opacity={0.3}
+                  stroke={config.color}
+                  strokeWidth={2}
+                  dash={[5, 5]}
+                  listening={false}
+                  shadowColor={config.color}
+                  shadowBlur={10}
+                  shadowOpacity={0.5}
                 />
               );
             })()}
@@ -889,6 +943,7 @@ export default function WarehouseCanvas({
     </div>
   );
 }
+);
 
 // Sub-component for individual element rendering
 interface ElementShapeProps {
@@ -909,7 +964,7 @@ interface ElementShapeProps {
   onMouseEnter: (e: KonvaEventObject<MouseEvent>) => void;
   onMouseMove?: (e: KonvaEventObject<MouseEvent>) => void;
   onMouseLeave: () => void;
-  heatmapColor?: string; // Optional heatmap color override
+  heatmapColor?: string;
   pickCount?: number;
   isHeatmap?: boolean;
 }
@@ -1031,3 +1086,5 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
 );
 
 ElementShape.displayName = 'ElementShape';
+
+export default WarehouseCanvas;
