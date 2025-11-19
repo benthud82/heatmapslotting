@@ -119,6 +119,9 @@ export const elementsApi = {
 export const picksApi = {
   // Upload CSV file with pick data
   uploadCSV: async (file: File): Promise<UploadPicksResponse> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+
     const url = `${API_URL}/api/picks/upload`;
     console.log(`[API] Uploading CSV: POST ${url}`);
 
@@ -129,6 +132,9 @@ export const picksApi = {
       const response = await fetch(url, {
         method: 'POST',
         body: formData,
+        headers: {
+          ...(token && { 'Authorization': `Bearer ${token}` }),
+        },
         // Don't set Content-Type header - browser will set it with boundary for multipart/form-data
       });
 
@@ -192,4 +198,7 @@ export const picksApi = {
     apiFetch<{ message: string; rowsDeleted: number }>('/api/picks', {
       method: 'DELETE',
     }),
+
+  // Get all dates that have pick data
+  getDates: () => apiFetch<string[]>('/api/picks/dates'),
 };

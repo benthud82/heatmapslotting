@@ -20,7 +20,10 @@ interface WarehouseCanvasProps {
   canvasWidth?: number;
   canvasHeight?: number;
   isReadOnly?: boolean;
-  pickData?: Map<string, number>; // Map of element_id -> total_picks for heatmap
+  pickData?: Map<string, number>;
+  onZoomChange?: (zoom: number) => void;
+  onCursorMove?: (x: number, y: number) => void;
+  isHeatmap?: boolean;
 }
 
 export default function WarehouseCanvas({
@@ -36,6 +39,9 @@ export default function WarehouseCanvas({
   canvasHeight = 800,
   isReadOnly = false,
   pickData,
+  onZoomChange,
+  onCursorMove,
+  isHeatmap = false,
 }: WarehouseCanvasProps) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -70,6 +76,23 @@ export default function WarehouseCanvas({
     };
   }, [pickData]);
 
+  // Use container dimensions instead of fixed canvas dimensions
+  const [containerSize, setContainerSize] = useState({ width: canvasWidth, height: canvasHeight });
+
+  // Update container size when containerRef is available
+  useEffect(() => {
+    const updateSize = () => {
+      if (containerRef.current) {
+        const { width, height } = containerRef.current.getBoundingClientRect();
+        setContainerSize({ width, height });
+      }
+    };
+
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
+
   // Fit view to show all elements with padding
   const fitToElements = useCallback(() => {
     if (elements.length === 0) {
@@ -98,27 +121,27 @@ export default function WarehouseCanvas({
     });
 
     // Add padding around the bounding box
-    const padding = 50; // 50px padding on all sides
+    const padding = 100; // Increased padding
     const contentWidth = maxX - minX + padding * 2;
     const contentHeight = maxY - minY + padding * 2;
 
-    // Calculate scale to fit content in canvas
-    const scaleX = canvasWidth / contentWidth;
-    const scaleY = canvasHeight / contentHeight;
-    const newScale = Math.min(scaleX, scaleY, 3); // Cap at 3x zoom
+    // Calculate scale to fit content in canvas using container size
+    const scaleX = containerSize.width / contentWidth;
+    const scaleY = containerSize.height / contentHeight;
+    const newScale = Math.min(scaleX, scaleY, 2); // Cap at 2x zoom to avoid too much zoom on few elements
 
     // Calculate position to center the content
     const contentCenterX = minX + (maxX - minX) / 2;
     const contentCenterY = minY + (maxY - minY) / 2;
 
     const newPosition = {
-      x: canvasWidth / 2 - contentCenterX * newScale,
-      y: canvasHeight / 2 - contentCenterY * newScale,
+      x: containerSize.width / 2 - contentCenterX * newScale,
+      y: containerSize.height / 2 - contentCenterY * newScale,
     };
 
     setStageScale(newScale);
     setStagePosition(newPosition);
-  }, [elements, canvasWidth, canvasHeight]);
+  }, [elements, containerSize]);
 
   // Update transformer when selection changes (only for single selection)
   useEffect(() => {
@@ -251,7 +274,14 @@ export default function WarehouseCanvas({
 
     setStageScale(clampedScale);
     setStagePosition(newPosition);
+    onZoomChange?.(clampedScale);
   };
+
+  // Expose zoom methods to parent via ref (would need forwardRef, but for now we'll just rely on props or internal state)
+  // Actually, let's update the parent when zoom changes
+  useEffect(() => {
+    onZoomChange?.(stageScale);
+  }, [stageScale, onZoomChange]);
 
   // Stage drag end handler - update pan position
   const handleStageDragEnd = (e: KonvaEventObject<DragEvent>) => {
@@ -306,8 +336,8 @@ export default function WarehouseCanvas({
         // Find the Konva node for this element
         const selectedNode = layer.findOne((node: any) => {
           return node.getType() === 'Group' &&
-                 node.x() === Number(selectedElement.x_coordinate) + Number(selectedElement.width) / 2 &&
-                 node.y() === Number(selectedElement.y_coordinate) + Number(selectedElement.height) / 2;
+            node.x() === Number(selectedElement.x_coordinate) + Number(selectedElement.width) / 2 &&
+            node.y() === Number(selectedElement.y_coordinate) + Number(selectedElement.height) / 2;
         });
 
         if (selectedNode) {
@@ -340,6 +370,7 @@ export default function WarehouseCanvas({
         y: topLeftY,
         width: Number(element.width),
         height: Number(element.height),
+        rotation: node.rotation(),
       },
       otherElements
     );
@@ -507,11 +538,13 @@ export default function WarehouseCanvas({
 
   const { gridLines, viewportBounds } = useMemo(() => {
     const lines = [];
-    const padding = 500; // Extra grid beyond viewport edges
+    // Increase padding significantly to ensure grid covers everything during pans
+    const padding = Math.max(containerSize.width, containerSize.height) * 2;
 
     // Calculate visible viewport bounds based on zoom and pan
-    const viewportWidth = canvasWidth / stageScale;
-    const viewportHeight = canvasHeight / stageScale;
+    // We want to cover a huge area around the visible viewport
+    const viewportWidth = containerSize.width / stageScale;
+    const viewportHeight = containerSize.height / stageScale;
 
     const startX = (-stagePosition.x / stageScale) - padding;
     const endX = startX + viewportWidth + (padding * 2);
@@ -554,14 +587,14 @@ export default function WarehouseCanvas({
       gridLines: lines,
       viewportBounds: { startX: gridStartX, endX: gridEndX, startY: gridStartY, endY: gridEndY },
     };
-  }, [stageScale, stagePosition.x, stagePosition.y, canvasWidth, canvasHeight]);
+  }, [stageScale, stagePosition.x, stagePosition.y, containerSize]);
 
   return (
-    <div className="relative">
+    <div className="relative w-full h-full">
       {/* Canvas Container with Blueprint Styling */}
       <div
         ref={containerRef}
-        className="relative border-2 border-slate-700 rounded-lg overflow-hidden shadow-2xl"
+        className="relative w-full h-full overflow-hidden shadow-2xl"
         style={{
           background: 'linear-gradient(to bottom, #020617, #0f172a)',
           cursor: isPanning ? 'grab' : 'default',
@@ -569,8 +602,8 @@ export default function WarehouseCanvas({
       >
         <Stage
           ref={stageRef}
-          width={canvasWidth}
-          height={canvasHeight}
+          width={containerSize.width}
+          height={containerSize.height}
           scaleX={stageScale}
           scaleY={stageScale}
           x={stagePosition.x}
@@ -637,10 +670,16 @@ export default function WarehouseCanvas({
                   }}
                   onMouseMove={(e) => {
                     const stage = stageRef.current;
-                    if (stage && hoveredElementId === element.id) {
-                      const pointerPos = stage.getPointerPosition();
+                    if (stage) {
+                      const pointerPos = getRelativePointerPosition();
                       if (pointerPos) {
-                        setTooltipPosition({ x: pointerPos.x, y: pointerPos.y });
+                        onCursorMove?.(pointerPos.x, pointerPos.y);
+
+                        // Tooltip logic
+                        if (hoveredElementId === element.id) {
+                          const rawPointer = stage.getPointerPosition();
+                          if (rawPointer) setTooltipPosition({ x: rawPointer.x, y: rawPointer.y });
+                        }
                       }
                     }
                   }}
@@ -649,6 +688,7 @@ export default function WarehouseCanvas({
                     setTooltipPosition(null);
                   }}
                   heatmapColor={heatmapColor}
+                  isHeatmap={isHeatmap}
                 />
               );
             })}
@@ -714,72 +754,6 @@ export default function WarehouseCanvas({
           </Layer>
         </Stage>
 
-        {/* Crosshair Cursor Indicator when placing (disabled in read-only mode) */}
-        {selectedType && !isReadOnly && (
-          <div className="absolute top-4 left-1/2 transform -translate-x-1/2 px-4 py-2 bg-blue-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-blue-400 animate-pulse">
-            PLACEMENT MODE: {ELEMENT_CONFIGS[selectedType].displayName.toUpperCase()}
-          </div>
-        )}
-
-        {/* Zoom Controls */}
-        <div className="absolute bottom-4 right-4 flex flex-col gap-2 bg-slate-900/95 border-2 border-slate-700 rounded-lg p-2 shadow-2xl">
-          {/* Zoom In */}
-          <button
-            onClick={handleZoomIn}
-            disabled={stageScale >= 3}
-            className={`w-10 h-10 flex items-center justify-center rounded font-bold text-lg transition-all ${
-              stageScale >= 3
-                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-110'
-            }`}
-            title="Zoom In (Ctrl + Scroll)"
-          >
-            +
-          </button>
-
-          {/* Zoom Level Display */}
-          <div className="w-10 h-8 flex items-center justify-center bg-slate-800 rounded text-xs font-mono font-bold text-blue-400">
-            {Math.round(stageScale * 100)}%
-          </div>
-
-          {/* Zoom Out */}
-          <button
-            onClick={handleZoomOut}
-            disabled={stageScale <= 0.1}
-            className={`w-10 h-10 flex items-center justify-center rounded font-bold text-lg transition-all ${
-              stageScale <= 0.1
-                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-500 hover:scale-110'
-            }`}
-            title="Zoom Out (Ctrl + Scroll)"
-          >
-            −
-          </button>
-
-          {/* Fit to Elements */}
-          <button
-            onClick={fitToElements}
-            className="w-10 h-10 flex items-center justify-center rounded bg-slate-700 text-white hover:bg-slate-600 hover:scale-110 transition-all text-xs font-bold"
-            title="Fit to Elements"
-          >
-            ⊡
-          </button>
-        </div>
-
-        {/* Pan Mode Indicator (disabled in read-only mode) */}
-        {isPanning && !isReadOnly && (
-          <div className="absolute top-4 right-4 px-4 py-2 bg-purple-600 text-white text-sm font-mono font-bold rounded-full shadow-lg border-2 border-purple-400">
-            PAN MODE: DRAG TO MOVE
-          </div>
-        )}
-
-        {/* Spacebar Hint - show when not panning and not placing (disabled in read-only mode) */}
-        {!isPanning && !selectedType && !isReadOnly && (
-          <div className="absolute bottom-4 left-4 px-3 py-2 bg-slate-800/90 text-slate-400 text-xs font-mono rounded border border-slate-600">
-            Hold <span className="text-purple-400 font-bold">SPACE</span> to pan
-          </div>
-        )}
-
         {/* Inline Label Editing Overlay */}
         {editingLabel && editingPosition && (
           <div
@@ -812,11 +786,10 @@ export default function WarehouseCanvas({
                 }}
                 autoFocus
                 maxLength={100}
-                className={`px-3 py-2 bg-slate-900 text-white font-mono text-sm rounded-lg shadow-2xl min-w-[150px] focus:outline-none focus:ring-2 ${
-                  validationError
-                    ? 'border-2 border-red-500 focus:ring-red-500'
-                    : 'border-2 border-blue-500 focus:ring-blue-500'
-                }`}
+                className={`px-3 py-2 bg-slate-900 text-white font-mono text-sm rounded-lg shadow-2xl min-w-[150px] focus:outline-none focus:ring-2 ${validationError
+                  ? 'border-2 border-red-500 focus:ring-red-500'
+                  : 'border-2 border-blue-500 focus:ring-blue-500'
+                  }`}
                 placeholder="Enter label..."
               />
               {validationError && (
@@ -938,6 +911,7 @@ interface ElementShapeProps {
   onMouseLeave: () => void;
   heatmapColor?: string; // Optional heatmap color override
   pickCount?: number;
+  isHeatmap?: boolean;
 }
 
 const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
@@ -962,6 +936,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       onMouseLeave,
       heatmapColor,
       pickCount,
+      isHeatmap,
     },
     ref
   ) => {
@@ -993,6 +968,12 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
     // Small elements (24px) get ~8px font, large elements (120px) get ~12px font
     const fontSize = Math.max(8, Math.min(12, Number(element.width) / 8));
 
+    // Determine fill color
+    // 1. Heatmap color if available
+    // 2. Neutral color if in heatmap mode (but no data for this element)
+    // 3. Configured element color (designer mode)
+    const fillColor = heatmapColor || (isHeatmap ? '#334155' : config.color);
+
     return (
       <Group
         ref={ref}
@@ -1019,7 +1000,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
           height={Number(element.height)}
           offsetX={Number(element.width) / 2}
           offsetY={Number(element.height) / 2}
-          fill={heatmapColor || config.color}
+          fill={fillColor}
           opacity={isSelected ? 0.9 : 0.7}
           stroke={isSelected ? '#3b82f6' : '#1e293b'}
           strokeWidth={isSelected ? 3 : 1}

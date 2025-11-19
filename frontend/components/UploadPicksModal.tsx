@@ -73,14 +73,26 @@ export default function UploadPicksModal({ isOpen, onClose, onSuccess }: UploadP
 
     try {
       const response = await picksApi.uploadCSV(file);
-      setSuccess(`Successfully uploaded ${response.rowsProcessed} rows of pick data`);
+
+      // Build success message
+      let successMessage = `Successfully uploaded ${response.rowsProcessed} rows of pick data`;
+
+      // Add warning if there were unmatched elements
+      if (response.warnings?.unmatchedElements && response.warnings.unmatchedElements.length > 0) {
+        successMessage += `. Note: ${response.warnings.unmatchedElements.length} element(s) were not found in your layout and were skipped.`;
+      }
+
+      setSuccess(successMessage);
       setFile(null);
+
+      // If there are warnings, show them briefly before closing
+      const delay = response.warnings ? 3000 : 1500;
 
       // Call onSuccess after a short delay to show success message
       setTimeout(() => {
         onSuccess();
         handleClose();
-      }, 1500);
+      }, delay);
     } catch (err: any) {
       console.error('Upload error:', err);
 

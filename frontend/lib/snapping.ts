@@ -25,23 +25,84 @@ export interface SnapResult {
 }
 
 /**
+ * Calculate the Axis-Aligned Bounding Box (AABB) for a rotated rectangle
+ */
+const getRotatedAABB = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  rotation: number = 0
+): ElementEdges => {
+  if (rotation === 0) {
+    return {
+      left: x,
+      right: x + width,
+      centerX: x + width / 2,
+      top: y,
+      bottom: y + height,
+      centerY: y + height / 2,
+    };
+  }
+
+  // Convert rotation to radians
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+
+  // Calculate center of the rectangle (pivot point)
+  const cx = x + width / 2;
+  const cy = y + height / 2;
+
+  // Calculate the 4 corners relative to center, then rotate, then translate back
+  // Corners: top-left, top-right, bottom-right, bottom-left
+  // Relative coordinates before rotation:
+  // TL: -w/2, -h/2
+  // TR: w/2, -h/2
+  // BR: w/2, h/2
+  // BL: -w/2, h/2
+
+  const hw = width / 2;
+  const hh = height / 2;
+
+  const corners = [
+    { x: -hw, y: -hh },
+    { x: hw, y: -hh },
+    { x: hw, y: hh },
+    { x: -hw, y: hh },
+  ].map(p => ({
+    x: cx + (p.x * cos - p.y * sin),
+    y: cy + (p.x * sin + p.y * cos)
+  }));
+
+  // Find min/max X and Y
+  const minX = Math.min(...corners.map(p => p.x));
+  const maxX = Math.max(...corners.map(p => p.x));
+  const minY = Math.min(...corners.map(p => p.y));
+  const maxY = Math.max(...corners.map(p => p.y));
+
+  return {
+    left: minX,
+    right: maxX,
+    centerX: cx, // Center remains the same
+    top: minY,
+    bottom: maxY,
+    centerY: cy, // Center remains the same
+  };
+};
+
+/**
  * Calculate edge positions and centers for an element
  * Includes gap offset for edge-to-edge snapping
  */
 export const getElementEdges = (element: WarehouseElement): ElementEdges => {
-  const x = Number(element.x_coordinate);
-  const y = Number(element.y_coordinate);
-  const w = Number(element.width);
-  const h = Number(element.height);
-
-  return {
-    left: x,
-    right: x + w,
-    centerX: x + w / 2,
-    top: y,
-    bottom: y + h,
-    centerY: y + h / 2,
-  };
+  return getRotatedAABB(
+    Number(element.x_coordinate),
+    Number(element.y_coordinate),
+    Number(element.width),
+    Number(element.height),
+    Number(element.rotation || 0)
+  );
 };
 
 /**
@@ -51,16 +112,10 @@ const getDraggedElementEdges = (
   x: number,
   y: number,
   width: number,
-  height: number
+  height: number,
+  rotation: number = 0
 ): ElementEdges => {
-  return {
-    left: x,
-    right: x + width,
-    centerX: x + width / 2,
-    top: y,
-    bottom: y + height,
-    centerY: y + height / 2,
-  };
+  return getRotatedAABB(x, y, width, height, rotation);
 };
 
 /**
@@ -68,7 +123,7 @@ const getDraggedElementEdges = (
  * Returns snap coordinates if within threshold, null otherwise
  */
 export const findSnapPoints = (
-  draggedElement: { x: number; y: number; width: number; height: number },
+  draggedElement: { x: number; y: number; width: number; height: number; rotation?: number },
   otherElements: WarehouseElement[],
   threshold: number = SNAP_THRESHOLD
 ): SnapResult => {
@@ -85,7 +140,8 @@ export const findSnapPoints = (
     draggedElement.x,
     draggedElement.y,
     draggedElement.width,
-    draggedElement.height
+    draggedElement.height,
+    draggedElement.rotation || 0
   );
 
   let minXDiff = threshold;
@@ -98,30 +154,30 @@ export const findSnapPoints = (
     // X-axis snap points (vertical alignment)
     const xSnapCandidates = [
       // Left edge of dragged element to left edge of target
-      { dragPoint: dragEdges.left, targetPoint: targetEdges.left, offset: 0 },
+      { dragPoint: dragEdges.left, targetPoint: targetEdges.left, offset: dragEdges.left - draggedElement.x },
       // Left edge of dragged element to right edge of target (with gap)
       {
         dragPoint: dragEdges.left,
         targetPoint: targetEdges.right + ELEMENT_GAP,
-        offset: 0,
+        offset: dragEdges.left - draggedElement.x,
       },
       // Right edge of dragged element to left edge of target (with gap)
       {
         dragPoint: dragEdges.right,
         targetPoint: targetEdges.left - ELEMENT_GAP,
-        offset: draggedElement.width,
+        offset: dragEdges.right - draggedElement.x,
       },
       // Right edge of dragged element to right edge of target
       {
         dragPoint: dragEdges.right,
         targetPoint: targetEdges.right,
-        offset: draggedElement.width,
+        offset: dragEdges.right - draggedElement.x,
       },
       // Center of dragged element to center of target
       {
         dragPoint: dragEdges.centerX,
         targetPoint: targetEdges.centerX,
-        offset: draggedElement.width / 2,
+        offset: dragEdges.centerX - draggedElement.x,
       },
     ];
 
@@ -129,6 +185,12 @@ export const findSnapPoints = (
       const diff = Math.abs(dragPoint - targetPoint);
       if (diff < minXDiff) {
         minXDiff = diff;
+        // We need to calculate the new X position for the top-left corner of the unrotated shape
+        // such that the specific edge aligns.
+        // snapX is the new top-left X coordinate.
+        // targetPoint is where we want the specific edge (dragPoint) to be.
+        // offset is the distance from the top-left X to that edge.
+        // So: newTopLeftX + offset = targetPoint => newTopLeftX = targetPoint - offset
         result.snapX = targetPoint - offset;
       }
     });
@@ -136,30 +198,30 @@ export const findSnapPoints = (
     // Y-axis snap points (horizontal alignment)
     const ySnapCandidates = [
       // Top edge of dragged element to top edge of target
-      { dragPoint: dragEdges.top, targetPoint: targetEdges.top, offset: 0 },
+      { dragPoint: dragEdges.top, targetPoint: targetEdges.top, offset: dragEdges.top - draggedElement.y },
       // Top edge of dragged element to bottom edge of target (with gap)
       {
         dragPoint: dragEdges.top,
         targetPoint: targetEdges.bottom + ELEMENT_GAP,
-        offset: 0,
+        offset: dragEdges.top - draggedElement.y,
       },
       // Bottom edge of dragged element to top edge of target (with gap)
       {
         dragPoint: dragEdges.bottom,
         targetPoint: targetEdges.top - ELEMENT_GAP,
-        offset: draggedElement.height,
+        offset: dragEdges.bottom - draggedElement.y,
       },
       // Bottom edge of dragged element to bottom edge of target
       {
         dragPoint: dragEdges.bottom,
         targetPoint: targetEdges.bottom,
-        offset: draggedElement.height,
+        offset: dragEdges.bottom - draggedElement.y,
       },
       // Center of dragged element to center of target
       {
         dragPoint: dragEdges.centerY,
         targetPoint: targetEdges.centerY,
-        offset: draggedElement.height / 2,
+        offset: dragEdges.centerY - draggedElement.y,
       },
     ];
 

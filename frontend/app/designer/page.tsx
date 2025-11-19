@@ -2,30 +2,54 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { nanoid } from 'nanoid';
-import ElementToolbar from '@/components/ElementToolbar';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
-import ElementPropertiesPanel from '@/components/ElementPropertiesPanel';
+import Sidebar from '@/components/Designer/Sidebar';
+import PropertiesPanel from '@/components/Designer/PropertiesPanel';
+import StatusBar from '@/components/Designer/StatusBar';
+import MenuBar from '@/components/Designer/MenuBar';
 import BulkRenameModal from '@/components/BulkRenameModal';
 import Header from '@/components/Header';
 import { layoutApi, elementsApi } from '@/lib/api';
+import { supabase } from '@/lib/supabase';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
 
 export default function Home() {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [elements, setElements] = useState<WarehouseElement[]>([]);
-  const [selectedType, setSelectedType] = useState<ElementType | null>(null);
+
+  // Tool State
+  const [activeTool, setActiveTool] = useState<'select' | 'pan' | ElementType>('select');
+
+  // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+
+  // View State
+  const [zoom, setZoom] = useState(1);
+  const [cursorPos, setCursorPos] = useState<{ x: number, y: number } | undefined>(undefined);
+  const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
+
+  // System State
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  // Modals
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
 
   // Load initial data
   useEffect(() => {
     loadData();
+    getUser();
   }, []);
+
+  const getUser = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.email) {
+      setUserEmail(session.user.email);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -48,8 +72,10 @@ export default function Home() {
   // Create new element
   const handleElementCreate = useCallback(
     async (x: number, y: number) => {
-      if (!selectedType) return;
+      // Only create if active tool is an element type
+      if (activeTool === 'select' || activeTool === 'pan') return;
 
+      const selectedType = activeTool as ElementType;
       const tempId = nanoid();
       const config = ELEMENT_CONFIGS[selectedType];
 
@@ -91,6 +117,9 @@ export default function Home() {
 
         // Replace temp element with real one from backend
         setElements((prev) => prev.map((el) => (el.id === tempId ? created : el)));
+
+        // Reset to select tool after placement (optional, maybe keep tool active for multi-place?)
+        // setActiveTool('select'); 
       } catch (err) {
         // Revert on error
         setElements((prev) => prev.filter((el) => el.id !== tempId));
@@ -100,7 +129,7 @@ export default function Home() {
         setSaving(false);
       }
     },
-    [selectedType, layout, elements.length]
+    [activeTool, layout, elements.length]
   );
 
   // Update element
@@ -271,6 +300,12 @@ export default function Home() {
         e.preventDefault();
         handlePaste();
       }
+      // V key for Select tool
+      else if (e.key === 'v' && !cmdOrCtrl) {
+        setActiveTool('select');
+      }
+      // Spacebar for Pan tool (handled in Canvas, but good to sync state if needed)
+      // Note: Canvas handles spacebar press/release for temporary pan
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -280,6 +315,9 @@ export default function Home() {
   // Handle element click with multi-select support
   const handleElementClick = useCallback(
     (id: string, ctrlKey: boolean, metaKey: boolean) => {
+      // If using a drawing tool, don't select
+      if (activeTool !== 'select' && activeTool !== 'pan') return;
+
       const isMultiSelect = ctrlKey || metaKey;
 
       if (isMultiSelect) {
@@ -292,7 +330,7 @@ export default function Home() {
         setSelectedElementIds([id]);
       }
     },
-    []
+    [activeTool]
   );
 
   // Handle bulk rename
@@ -326,124 +364,84 @@ export default function Home() {
           <p className="text-lg font-mono font-bold text-slate-400 tracking-wider">
             LOADING WAREHOUSE LAYOUT
           </p>
-          <div className="mt-2 flex items-center justify-center gap-1">
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-950">
-      {/* Header */}
+    <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
+      {/* Main Header Navigation */}
       <Header
-        title="Warehouse Slotting Designer"
-        subtitle={`${layout?.name || 'Primary Layout'} • ${layout?.canvas_width || 1200} × ${layout?.canvas_height || 800} px`}
-      >
-        {/* Status Indicators */}
-        <div className="flex items-center gap-4">
-          {/* Element Count */}
-          <div className="px-4 py-2 bg-slate-800 rounded-lg border border-slate-700 hidden sm:block">
-            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider">ELEMENTS</div>
-            <div className="text-2xl font-bold text-white font-mono">{elements.length}</div>
-          </div>
-
-          {/* Save Status */}
-          {saving && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/30 border border-blue-700 rounded-lg">
-              <div className="relative w-5 h-5">
-                <div className="absolute inset-0 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-              </div>
-              <span className="text-sm font-mono font-bold text-blue-400 hidden sm:inline">SYNCING</span>
-            </div>
-          )}
-
-          {!saving && (
-            <div className="flex items-center gap-2 px-4 py-2 bg-green-900/30 border border-green-700 rounded-lg">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-mono font-bold text-green-400 hidden sm:inline">SAVED</span>
-            </div>
-          )}
-        </div>
-      </Header>
-
-      {/* Error Message */}
-      {error && (
-        <div className="bg-red-950 border-b-2 border-red-500">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center">
-                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider">Error</div>
-                  <p className="text-sm font-mono text-red-300 mt-1">{error}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setError(null)}
-                className="px-4 py-2 bg-red-800 hover:bg-red-700 text-white font-mono text-sm rounded transition-colors"
-              >
-                DISMISS
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toolbar */}
-      <ElementToolbar
-        selectedType={selectedType}
-        onSelectType={setSelectedType}
-        onDelete={handleElementDelete}
-        hasSelection={selectedElementIds.length > 0}
-        selectedCount={selectedElementIds.length}
-        onBulkRename={() => setShowBulkRenameModal(true)}
-        labelDisplayMode={labelDisplayMode}
-        onLabelModeChange={setLabelDisplayMode}
+        title="Warehouse Designer"
+        subtitle={`${layout?.name || 'Untitled Layout'} • Layout Editor`}
       />
 
-      {/* Main Content with Properties Panel */}
-      <div className="flex">
-        {/* Canvas */}
-        <main className="flex-1 p-6">
-          <div className="max-w-7xl mx-auto">
-            <WarehouseCanvas
-              elements={elements}
-              selectedType={selectedType}
-              selectedElementIds={selectedElementIds}
-              labelDisplayMode={labelDisplayMode}
-              onElementClick={handleElementClick}
-              onElementCreate={handleElementCreate}
-              onElementUpdate={handleElementUpdate}
-              onCanvasClick={() => {
-                // Clear element selection but keep placement mode active
-                setSelectedElementIds([]);
-              }}
-              canvasWidth={layout?.canvas_width || 1200}
-              canvasHeight={layout?.canvas_height || 800}
-            />
-          </div>
+      {/* Top Menu Bar */}
+      <MenuBar
+        layoutName={layout?.name || 'Untitled Layout'}
+      />
+
+      {/* Main Workspace Grid */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Toolbar */}
+        <Sidebar
+          activeTool={activeTool}
+          onSelectTool={setActiveTool}
+        />
+
+        {/* Center Canvas Area */}
+        <main className="flex-1 relative bg-[#0a0f1e] overflow-hidden">
+          <WarehouseCanvas
+            elements={elements}
+            selectedType={activeTool !== 'select' && activeTool !== 'pan' ? (activeTool as ElementType) : null}
+            selectedElementIds={selectedElementIds}
+            labelDisplayMode={labelDisplayMode}
+            onElementClick={handleElementClick}
+            onElementCreate={handleElementCreate}
+            onElementUpdate={handleElementUpdate}
+            onCanvasClick={() => {
+              // Clear element selection but keep tool active
+              setSelectedElementIds([]);
+            }}
+            canvasWidth={layout?.canvas_width || 1200}
+            canvasHeight={layout?.canvas_height || 800}
+            onZoomChange={setZoom}
+            onCursorMove={(x, y) => setCursorPos({ x, y })}
+          />
+
+          {/* Error Toast */}
+          {error && (
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-900/90 border border-red-500 text-white px-4 py-2 rounded shadow-xl flex items-center gap-3 z-50">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="font-bold hover:text-red-200">✕</button>
+            </div>
+          )}
         </main>
 
-        {/* Properties Panel (Sidebar) - Always visible */}
-        <aside className="w-96 border-l-2 border-slate-800">
-          <ElementPropertiesPanel
-            element={selectedElementIds.length === 1 ? elements.find((el) => el.id === selectedElementIds[0]) || null : null}
-            allElements={elements}
+        {/* Right Properties Panel */}
+        <aside className="w-80 border-l border-slate-800 bg-slate-900 flex flex-col z-30">
+          <PropertiesPanel
+            element={selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) || null : null}
+            selectedCount={selectedElementIds.length}
             onUpdate={handleElementUpdate}
-            onClose={() => { }} // No-op since panel is always visible
           />
         </aside>
       </div>
 
-      {/* Bulk Rename Modal */}
+      {/* Bottom Status Bar */}
+      <StatusBar
+        zoom={zoom}
+        onZoomIn={() => { }} // Zoom logic is internal to Canvas for now, need to refactor if we want external control
+        onZoomOut={() => { }}
+        onFit={() => { }}
+        saving={saving}
+        elementCount={elements.length}
+        selectionCount={selectedElementIds.length}
+        cursorPos={cursorPos}
+      />
+
+      {/* Modals */}
       {showBulkRenameModal && (
         <BulkRenameModal
           selectedElements={elements.filter((el) => selectedElementIds.includes(el.id))}

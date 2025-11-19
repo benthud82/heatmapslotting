@@ -62,6 +62,10 @@ export interface AggregatedPickData {
 export interface UploadPicksResponse {
   message: string;
   rowsProcessed: number;
+  warnings?: {
+    unmatchedElements: string[];
+    message: string;
+  };
 }
 
 export interface UploadPicksError {

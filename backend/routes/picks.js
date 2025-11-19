@@ -79,12 +79,6 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
           const pickDate = row.date.trim();
           const pickCount = parseInt(row.pick_count, 10);
 
-          // Validate element exists
-          if (!elementMap.has(elementNameLower)) {
-            unmatchedElements.add(elementName);
-            return;
-          }
-
           // Validate date format (YYYY-MM-DD)
           if (!/^\d{4}-\d{2}-\d{2}$/.test(pickDate)) {
             errors.push(`Invalid date format "${pickDate}". Expected YYYY-MM-DD`);
@@ -97,6 +91,12 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
             return;
           }
 
+          // Track element that doesn't exist (but don't error - just skip the row)
+          if (!elementMap.has(elementNameLower)) {
+            unmatchedElements.add(elementName);
+            return; // Skip this row but continue processing others
+          }
+
           rows.push({
             element_id: elementMap.get(elementNameLower),
             pick_date: pickDate,
@@ -107,14 +107,6 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
         .on('error', reject);
     });
 
-    // Check for validation errors
-    if (unmatchedElements.size > 0) {
-      return res.status(400).json({
-        error: 'CSV contains elements that do not exist in the layout',
-        unmatchedElements: Array.from(unmatchedElements).sort(),
-        message: 'All element names in the CSV must match existing warehouse elements. Please check the spelling and ensure all elements are created in the designer first.',
-      });
-    }
 
     if (errors.length > 0) {
       return res.status(400).json({
@@ -142,10 +134,20 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
 
     await Promise.all(insertPromises);
 
-    res.status(201).json({
+    const response = {
       message: 'Pick data uploaded successfully',
       rowsProcessed: rows.length,
-    });
+    };
+
+    // Add warnings if there were unmatched elements
+    if (unmatchedElements.size > 0) {
+      response.warnings = {
+        unmatchedElements: Array.from(unmatchedElements).sort(),
+        message: 'Some element names in the CSV do not exist in the layout and were skipped.',
+      };
+    }
+
+    res.status(201).json(response);
   } catch (error) {
     next(error);
   }
@@ -174,7 +176,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
       SELECT
         pt.element_id,
         we.label as element_name,
-        pt.pick_date,
+        to_char(pt.pick_date, 'YYYY-MM-DD') as pick_date,
         pt.pick_count
       FROM pick_transactions pt
       JOIN warehouse_elements we ON pt.element_id = we.id
@@ -227,8 +229,8 @@ router.get('/aggregated', authMiddleware, async (req, res, next) => {
         we.label as element_name,
         SUM(pt.pick_count) as total_picks,
         COUNT(*) as days_count,
-        MIN(pt.pick_date) as first_date,
-        MAX(pt.pick_date) as last_date
+        to_char(MIN(pt.pick_date), 'YYYY-MM-DD') as first_date,
+        to_char(MAX(pt.pick_date), 'YYYY-MM-DD') as last_date
       FROM pick_transactions pt
       JOIN warehouse_elements we ON pt.element_id = we.id
       WHERE pt.layout_id = $1
@@ -250,6 +252,38 @@ router.get('/aggregated', authMiddleware, async (req, res, next) => {
     const result = await query(queryText, queryParams);
 
     res.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/picks/dates - Get all dates that have pick data
+router.get('/dates', authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+
+    // Get user's layout
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE user_id = $1',
+      [userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
+      return res.json([]);
+    }
+
+    const layoutId = layoutResult.rows[0].id;
+
+    const result = await query(
+      `SELECT DISTINCT to_char(pick_date, 'YYYY-MM-DD') as pick_date 
+       FROM pick_transactions 
+       WHERE layout_id = $1 
+       ORDER BY pick_date DESC`,
+      [layoutId]
+    );
+
+    // Return array of date strings
+    res.json(result.rows.map(row => row.pick_date));
   } catch (error) {
     next(error);
   }
