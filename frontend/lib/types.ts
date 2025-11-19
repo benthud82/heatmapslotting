@@ -1,6 +1,6 @@
 // Type definitions for warehouse element placement
 
-export type ElementType = 'bay' | 'flow_rack' | 'full_pallet';
+export type ElementType = 'bay' | 'flow_rack' | 'full_pallet' | 'text' | 'line' | 'arrow';
 
 export type LabelDisplayMode = 'none' | 'hover' | 'selected' | 'all';
 
@@ -34,6 +34,8 @@ export interface CreateElementRequest {
   x_coordinate: number;
   y_coordinate: number;
   rotation?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface UpdateElementRequest {
@@ -106,5 +108,26 @@ export const ELEMENT_CONFIGS: Record<
     color: '#f59e0b', // Industrial amber
     displayName: 'Full Pallet',
     description: '48" × 52"'
+  },
+  text: {
+    width: 100,
+    height: 24,
+    color: '#e2e8f0',
+    displayName: 'Text',
+    description: 'Label'
+  },
+  line: {
+    width: 100,
+    height: 2,
+    color: '#e2e8f0',
+    displayName: 'Line',
+    description: 'Line segment'
+  },
+  arrow: {
+    width: 100,
+    height: 2,
+    color: '#e2e8f0',
+    displayName: 'Arrow',
+    description: 'Directional arrow'
   }
 };

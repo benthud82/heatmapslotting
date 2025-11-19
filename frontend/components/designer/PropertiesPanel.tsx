@@ -125,25 +125,33 @@ export default function PropertiesPanel({ element, selectedCount, onUpdate }: Pr
                     <label className="text-xs font-bold text-slate-500 uppercase">Dimensions</label>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-[10px] text-slate-400 block mb-1">Width</label>
+                            <label className="text-[10px] text-slate-400 block mb-1">
+                                {element.element_type === 'text' ? 'Width' :
+                                    element.element_type === 'line' || element.element_type === 'arrow' ? 'Length' :
+                                        'Width'}
+                            </label>
                             <div className="relative">
                                 <input
                                     type="number"
-                                    value={element.width}
-                                    readOnly
-                                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-400 font-mono focus:border-blue-500 focus:outline-none pl-6 cursor-not-allowed"
+                                    value={Math.round(element.width)}
+                                    onChange={(e) => onUpdate(element.id, { width: Number(e.target.value) })} // Note: This requires onUpdate to support width/height which it currently might not in page.tsx
+                                    className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-white font-mono focus:border-blue-500 focus:outline-none pl-6"
                                 />
                                 <span className="absolute left-2 top-1.5 text-[10px] text-slate-500 font-mono">W</span>
                             </div>
                         </div>
                         <div>
-                            <label className="text-[10px] text-slate-400 block mb-1">Height</label>
+                            <label className="text-[10px] text-slate-400 block mb-1">
+                                {element.element_type === 'text' ? 'Font Size' :
+                                    element.element_type === 'line' || element.element_type === 'arrow' ? 'Thickness' :
+                                        'Height'}
+                            </label>
                             <div className="relative">
                                 <input
                                     type="number"
-                                    value={element.height}
-                                    readOnly
-                                    className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-slate-400 font-mono focus:border-blue-500 focus:outline-none pl-6 cursor-not-allowed"
+                                    value={Math.round(element.height)}
+                                    onChange={(e) => onUpdate(element.id, { height: Number(e.target.value) })}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-sm text-white font-mono focus:border-blue-500 focus:outline-none pl-6"
                                 />
                                 <span className="absolute left-2 top-1.5 text-[10px] text-slate-500 font-mono">H</span>
                             </div>

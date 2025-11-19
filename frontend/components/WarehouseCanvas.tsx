@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useMemo, useCallback, useImperativeHandle } from 'react';
-import { Stage, Layer, Rect, Text, Transformer, Line, Group } from 'react-konva';
+import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
@@ -21,7 +21,7 @@ interface WarehouseCanvasProps {
   labelDisplayMode: LabelDisplayMode;
   onElementClick: (id: string, ctrlKey: boolean, metaKey: boolean) => void;
   onElementCreate: (x: number, y: number) => void;
-  onElementUpdate: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string }) => void;
+  onElementUpdate: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string; width?: number; height?: number }) => void;
   onCanvasClick: () => void;
   canvasWidth?: number;
   canvasHeight?: number;
@@ -1047,37 +1047,95 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
       >
-        {/* Main Element Rectangle */}
-        <Rect
-          x={0}
-          y={0}
-          width={Number(element.width)}
-          height={Number(element.height)}
-          offsetX={Number(element.width) / 2}
-          offsetY={Number(element.height) / 2}
-          fill={fillColor}
-          opacity={isSelected ? 0.9 : 0.7}
-          stroke={isSelected ? '#3b82f6' : '#1e293b'}
-          strokeWidth={isSelected ? 3 : 1}
-          shadowColor={isSelected ? (heatmapColor || config.color) : 'transparent'}
-          shadowBlur={isSelected ? 20 : 0}
-          shadowOpacity={0.6}
-        />
-
-        {/* Element Label - conditionally rendered based on display mode */}
-        {shouldShowLabel && (
+        {/* Render based on element type */}
+        {element.element_type === 'text' ? (
           <Text
-            x={-Number(element.width) / 2 + 4}
-            y={-Number(element.height) / 2 + 4}
+            x={-Number(element.width) / 2}
+            y={-Number(element.height) / 2}
             text={element.label}
-            fontSize={fontSize}
+            fontSize={Number(element.height)}
+            width={Number(element.width)}
             fontFamily="monospace"
             fontStyle="bold"
-            fill={isSelected ? '#ffffff' : '#e2e8f0'}
+            fill={fillColor}
+            align="left"
+            verticalAlign="middle"
+            opacity={isSelected ? 1 : 0.9}
+            shadowColor={isSelected ? '#3b82f6' : 'transparent'}
+            shadowBlur={isSelected ? 10 : 0}
+          />
+        ) : element.element_type === 'line' ? (
+          <Line
+            points={[-Number(element.width) / 2, 0, Number(element.width) / 2, 0]}
+            stroke={fillColor}
+            strokeWidth={Number(element.height)}
+            lineCap="round"
+            lineJoin="round"
+            opacity={isSelected ? 1 : 0.9}
+            shadowColor={isSelected ? '#3b82f6' : 'transparent'}
+            shadowBlur={isSelected ? 10 : 0}
+          />
+        ) : element.element_type === 'arrow' ? (
+          <Arrow
+            points={[-Number(element.width) / 2, 0, Number(element.width) / 2, 0]}
+            pointerLength={Number(element.height) * 3}
+            pointerWidth={Number(element.height) * 3}
+            fill={fillColor}
+            stroke={fillColor}
+            strokeWidth={Number(element.height)}
+            lineCap="round"
+            lineJoin="round"
+            opacity={isSelected ? 1 : 0.9}
+            shadowColor={isSelected ? '#3b82f6' : 'transparent'}
+            shadowBlur={isSelected ? 10 : 0}
+          />
+        ) : (
+          <>
+            {/* Default Rectangle Shape for bays, racks, pallets */}
+            <Rect
+              x={-Number(element.width) / 2}
+              y={-Number(element.height) / 2}
+              width={Number(element.width)}
+              height={Number(element.height)}
+              fill={fillColor}
+              opacity={isSelected ? 0.9 : 0.7}
+              stroke={isSelected ? '#3b82f6' : '#1e293b'}
+              strokeWidth={isSelected ? 3 : 1}
+              shadowColor={isSelected ? (heatmapColor || config.color) : 'transparent'}
+              shadowBlur={isSelected ? 20 : 0}
+              shadowOpacity={0.6}
+            />
+
+            {/* Element Label - conditionally rendered based on display mode */}
+            {shouldShowLabel && (
+              <Text
+                x={-Number(element.width) / 2 + 4}
+                y={-Number(element.height) / 2 + 4}
+                text={element.label}
+                fontSize={fontSize}
+                fontFamily="monospace"
+                fontStyle="bold"
+                fill={isSelected ? '#ffffff' : '#e2e8f0'}
+                listening={false}
+                shadowColor="#000000"
+                shadowBlur={4}
+                shadowOpacity={0.8}
+              />
+            )}
+          </>
+        )}
+
+        {/* Selection Border for non-rect shapes (optional, but good for UX) */}
+        {isSelected && (element.element_type === 'text' || element.element_type === 'line' || element.element_type === 'arrow') && (
+          <Rect
+            x={-Number(element.width) / 2 - 5}
+            y={-Number(element.height) / 2 - 5}
+            width={Number(element.width) + 10}
+            height={Number(element.height) + 10}
+            stroke="#3b82f6"
+            strokeWidth={1}
+            dash={[5, 5]}
             listening={false}
-            shadowColor="#000000"
-            shadowBlur={4}
-            shadowOpacity={0.8}
           />
         )}
       </Group>

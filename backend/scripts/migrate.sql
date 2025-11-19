@@ -70,7 +70,7 @@ CREATE POLICY "Users can delete their own layout" ON layouts
 CREATE TABLE IF NOT EXISTS warehouse_elements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     layout_id UUID REFERENCES layouts(id) ON DELETE CASCADE,
-    element_type VARCHAR(20) NOT NULL CHECK (element_type IN ('bay', 'flow_rack', 'full_pallet')),
+    element_type VARCHAR(20) NOT NULL CHECK (element_type IN ('bay', 'flow_rack', 'full_pallet', 'text', 'line', 'arrow')),
     label VARCHAR(100) NOT NULL,
     x_coordinate DECIMAL(10,2) NOT NULL,
     y_coordinate DECIMAL(10,2) NOT NULL,

@@ -15,6 +15,9 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
         { id: 'bay', icon: 'M1 2a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2zm12 11V2H2v11h11z', label: 'Draw Bay', type: 'bay' },
         { id: 'flow_rack', icon: 'M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3 3h10v1H3V3zm0 2h10v1H3V5zm0 2h10v1H3V7zm0 2h10v1H3V9zm0 2h10v1H3v-1z', label: 'Draw Flow Rack', type: 'flow_rack' },
         { id: 'full_pallet', icon: 'M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM5 5h6v6H5V5z', label: 'Draw Pallet', type: 'full_pallet' },
+        { id: 'text', icon: 'M3 4h10v2H3V4zm0 3h6v2H3V7zm0 3h10v2H3v-2z', label: 'Add Text', type: 'text' },
+        { id: 'line', icon: 'M3 13h10v-2H3v2z', label: 'Draw Line', type: 'line' },
+        { id: 'arrow', icon: 'M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z', label: 'Draw Arrow', type: 'arrow' },
     ];
 
     return (
@@ -24,8 +27,8 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                     key={tool.id}
                     onClick={() => onSelectTool(tool.type as any)}
                     className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${activeTool === tool.type
-                            ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                            : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
                         }`}
                     title={tool.label}
                 >
@@ -37,6 +40,9 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                         {tool.id === 'bay' && <path d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm14 12V2H2v12h12z" />}
                         {tool.id === 'flow_rack' && <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM3 3h10v1H3V3zm0 2h10v1H3V5zm0 2h10v1H3V7zm0 2h10v1H3V9zm0 2h10v1H3v-1z" />}
                         {tool.id === 'full_pallet' && <path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h11A1.5 1.5 0 0 1 15 2.5v11a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5v-11zM2.5 2a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5h-11zM5 5h6v6H5V5z" />}
+                        {tool.id === 'text' && <path d="M12.258 3h-8.51l-.083 2.46h.479c.26-1.544.758-1.783 2.693-1.845l.424-.013v7.827c0 .663-.144.82-1.3.923v.52h4.082v-.52c-1.162-.103-1.306-.26-1.306-.923V3.602l.431.013c1.934.062 2.434.301 2.693 1.846h.479L12.258 3z" />}
+                        {tool.id === 'line' && <path d="M3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8z" />}
+                        {tool.id === 'arrow' && <path fillRule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8z" />}
                     </svg>
 
                     {/* Tooltip */}

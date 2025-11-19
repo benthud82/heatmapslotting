@@ -108,6 +108,9 @@ export default function Home() {
         bay: 'B',
         flow_rack: 'FR',
         full_pallet: 'P',
+        text: 'T',
+        line: 'L',
+        arrow: 'A',
       };
       const abbreviatedLabel = `${abbreviations[selectedType]}${typeCount}`;
 
@@ -137,6 +140,8 @@ export default function Home() {
           x_coordinate: x,
           y_coordinate: y,
           rotation: 0,
+          width: config.width,
+          height: config.height,
         });
 
         // Replace temp element with real one
@@ -155,7 +160,7 @@ export default function Home() {
   const handleElementUpdate = useCallback(
     async (
       id: string,
-      updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string }
+      updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string; width?: number; height?: number }
     ) => {
       const updatedElements = elements.map((el) =>
         el.id === id
@@ -165,6 +170,8 @@ export default function Home() {
             ...(updates.y_coordinate !== undefined && { y_coordinate: updates.y_coordinate }),
             ...(updates.rotation !== undefined && { rotation: updates.rotation }),
             ...(updates.label !== undefined && { label: updates.label }),
+            ...(updates.width !== undefined && { width: updates.width }),
+            ...(updates.height !== undefined && { height: updates.height }),
           }
           : el
       );
@@ -248,7 +255,14 @@ export default function Home() {
       const config = ELEMENT_CONFIGS[copiedElement.element_type];
 
       const typeCount = elements.filter(el => el.element_type === copiedElement.element_type).length + 1 + newElementsToAdd.filter(el => el.element_type === copiedElement.element_type).length;
-      const abbreviations: Record<ElementType, string> = { bay: 'B', flow_rack: 'FR', full_pallet: 'P' };
+      const abbreviations: Record<ElementType, string> = {
+        bay: 'B',
+        flow_rack: 'FR',
+        full_pallet: 'P',
+        text: 'T',
+        line: 'L',
+        arrow: 'A'
+      };
       const newLabel = `${abbreviations[copiedElement.element_type]}${typeCount}`;
 
       const newElement: WarehouseElement = {

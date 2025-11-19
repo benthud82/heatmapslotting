@@ -7,7 +7,10 @@ const { query } = require('../db');
 const ELEMENT_TYPES = {
   bay: { width: 24, height: 48 },
   flow_rack: { width: 120, height: 120 },
-  full_pallet: { width: 48, height: 52 }
+  full_pallet: { width: 48, height: 52 },
+  text: { width: 100, height: 24 },
+  line: { width: 100, height: 2 },
+  arrow: { width: 100, height: 2 }
 };
 
 // Helper function to get user's layout ID
@@ -23,11 +26,11 @@ async function getUserLayoutId(userId) {
 router.post('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { element_type, label, x_coordinate, y_coordinate, rotation } = req.body;
+    const { element_type, label, x_coordinate, y_coordinate, rotation, width: reqWidth, height: reqHeight } = req.body;
 
     // Validate element type
     if (!ELEMENT_TYPES[element_type]) {
-      return res.status(400).json({ error: 'Invalid element_type. Must be: bay, flow_rack, or full_pallet' });
+      return res.status(400).json({ error: 'Invalid element_type. Must be: bay, flow_rack, full_pallet, text, line, or arrow' });
     }
 
     // User is already authenticated via Supabase middleware
@@ -42,8 +45,10 @@ router.post('/', authMiddleware, async (req, res, next) => {
       layoutId = layoutResult.rows[0].id;
     }
 
-    // Get element dimensions
-    const { width, height } = ELEMENT_TYPES[element_type];
+    // Get element dimensions (prefer request body for resizable elements, fallback to defaults)
+    const defaultDims = ELEMENT_TYPES[element_type];
+    const width = reqWidth || defaultDims.width;
+    const height = reqHeight || defaultDims.height;
 
     // Create element
     const result = await query(
