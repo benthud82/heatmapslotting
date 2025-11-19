@@ -70,7 +70,7 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const elementId = req.params.id;
-    const { label, x_coordinate, y_coordinate, rotation } = req.body;
+    const { label, x_coordinate, y_coordinate, rotation, width, height } = req.body;
 
     // Verify the element belongs to user's layout
     const layoutId = await getUserLayoutId(userId);
@@ -101,10 +101,12 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
            x_coordinate = COALESCE($2, x_coordinate),
            y_coordinate = COALESCE($3, y_coordinate),
            rotation = COALESCE($4, rotation),
+           width = COALESCE($5, width),
+           height = COALESCE($6, height),
            updated_at = NOW()
-       WHERE id = $5 AND layout_id = $6
+       WHERE id = $7 AND layout_id = $8
        RETURNING *`,
-      [label, x_coordinate, y_coordinate, rotation, elementId, layoutId]
+      [label, x_coordinate, y_coordinate, rotation, width, height, elementId, layoutId]
     );
 
     if (result.rows.length === 0) {

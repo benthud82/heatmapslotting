@@ -43,6 +43,8 @@ export interface UpdateElementRequest {
   x_coordinate?: number;
   y_coordinate?: number;
   rotation?: number;
+  width?: number;
+  height?: number;
 }
 
 export interface PickTransaction {

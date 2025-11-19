@@ -83,6 +83,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   // Multi-select drag state
   const [isGroupDragging, setIsGroupDragging] = useState(false);
   const [groupDragStart, setGroupDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [isTransforming, setIsTransforming] = useState(false);
 
   // Calculate min/max picks for heatmap color scaling
   const { minPicks, maxPicks } = useMemo(() => {
@@ -227,6 +228,44 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     return transform.point(pointerPosition);
   };
 
+  // Mouse move handler for ghost snapping
+  const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    // Track cursor position for ghost preview
+    const pos = getRelativePointerPosition();
+    if (pos) {
+      // If placing a new element, apply snapping to the ghost position
+      if (selectedType && !isReadOnly) {
+        const config = ELEMENT_CONFIGS[selectedType];
+
+        // Calculate potential snap points
+        // We use a temporary object representing the ghost element
+        const ghostElement = {
+          x: pos.x - Number(config.width) / 2,
+          y: pos.y - Number(config.height) / 2,
+          width: Number(config.width),
+          height: Number(config.height),
+          rotation: 0,
+        };
+
+        const snapResult = findSnapPoints(ghostElement, elements);
+
+        // Use snapped coordinates if available, otherwise use raw cursor position
+        // Note: findSnapPoints returns top-left coordinates
+        const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(config.width) / 2 : pos.x;
+        const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(config.height) / 2 : pos.y;
+
+        setCursorCanvasPos({ x: snappedX, y: snappedY });
+      } else {
+        setCursorCanvasPos(pos);
+      }
+
+      onCursorMove?.(pos.x, pos.y);
+    }
+  };
+
   const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current;
     if (!stage) return;
@@ -242,13 +281,19 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     if (clickedOnEmpty) {
       // If placement mode is active and not read-only, place new element at click position
       if (selectedType && !isReadOnly) {
-        // Get pointer position accounting for zoom and pan
-        const canvasPosition = getRelativePointerPosition();
+        // Use the ghost position if available (which is already snapped), otherwise calculate raw position
+        // This ensures the element is placed exactly where the ghost was shown
+        const canvasPosition = cursorCanvasPos || getRelativePointerPosition();
         if (!canvasPosition) return;
 
         console.log('Placing element at:', canvasPosition); // Debug log
 
-        onElementCreate(canvasPosition.x, canvasPosition.y);
+        // Calculate top-left position from center position (canvasPosition)
+        const config = ELEMENT_CONFIGS[selectedType];
+        const placeX = canvasPosition.x - Number(config.width) / 2;
+        const placeY = canvasPosition.y - Number(config.height) / 2;
+
+        onElementCreate(placeX, placeY);
 
         // Clear any element selection after placing
         if (selectedElementIds.length > 0) {
@@ -456,15 +501,36 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
     // Apply snapped rotation in real-time
     node.rotation(snappedRotation);
+
+    // Handle resizing - allow Konva to scale the group visually
+    // We will calculate and apply the final dimensions in handleElementTransformEnd
+    // This ensures complex shapes like Arrows scale correctly during the interaction
   };
 
   const handleElementTransformEnd = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
     if (isReadOnly) return;
 
     const node = e.target as Konva.Group;
-    onElementUpdate(element.id, {
+
+    // Get the current dimensions from the node (may have been updated during transform)
+    const scaleX = node.scaleX();
+    const scaleY = node.scaleY();
+
+    const updates: any = {
       rotation: node.rotation(),
-    });
+    };
+
+    // If scale was applied, calculate new dimensions
+    if (scaleX !== 1 || scaleY !== 1) {
+      updates.width = Math.max(5, Number(element.width) * scaleX);
+      updates.height = Math.max(1, Number(element.height) * scaleY);
+
+      // Reset scale after capturing dimensions
+      node.scaleX(1);
+      node.scaleY(1);
+    }
+
+    onElementUpdate(element.id, updates);
   };
 
   // Convert canvas coordinates to screen coordinates (accounting for zoom and pan)
@@ -626,14 +692,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           width={containerSize.width}
           height={containerSize.height}
           scaleX={stageScale}
-          onMouseMove={(e) => {
-            // Track cursor position for ghost preview
-            const pos = getRelativePointerPosition();
-            if (pos) {
-              setCursorCanvasPos(pos);
-              onCursorMove?.(pos.x, pos.y);
-            }
-          }}
+          onMouseMove={handleStageMouseMove}
           onMouseLeave={() => {
             setCursorCanvasPos(null);
           }}
@@ -721,6 +780,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   }}
                   heatmapColor={heatmapColor}
                   isHeatmap={isHeatmap}
+                  draggable={!isReadOnly}
                 />
               );
             })}
@@ -792,19 +852,44 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             })()}
 
             {/* Transformer for selected element (rotation handles) - only for single selection */}
-            {selectedElementIds.length === 1 && (
-              <Transformer
-                ref={transformerRef}
-                rotateEnabled={true}
-                enabledAnchors={[]} // Disable resize, only allow rotation
-                borderStroke="#3b82f6"
-                borderStrokeWidth={2}
-                rotateAnchorOffset={30}
-                anchorStroke="#3b82f6"
-                anchorFill="#60a5fa"
-                anchorSize={8}
-              />
-            )}
+            {selectedElementIds.length === 1 && (() => {
+              const selectedElement = elements.find(el => el.id === selectedElementIds[0]);
+              if (!selectedElement) return null;
+
+              // Determine which anchors to enable based on element type
+              let enabledAnchors: string[] = [];
+
+              if (selectedElement.element_type === 'line' || selectedElement.element_type === 'arrow') {
+                // For lines and arrows, only allow horizontal resizing (left-right)
+                enabledAnchors = ['middle-left', 'middle-right'];
+              } else if (selectedElement.element_type === 'text') {
+                // For text, allow all corner resizing
+                enabledAnchors = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+              }
+              // For bay, flow_rack, full_pallet: keep empty array (rotation only)
+
+              return (
+                <Transformer
+                  ref={transformerRef}
+                  rotateEnabled={true}
+                  enabledAnchors={enabledAnchors}
+                  borderStroke="#3b82f6"
+                  borderStrokeWidth={2}
+                  rotateAnchorOffset={30}
+                  anchorStroke="#3b82f6"
+                  anchorFill="#60a5fa"
+                  anchorSize={8}
+                  keepRatio={false}
+                  boundBoxFunc={(oldBox, newBox) => {
+                    // Prevent negative or zero dimensions
+                    if (newBox.width < 5 || newBox.height < 1) {
+                      return oldBox;
+                    }
+                    return newBox;
+                  }}
+                />
+              );
+            })()}
           </Layer>
         </Stage>
 
@@ -940,7 +1025,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           )}
         </div>
       </div>
-    </div>
+    </div >
   );
 }
 );
@@ -967,6 +1052,7 @@ interface ElementShapeProps {
   heatmapColor?: string;
   pickCount?: number;
   isHeatmap?: boolean;
+  draggable?: boolean;
 }
 
 const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
@@ -992,6 +1078,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       heatmapColor,
       pickCount,
       isHeatmap,
+      draggable,
     },
     ref
   ) => {
@@ -1025,9 +1112,14 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
 
     // Determine fill color
     // 1. Heatmap color if available
-    // 2. Neutral color if in heatmap mode (but no data for this element)
-    // 3. Configured element color (designer mode)
-    const fillColor = heatmapColor || (isHeatmap ? '#334155' : config.color);
+    // 2. For text/arrows/lines in heatmap mode: use vibrant white (they won't have heatmap data)
+    // 3. For other elements in heatmap mode: use neutral gray
+    // 4. Configured element color (designer mode)
+    const fillColor = heatmapColor || (isHeatmap
+      ? (element.element_type === 'text' || element.element_type === 'arrow' || element.element_type === 'line'
+        ? '#f1f5f9'  // Vibrant white for text/arrows/lines
+        : '#334155') // Muted gray for other elements without data
+      : config.color);
 
     return (
       <Group
@@ -1035,7 +1127,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
         x={Number(element.x_coordinate) + Number(element.width) / 2}
         y={Number(element.y_coordinate) + Number(element.height) / 2}
         rotation={Number(element.rotation)}
-        draggable={!onDragMove ? false : true}
+        draggable={draggable}
         onClick={onClick}
         onDblClick={onDoubleClick}
         onDragStart={onDragStart}
