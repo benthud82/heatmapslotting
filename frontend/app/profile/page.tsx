@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Header from '@/components/Header';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 export default function ProfilePage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [user, setUser] = useState<any>(null);
+    const { preferences, updateSkipTutorial } = useUserPreferences();
 
     useEffect(() => {
         const checkUser = async () => {
@@ -70,6 +72,43 @@ export default function ProfilePage() {
                                     disabled
                                     className="w-full px-4 py-3 bg-slate-950 border border-slate-700 rounded-lg text-slate-500 font-mono text-sm"
                                 />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Upload Preferences Card */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+                        <div className="p-6 border-b border-slate-800">
+                            <h2 className="text-xl font-bold text-white">Upload Preferences</h2>
+                        </div>
+                        <div className="p-6 space-y-6">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-base font-medium text-white">Skip Upload Tutorial</h3>
+                                    <p className="text-sm text-slate-400 mt-1">
+                                        If enabled, clicking "Upload Picks" will open the quick upload modal instead of the step-by-step wizard.
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => updateSkipTutorial(!preferences?.skip_upload_tutorial)}
+                                    className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${preferences?.skip_upload_tutorial ? 'bg-blue-600' : 'bg-slate-700'
+                                        }`}
+                                >
+                                    <span
+                                        aria-hidden="true"
+                                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${preferences?.skip_upload_tutorial ? 'translate-x-5' : 'translate-x-0'
+                                            }`}
+                                    />
+                                </button>
+                            </div>
+
+                            <div className="pt-4 border-t border-slate-800">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm text-slate-400">Successful Uploads</span>
+                                    <span className="text-lg font-mono font-bold text-white">
+                                        {preferences?.successful_uploads_count || 0}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>

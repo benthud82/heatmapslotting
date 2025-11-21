@@ -676,6 +676,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     };
   }, [stageScale, stagePosition.x, stagePosition.y, containerSize]);
 
+  // Track stage drag state for cursor styling
+  const [isStageDragging, setIsStageDragging] = useState(false);
+
   return (
     <div className="relative w-full h-full">
       {/* Canvas Container with Blueprint Styling */}
@@ -684,7 +687,11 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         className="relative w-full h-full overflow-hidden shadow-2xl"
         style={{
           background: 'linear-gradient(to bottom, #020617, #0f172a)',
-          cursor: isPanning ? 'grab' : 'default',
+          // Cursor logic:
+          // 1. If dragging stage -> grabbing
+          // 2. If hovering element -> default (let element handle it) or pointer
+          // 3. Default (empty space) -> grab
+          cursor: isStageDragging ? 'grabbing' : (hoveredElementId ? 'default' : 'grab'),
         }}
       >
         <Stage
@@ -699,10 +706,20 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           scaleY={stageScale}
           x={stagePosition.x}
           y={stagePosition.y}
-          draggable={isPanning}
+          // Enable panning by default (unless placing an element, though Konva handles click vs drag well)
+          // We allow panning even in read-only mode
+          draggable={true}
+          onDragStart={(e) => {
+            if (e.target === stageRef.current) {
+              setIsStageDragging(true);
+            }
+          }}
           onClick={handleStageClick}
           onWheel={handleWheel}
-          onDragEnd={handleStageDragEnd}
+          onDragEnd={(e) => {
+            handleStageDragEnd(e);
+            setIsStageDragging(false);
+          }}
         >
           <Layer>
             {/* Infinite Grid Background */}

@@ -133,3 +133,26 @@ CREATE INDEX IF NOT EXISTS idx_warehouse_elements_type ON warehouse_elements(ele
 CREATE INDEX IF NOT EXISTS idx_pick_transactions_layout ON pick_transactions(layout_id);
 CREATE INDEX IF NOT EXISTS idx_pick_transactions_element ON pick_transactions(element_id);
 CREATE INDEX IF NOT EXISTS idx_pick_transactions_date ON pick_transactions(pick_date);
+
+
+-- 5. User Preferences
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE PRIMARY KEY,
+    skip_upload_tutorial BOOLEAN DEFAULT FALSE,
+    successful_uploads_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Enable RLS for user_preferences
+ALTER TABLE user_preferences ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their own preferences" ON user_preferences
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own preferences" ON user_preferences
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update their own preferences" ON user_preferences
+    FOR UPDATE USING (auth.uid() = user_id);
+

@@ -14,10 +14,17 @@ export default function Toast({ message, type = 'info', duration = 3000, onUndo,
     const [visible, setVisible] = useState(true);
     const [progress, setProgress] = useState(100);
 
+    const onCloseRef = React.useRef(onClose);
+
+    // Update ref when onClose changes, but don't trigger effect
+    useEffect(() => {
+        onCloseRef.current = onClose;
+    }, [onClose]);
+
     useEffect(() => {
         const timer = setTimeout(() => {
             setVisible(false);
-            setTimeout(onClose, 300); // Wait for exit animation
+            setTimeout(() => onCloseRef.current(), 300); // Wait for exit animation
         }, duration);
 
         const progressInterval = setInterval(() => {
@@ -28,7 +35,7 @@ export default function Toast({ message, type = 'info', duration = 3000, onUndo,
             clearTimeout(timer);
             clearInterval(progressInterval);
         };
-    }, [duration, onClose]);
+    }, [duration]); // Removed onClose from dependencies
 
     return (
         <div

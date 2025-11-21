@@ -22,6 +22,33 @@ async function getUserLayoutId(userId) {
   return result.rows.length > 0 ? result.rows[0].id : null;
 }
 
+// GET /api/elements - Fetch warehouse elements for user's layout
+router.get('/', authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { layout_id } = req.query;
+
+    // Get user's layout ID
+    let layoutId = layout_id || await getUserLayoutId(userId);
+
+    if (!layoutId) {
+      return res.status(404).json({ error: 'Layout not found' });
+    }
+
+    // Fetch all elements for the layout
+    const result = await query(
+      `SELECT * FROM warehouse_elements
+       WHERE layout_id = $1
+       ORDER BY created_at ASC`,
+      [layoutId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /api/elements - Create a new warehouse element
 router.post('/', authMiddleware, async (req, res, next) => {
   try {

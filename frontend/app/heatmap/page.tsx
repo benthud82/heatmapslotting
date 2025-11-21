@@ -5,13 +5,25 @@ import Link from 'next/link';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
-import UploadPicksModal from '@/components/UploadPicksModal';
+import QuickUploadModal from '@/components/QuickUploadModal';
+import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi } from '@/lib/api';
 import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
 
 export default function Heatmap() {
+  const { preferences } = useUserPreferences();
+  const router = useRouter();
+
+  const handleUploadClick = () => {
+    if (preferences && !preferences.skip_upload_tutorial) {
+      router.push('/upload');
+    } else {
+      setIsUploadModalOpen(true);
+    }
+  };
   const [layout, setLayout] = useState<Layout | null>(null);
   const [elements, setElements] = useState<WarehouseElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -178,7 +190,7 @@ export default function Heatmap() {
       >
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setIsUploadModalOpen(true)}
+            onClick={handleUploadClick}
             className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-sm rounded transition-colors flex items-center gap-2 shadow-lg shadow-green-900/20"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -282,7 +294,7 @@ export default function Heatmap() {
       </div>
 
       {/* Upload Modal */}
-      <UploadPicksModal
+      <QuickUploadModal
         isOpen={isUploadModalOpen}
         onClose={() => setIsUploadModalOpen(false)}
         onSuccess={handleUploadSuccess}

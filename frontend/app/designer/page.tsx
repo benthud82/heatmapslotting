@@ -3,10 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import WarehouseCanvas, { WarehouseCanvasRef } from '@/components/WarehouseCanvas';
-import Sidebar from '@/components/Designer/Sidebar';
-import PropertiesPanel from '@/components/Designer/PropertiesPanel';
-import StatusBar from '@/components/Designer/StatusBar';
-import MenuBar from '@/components/Designer/MenuBar';
+import Sidebar from '@/components/designer/Sidebar';
+import PropertiesPanel from '@/components/designer/PropertiesPanel';
+import StatusBar from '@/components/designer/StatusBar';
+import MenuBar from '@/components/designer/MenuBar';
 import BulkRenameModal from '@/components/BulkRenameModal';
 import Header from '@/components/Header';
 import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal';
@@ -192,7 +192,7 @@ export default function Home() {
   );
 
   // Delete element(s)
-  const handleElementDelete = useCallback(() => {
+  const handleElementDelete = useCallback(async () => {
     if (selectedElementIds.length === 0) return;
 
     const elementsToDelete = elements.filter((el) => selectedElementIds.includes(el.id));
@@ -203,36 +203,61 @@ export default function Home() {
     setElements(remainingElements);
     setSelectedElementIds([]);
 
-    // Show Undo Toast with Delayed Delete (8 seconds)
-    setToast({
-      message: `Deleted ${elementsToDelete.length} element${elementsToDelete.length > 1 ? 's' : ''}`,
-      type: 'info',
-      duration: 8000,
-      onUndo: () => {
-        // Restore elements locally
-        setElements((prev) => [...prev, ...elementsToDelete]);
-        setToast(null);
-        // Note: We do NOT call undo() here because we want to add a "restoration" state to history
-        // rather than reverting other potential actions the user took while the toast was open.
-        // Also, since we delayed the API call, we don't need to do anything for the backend.
-      },
-      onClose: async () => {
-        // Commit the delete to the backend
-        try {
-          setSaving(true);
-          await Promise.all(elementsToDelete.map((el) => elementsApi.delete(el.id)));
-        } catch (err) {
-          // If delete fails, we should probably notify the user, but it's tricky since the toast is gone.
-          // For now, just log it. In a real app, we might show a new error toast.
-          console.error('Delete error:', err);
-          setError('Failed to delete elements on server');
-          // Force reload to sync
-          loadData();
-        } finally {
-          setSaving(false);
+    try {
+      setSaving(true);
+      // Execute delete immediately to prevent data loss on refresh
+      await Promise.all(elementsToDelete.map((el) => elementsApi.delete(el.id)));
+
+      setToast({
+        message: `Deleted ${elementsToDelete.length} element${elementsToDelete.length > 1 ? 's' : ''}`,
+        type: 'success',
+        duration: 5000,
+        onUndo: async () => {
+          // 1. Optimistically restore to UI (using old IDs temporarily)
+          setElements((prev) => [...prev, ...elementsToDelete]);
+          setToast(null);
+
+          try {
+            setSaving(true);
+            // 2. Re-create elements on backend to get new permanent IDs
+            const restoredElements = await Promise.all(elementsToDelete.map(el => elementsApi.create({
+              element_type: el.element_type,
+              label: el.label,
+              x_coordinate: el.x_coordinate,
+              y_coordinate: el.y_coordinate,
+              rotation: el.rotation,
+              width: el.width,
+              height: el.height
+            })));
+
+            // 3. Update local state with the new, real IDs from backend
+            setElements(current => current.map(el => {
+              // If this element is one of the ones we just "restored" with an old ID
+              const matchIndex = elementsToDelete.findIndex(d => d.id === el.id);
+              if (matchIndex !== -1) {
+                return restoredElements[matchIndex];
+              }
+              return el;
+            }));
+          } catch (err) {
+            console.error('Undo failed:', err);
+            setError('Failed to restore elements. Please try again.');
+            loadData(); // Fallback to ensure consistency
+          } finally {
+            setSaving(false);
+          }
         }
-      }
-    });
+      });
+    } catch (err) {
+      console.error('Delete error:', err);
+      // Revert optimistic update on failure
+      setElements(elements);
+      setError('Failed to delete elements. Please try again.');
+      // Reload data to ensure sync
+      loadData();
+    } finally {
+      setSaving(false);
+    }
   }, [selectedElementIds, elements, setElements]);
 
   // Copy & Paste
@@ -487,7 +512,12 @@ export default function Home() {
             selectedElementIds={selectedElementIds}
             labelDisplayMode={labelDisplayMode}
             onElementClick={(id: string, ctrl: boolean, meta: boolean) => {
-              if (activeTool !== 'select' && activeTool !== 'pan') return;
+              // If in placement mode (drawing), auto-switch to select mode
+              if (activeTool !== 'select' && activeTool !== 'pan') {
+                setActiveTool('select');
+                setSelectedElementIds([id]);
+                return;
+              }
 
               // If clicking the only selected element, deselect it
               if (selectedElementIds.length === 1 && selectedElementIds[0] === id && !ctrl && !meta) {

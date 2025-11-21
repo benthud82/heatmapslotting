@@ -139,6 +139,17 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
       rowsProcessed: rows.length,
     };
 
+    // Increment successful uploads count
+    await query(
+      `INSERT INTO user_preferences (user_id, successful_uploads_count)
+       VALUES ($1, 1)
+       ON CONFLICT (user_id)
+       DO UPDATE SET 
+         successful_uploads_count = user_preferences.successful_uploads_count + 1,
+         updated_at = NOW()`,
+      [userId]
+    );
+
     // Add warnings if there were unmatched elements
     if (unmatchedElements.size > 0) {
       response.warnings = {
@@ -314,6 +325,88 @@ router.delete('/', authMiddleware, async (req, res, next) => {
     res.json({
       message: 'Pick data cleared successfully',
       rowsDeleted: result.rowCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/picks/batch - Delete picks for multiple dates
+router.delete('/batch', authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { dates } = req.body;
+
+    if (!dates || !Array.isArray(dates) || dates.length === 0) {
+      return res.status(400).json({ error: 'No dates provided' });
+    }
+
+    // Validate date format for all dates
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    const invalidDates = dates.filter(date => !dateRegex.test(date));
+    if (invalidDates.length > 0) {
+      return res.status(400).json({ error: `Invalid date format for: ${invalidDates.join(', ')}` });
+    }
+
+    // Get user's layout
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE user_id = $1',
+      [userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No layout found' });
+    }
+
+    const layoutId = layoutResult.rows[0].id;
+
+    const result = await query(
+      'DELETE FROM pick_transactions WHERE layout_id = $1 AND pick_date = ANY($2::date[])',
+      [layoutId, dates]
+    );
+
+    res.json({
+      message: 'Pick data deleted successfully',
+      rowsDeleted: result.rowCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/picks/by-date/:date - Delete all picks for a specific date
+router.delete('/by-date/:date', authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { date } = req.params;
+
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
+    }
+
+    // Get user's layout
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE user_id = $1',
+      [userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No layout found' });
+    }
+
+    const layoutId = layoutResult.rows[0].id;
+
+    // Delete all pick transactions for this layout on the specified date
+    const result = await query(
+      'DELETE FROM pick_transactions WHERE layout_id = $1 AND pick_date = $2',
+      [layoutId, date]
+    );
+
+    res.json({
+      message: `Successfully deleted picks for ${date}`,
+      rowsDeleted: result.rowCount,
+      date: date
     });
   } catch (error) {
     next(error);

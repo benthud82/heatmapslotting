@@ -28,6 +28,10 @@ export default function Dashboard() {
     const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
     const [availableDates, setAvailableDates] = useState<string[]>([]);
     const [transactions, setTransactions] = useState<PickTransaction[]>([]);
+    const [deletingDate, setDeletingDate] = useState<string | null>(null);
+    const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [isBatchDelete, setIsBatchDelete] = useState(false);
 
     useEffect(() => {
         loadData();
@@ -61,6 +65,64 @@ export default function Dashboard() {
             console.error('Dashboard load error:', err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteDate = async () => {
+        if (!deletingDate && !isBatchDelete) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            let url = `http://localhost:3001/api/picks/by-date/${deletingDate}`;
+            let method = 'DELETE';
+            let body = undefined;
+            let headers: Record<string, string> = {
+                Authorization: `Bearer ${token}`,
+            };
+
+            if (isBatchDelete) {
+                url = 'http://localhost:3001/api/picks/batch';
+                headers['Content-Type'] = 'application/json';
+                body = JSON.stringify({ dates: Array.from(selectedDates) });
+            }
+
+            const response = await fetch(url, {
+                method,
+                headers,
+                body,
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to delete picks');
+            }
+
+            // Refresh data after successful deletion
+            await loadData();
+            setShowDeleteModal(false);
+            setDeletingDate(null);
+            setIsBatchDelete(false);
+            setSelectedDates(new Set());
+        } catch (err) {
+            alert(err instanceof Error ? err.message : 'Failed to delete picks');
+        }
+    };
+
+    const toggleDateSelection = (date: string) => {
+        const newSelected = new Set(selectedDates);
+        if (newSelected.has(date)) {
+            newSelected.delete(date);
+        } else {
+            newSelected.add(date);
+        }
+        setSelectedDates(newSelected);
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedDates.size === datePickCounts.length) {
+            setSelectedDates(new Set());
+        } else {
+            setSelectedDates(new Set(datePickCounts.map(d => d.date)));
         }
     };
 
@@ -111,6 +173,19 @@ export default function Dashboard() {
             .map(([date, picks]) => ({ date, picks }))
             .sort((a, b) => a.date.localeCompare(b.date));
     }, [transactions]);
+
+    // Calculate picks per date for Data Management section
+    const datePickCounts = useMemo(() => {
+        const dateMap = new Map<string, number>();
+        transactions.forEach(t => {
+            dateMap.set(t.pick_date, (dateMap.get(t.pick_date) || 0) + t.pick_count);
+        });
+
+        return Array.from(availableDates).map(date => ({
+            date,
+            picks: dateMap.get(date) || 0
+        })).sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
+    }, [availableDates, transactions]);
 
     // Day of Week Data
     const dayOfWeekData = useMemo(() => {
@@ -303,6 +378,140 @@ export default function Dashboard() {
                         </div>
                     </div>
                 </div>
+
+                {/* Data Management Section */}
+                <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg relative">
+                    <div className="flex items-center justify-between mb-6">
+                        <h3 className="text-white font-bold flex items-center gap-2">
+                            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Data Management
+                        </h3>
+
+                        {datePickCounts.length > 0 && (
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    checked={selectedDates.size === datePickCounts.length && datePickCounts.length > 0}
+                                    onChange={toggleSelectAll}
+                                    className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
+                                />
+                                <span className="text-sm text-slate-400">Select All</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {datePickCounts.length > 0 ? (
+                        <div className="space-y-2">
+                            {datePickCounts.map(({ date, picks }) => (
+                                <div
+                                    key={date}
+                                    className={`flex items-center justify-between p-3 rounded-lg transition-colors cursor-pointer ${selectedDates.has(date) ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-slate-800 hover:bg-slate-750 border border-transparent'
+                                        }`}
+                                    onClick={() => toggleDateSelection(date)}
+                                >
+                                    <div className="flex items-center gap-4 flex-1">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedDates.has(date)}
+                                            onChange={() => { }} // Handled by parent div click
+                                            className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
+                                        />
+                                        <div>
+                                            <p className="text-white font-mono">{new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</p>
+                                            <p className="text-sm text-slate-400">{picks.toLocaleString()} picks</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setDeletingDate(date);
+                                            setIsBatchDelete(false);
+                                            setShowDeleteModal(true);
+                                        }}
+                                        className="px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded text-sm font-medium transition-colors"
+                                    >
+                                        Delete
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-slate-400 text-center py-4">No pick data available</p>
+                    )}
+
+                    {/* Bulk Action Floating Bar */}
+                    {selectedDates.size > 0 && (
+                        <div className="fixed bottom-8 right-8 z-40 animate-in slide-in-from-bottom-4 fade-in duration-200">
+                            <div className="bg-slate-800 border border-slate-700 shadow-2xl rounded-lg p-4 flex items-center gap-4">
+                                <span className="text-white font-medium">{selectedDates.size} selected</span>
+                                <div className="h-6 w-px bg-slate-600"></div>
+                                <button
+                                    onClick={() => setSelectedDates(new Set())}
+                                    className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsBatchDelete(true);
+                                        setShowDeleteModal(true);
+                                    }}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-md shadow-lg hover:shadow-red-900/20 transition-all flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Delete Selected
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Delete Confirmation Modal */}
+                {showDeleteModal && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
+                            <h3 className="text-xl font-bold text-white mb-4">Confirm Delete</h3>
+                            <p className="text-slate-300 mb-6">
+                                {isBatchDelete ? (
+                                    <>
+                                        Are you sure you want to delete pick data for <span className="font-bold text-white">{selectedDates.size} selected dates</span>?
+                                    </>
+                                ) : (
+                                    <>
+                                        Are you sure you want to delete all pick data for{' '}
+                                        <span className="font-bold text-white">
+                                            {deletingDate && new Date(deletingDate + 'T12:00:00').toLocaleDateString()}
+                                        </span>?
+                                    </>
+                                )}
+                                <br />
+                                <span className="text-red-400 text-sm mt-2 block">This action cannot be undone.</span>
+                            </p>
+                            <div className="flex gap-3 justify-end">
+                                <button
+                                    onClick={() => {
+                                        setShowDeleteModal(false);
+                                        setDeletingDate(null);
+                                        setIsBatchDelete(false);
+                                    }}
+                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-md transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleDeleteDate}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md transition-colors"
+                                >
+                                    {isBatchDelete ? 'Delete All Selected' : 'Delete'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </main>
         </div>
     );

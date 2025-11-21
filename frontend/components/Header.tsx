@@ -23,6 +23,12 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user?.email) {
                 setUserEmail(session.user.email);
+                // Ensure token is synced for API calls
+                if (session.access_token) {
+                    localStorage.setItem('token', session.access_token);
+                }
+            } else {
+                localStorage.removeItem('token');
             }
         };
         getUser();
@@ -46,6 +52,7 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
         { name: 'Home', href: '/' },
         { name: 'Designer', href: '/designer' },
         { name: 'Heatmap', href: '/heatmap' },
+        { name: 'Upload', href: '/upload' },
         { name: 'Dashboard', href: '/dashboard' },
     ];
 

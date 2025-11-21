@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '../lib/supabase';
 import Modal from './Modal';
 
@@ -13,6 +13,7 @@ export default function AuthForm() {
     const [view, setView] = useState<'sign_in' | 'sign_up'>('sign_in');
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -31,12 +32,18 @@ export default function AuthForm() {
                 if (error) throw error;
                 setShowSuccessModal(true);
             } else {
-                const { error } = await supabase.auth.signInWithPassword({
+                const { data, error } = await supabase.auth.signInWithPassword({
                     email,
                     password,
                 });
                 if (error) throw error;
-                router.push('/');
+
+                if (data.session) {
+                    localStorage.setItem('token', data.session.access_token);
+                }
+
+                const redirectUrl = searchParams.get('redirect') || '/';
+                router.push(redirectUrl);
                 router.refresh();
             }
         } catch (error: any) {
