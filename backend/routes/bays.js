@@ -50,7 +50,8 @@ router.get('/', authMiddleware, async (req, res, next) => {
 });
 
 // POST /api/elements - Create a new warehouse element
-router.post('/', authMiddleware, async (req, res, next) => {
+const { checkElementLimit } = require('../middleware/limits');
+router.post('/', authMiddleware, checkElementLimit, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { element_type, label, x_coordinate, y_coordinate, rotation, width: reqWidth, height: reqHeight } = req.body;

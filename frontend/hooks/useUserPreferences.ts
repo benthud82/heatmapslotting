@@ -4,6 +4,8 @@ interface UserPreferences {
     user_id: string;
     skip_upload_tutorial: boolean;
     successful_uploads_count: number;
+    subscription_tier: 'free' | 'pro' | 'enterprise';
+    subscription_status: 'active' | 'canceled' | 'past_due' | 'incomplete';
 }
 
 export function useUserPreferences() {

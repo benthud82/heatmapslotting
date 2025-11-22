@@ -1,16 +1,63 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Header from '@/components/Header';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 export default function ProfilePage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [loading, setLoading] = useState(true);
+    const [upgrading, setUpgrading] = useState(false);
     const [user, setUser] = useState<any>(null);
-    const { preferences, updateSkipTutorial } = useUserPreferences();
+    const { preferences, updateSkipTutorial, refresh } = useUserPreferences();
+
+    useEffect(() => {
+        if (searchParams.get('upgrade') === 'success') {
+            refresh();
+            // Clean up URL
+            router.replace('/profile');
+        }
+    }, [searchParams, refresh, router]);
+
+    const handleUpgrade = async () => {
+        try {
+            setUpgrading(true);
+
+            const token = localStorage.getItem('token');
+            const priceId = process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID;
+
+            if (!priceId) {
+                alert('Stripe configuration missing. Please contact support.');
+                return;
+            }
+
+            const response = await fetch('http://localhost:3001/api/stripe/create-checkout-session', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ priceId }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to create checkout session');
+            }
+
+            // Redirect to Stripe Checkout
+            window.location.href = data.sessionUrl;
+        } catch (error) {
+            console.error('Upgrade error:', error);
+            alert('Failed to start upgrade. Please try again.');
+        } finally {
+            setUpgrading(false);
+        }
+    };
 
     useEffect(() => {
         const checkUser = async () => {
@@ -119,15 +166,45 @@ export default function ProfilePage() {
                             <h2 className="text-xl font-bold text-white">Subscription Plan</h2>
                         </div>
                         <div className="p-6">
-                            <div className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-900/20 to-slate-900 border border-blue-800 rounded-lg">
+                            <div className={`flex items-center justify-between p-4 border rounded-lg ${preferences?.subscription_tier === 'pro'
+                                ? 'bg-gradient-to-r from-green-900/20 to-slate-900 border-green-800'
+                                : 'bg-gradient-to-r from-blue-900/20 to-slate-900 border-blue-800'
+                                }`}>
                                 <div>
-                                    <h3 className="text-lg font-bold text-white">Standard Plan</h3>
-                                    <p className="text-sm text-slate-400">Basic warehouse slotting features</p>
+                                    <h3 className="text-lg font-bold text-white">
+                                        {preferences?.subscription_tier === 'pro' ? 'Pro Plan' : 'Free Plan'}
+                                    </h3>
+                                    <p className="text-sm text-slate-400">
+                                        {preferences?.subscription_tier === 'pro'
+                                            ? 'Unlimited access to all features'
+                                            : 'Basic warehouse slotting features'}
+                                    </p>
                                 </div>
-                                <button className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded transition-colors">
-                                    Upgrade
-                                </button>
+                                {preferences?.subscription_tier === 'pro' ? (
+                                    <button
+                                        className="px-4 py-2 bg-slate-700 text-slate-300 font-bold text-sm rounded cursor-default"
+                                        disabled
+                                    >
+                                        Active
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleUpgrade}
+                                        disabled={upgrading}
+                                        className={`px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded transition-colors ${upgrading ? 'opacity-50 cursor-wait' : ''
+                                            }`}
+                                    >
+                                        {upgrading ? 'Processing...' : 'Upgrade'}
+                                    </button>
+                                )}
                             </div>
+                            {preferences?.subscription_tier === 'pro' && (
+                                <div className="mt-4 text-center">
+                                    <button className="text-sm text-slate-400 hover:text-white transition-colors">
+                                        Manage Subscription
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

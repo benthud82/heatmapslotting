@@ -20,6 +20,19 @@ import { supabase } from './supabase';
 
 // ... imports
 
+// Custom API Error class
+export class ApiError extends Error {
+  status: number;
+  data: any;
+
+  constructor(message: string, status: number, data: any) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+  }
+}
+
 // Generic fetch wrapper
 async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -39,13 +52,17 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'An error occurred' }));
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const errorData = await response.json().catch(() => ({ error: 'An error occurred' }));
+      throw new ApiError(errorData.error || `HTTP ${response.status}`, response.status, errorData);
     }
 
     return response.json();
   } catch (error) {
     console.error(`[API] Error fetching ${url}:`, error);
+
+    if (error instanceof ApiError) {
+      throw error;
+    }
 
     // Handle network errors (connection refused, CORS, etc.)
     if (error instanceof TypeError) {

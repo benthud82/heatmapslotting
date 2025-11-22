@@ -21,8 +21,10 @@ const upload = multer({
   },
 });
 
+const { checkPickHistoryLimit } = require('../middleware/limits');
+
 // POST /api/picks/upload - Upload CSV with pick data
-router.post('/upload', authMiddleware, upload.single('file'), async (req, res, next) => {
+router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -121,8 +123,28 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res, n
       });
     }
 
+    // AFTER parsing CSV, BEFORE inserting to database:
+    const cutoffDate = req.pickHistoryCutoff;
+    const tierName = req.userTier;
+
+    let filteredRows = rows;
+    let oldDataCount = 0;
+
+    if (cutoffDate) {
+      filteredRows = rows.filter(row => row.pick_date >= cutoffDate);
+      oldDataCount = rows.length - filteredRows.length;
+    }
+
+    if (filteredRows.length === 0) {
+      return res.status(400).json({
+        error: 'All data is outside your allowed date range',
+        message: `Your ${tierName} plan allows data from the last ${req.userLimits?.pickHistoryDays || 7} days. Upgrade to Pro for 90 days of history.`,
+        upgradeUrl: '/pricing',
+      });
+    }
+
     // Bulk insert pick transactions (using INSERT ... ON CONFLICT UPDATE for upserts)
-    const insertPromises = rows.map(row =>
+    const insertPromises = filteredRows.map(row =>
       query(
         `INSERT INTO pick_transactions (layout_id, element_id, pick_date, pick_count)
          VALUES ($1, $2, $3, $4)

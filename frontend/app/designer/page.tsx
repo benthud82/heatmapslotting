@@ -49,6 +49,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userTier, setUserTier] = useState<string>('free');
+  const [elementLimit, setElementLimit] = useState<number>(50);
 
   // Modals & Toasts
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
@@ -65,8 +67,38 @@ export default function Home() {
   // Load initial data
   useEffect(() => {
     loadData();
+    loadData();
     getUser();
+    fetchUserLimits();
   }, []);
+
+  const fetchUserLimits = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      // Default to free if no token (though auth should prevent this)
+      if (!token) return;
+
+      const response = await fetch('http://localhost:3001/api/stripe/subscription-status', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setUserTier(data.subscription_tier || 'free');
+
+        // Set limits based on tier
+        const limits = {
+          free: 50,
+          pro: 500,
+          enterprise: Infinity,
+        };
+        // @ts-ignore - dynamic key access
+        setElementLimit(limits[data.subscription_tier] || 50);
+      }
+    } catch (error) {
+      console.error('Failed to fetch limits:', error);
+    }
+  };
 
   const getUser = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -148,7 +180,9 @@ export default function Home() {
         setElements(newElements.map((el) => (el.id === tempId ? created : el)));
       } catch (err) {
         setElements(elements); // Revert to previous state
-        setError(err instanceof Error ? err.message : 'Failed to create element');
+        // @ts-ignore
+        const message = err.data?.message || err.message || 'Failed to create element';
+        setError(message);
       } finally {
         setSaving(false);
       }
@@ -541,9 +575,27 @@ export default function Home() {
           />
 
           {error && (
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-900/90 border border-red-500 text-white px-4 py-2 rounded shadow-xl flex items-center gap-3 z-50">
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="font-bold hover:text-red-200">✕</button>
+            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-900/90 border border-red-500 text-white px-4 py-3 rounded shadow-xl flex items-center gap-4 z-50 max-w-md">
+              <div className="flex flex-col">
+                <span className="font-bold">{error}</span>
+                {/* Check if error message contains suggestion or if we have a specific flag (we'd need state for that, but simple text check works for now) */}
+                {(error.includes('limit reached') || error.includes('Upgrade')) && (
+                  <span className="text-xs text-red-200 mt-1">
+                    Need more capacity? Upgrade your plan.
+                  </span>
+                )}
+              </div>
+
+              {(error.includes('limit reached') || error.includes('Upgrade')) && (
+                <a
+                  href="/pricing"
+                  className="bg-white text-red-900 px-3 py-1.5 rounded text-sm font-bold hover:bg-red-50 whitespace-nowrap"
+                >
+                  Upgrade Plan
+                </a>
+              )}
+
+              <button onClick={() => setError(null)} className="font-bold hover:text-red-200 ml-2">✕</button>
             </div>
           )}
         </main>
@@ -567,6 +619,8 @@ export default function Home() {
         elementCount={elements.length}
         selectionCount={selectedElementIds.length}
         cursorPos={cursorPos}
+        elementLimit={elementLimit}
+        userTier={userTier}
       />
 
       {showBulkRenameModal && (

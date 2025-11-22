@@ -11,6 +11,8 @@ interface StatusBarProps {
     elementCount: number;
     selectionCount: number;
     cursorPos?: { x: number; y: number };
+    elementLimit?: number;
+    userTier?: string;
 }
 
 export default function StatusBar({
@@ -21,8 +23,13 @@ export default function StatusBar({
     saving,
     elementCount,
     selectionCount,
-    cursorPos
+    cursorPos,
+    elementLimit = 50,
+    userTier = 'free'
 }: StatusBarProps) {
+    const isNearLimit = elementLimit < Infinity && elementCount >= elementLimit * 0.8;
+    const isAtLimit = elementCount >= elementLimit;
+
     return (
         <footer className="h-8 bg-blue-600 flex items-center justify-between px-3 text-[11px] font-mono text-white select-none z-40">
             {/* Left: Status & Counts */}
@@ -31,6 +38,20 @@ export default function StatusBar({
                     <span className="opacity-70">ELEMENTS:</span>
                     <span className="font-bold">{elementCount}</span>
                 </div>
+
+                {/* Usage Indicator */}
+                <div className={`px-2 py-0.5 rounded flex items-center gap-2 ${isAtLimit ? 'bg-red-900/50 text-red-100' :
+                        isNearLimit ? 'bg-yellow-900/50 text-yellow-100' :
+                            'bg-blue-700/50 text-blue-100'
+                    }`}>
+                    <span>{elementCount}/{elementLimit === Infinity ? '∞' : elementLimit}</span>
+                    {isAtLimit && (
+                        <a href="/pricing" className="underline hover:text-white ml-1">
+                            UPGRADE
+                        </a>
+                    )}
+                </div>
+
                 <div className="w-px h-3 bg-blue-400/50"></div>
                 <div className="flex items-center gap-2">
                     <span className="opacity-70">SELECTED:</span>

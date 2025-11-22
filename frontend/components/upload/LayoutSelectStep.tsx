@@ -194,53 +194,90 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
             </div>
 
             {selectedLayoutId && (
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 max-w-2xl mx-auto">
-                    <h4 className="font-medium text-blue-900 mb-2">Layout Summary</h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                            <span className="text-blue-700">Total Elements:</span>
-                            <span className="ml-2 font-semibold text-blue-900">
-                                {loadingElements ? '...' : elementNames.length}
-                            </span>
-                        </div>
-                        <div>
-                            <span className="text-blue-700">Example Names:</span>
-                            <span className="ml-2 text-blue-900">
-                                {loadingElements ? '...' : elementNames.slice(0, 3).join(', ') + (elementNames.length > 3 ? '...' : '')}
-                            </span>
-                        </div>
-                    </div>
-                    <p className="mt-3 text-xs text-blue-600">
-                        * Your CSV "element_name" column must match these element labels exactly.
-                    </p>
-
-                    <div className="mt-4 pt-4 border-t border-blue-200">
-                        <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-4">
-                            <div className="flex items-start gap-3">
+                <>
+                    {/* Empty Layout Warning */}
+                    {!loadingElements && elementNames.length === 0 && (
+                        <div className="p-6 bg-amber-50 rounded-lg border-2 border-amber-300 max-w-2xl mx-auto">
+                            <div className="flex items-start gap-4">
                                 <div className="flex-shrink-0">
-                                    <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                     </svg>
                                 </div>
                                 <div className="flex-1">
-                                    <h5 className="font-semibold text-green-900 mb-1">Need Sample Data?</h5>
-                                    <p className="text-sm text-green-700 mb-3">
-                                        Generate a test CSV file with all {elementNames.length} elements, 8 days of sample pick data, and proper formatting.
+                                    <h4 className="font-bold text-amber-900 text-lg mb-2">Your Layout is Empty</h4>
+                                    <p className="text-amber-800 mb-4">
+                                        You need to create warehouse elements (bays, flow racks, pallets) in the Designer before you can upload pick data. 
+                                        Each row in your CSV file maps to an element in your layout.
                                     </p>
-                                    <button
-                                        onClick={generateTestCSV}
-                                        className="inline-flex items-center px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                                    >
-                                        <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                        </svg>
-                                        Generate Test CSV
-                                    </button>
+                                    <div className="flex items-center gap-3">
+                                        <a
+                                            href="/designer"
+                                            className="inline-flex items-center px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+                                        >
+                                            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                            </svg>
+                                            Go to Designer
+                                        </a>
+                                        <span className="text-sm text-amber-700">Create elements first, then return here to upload data</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
+                    )}
+
+                    {/* Layout Summary (only show if elements exist) */}
+                    {!loadingElements && elementNames.length > 0 && (
+                        <div className="p-4 bg-blue-50 rounded-lg border border-blue-100 max-w-2xl mx-auto">
+                            <h4 className="font-medium text-blue-900 mb-2">Layout Summary</h4>
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <span className="text-blue-700">Total Elements:</span>
+                                    <span className="ml-2 font-semibold text-blue-900">
+                                        {elementNames.length}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span className="text-blue-700">Example Names:</span>
+                                    <span className="ml-2 text-blue-900">
+                                        {elementNames.slice(0, 3).join(', ') + (elementNames.length > 3 ? '...' : '')}
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="mt-3 text-xs text-blue-600">
+                                * Your CSV "element_name" column must match these element labels exactly.
+                            </p>
+
+                            <div className="mt-4 pt-4 border-t border-blue-200">
+                                <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-lg p-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex-shrink-0">
+                                            <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex-1">
+                                            <h5 className="font-semibold text-green-900 mb-1">Need Sample Data?</h5>
+                                            <p className="text-sm text-green-700 mb-3">
+                                                Generate a test CSV file with all {elementNames.length} elements, 8 days of sample pick data, and proper formatting.
+                                            </p>
+                                            <button
+                                                onClick={generateTestCSV}
+                                                className="inline-flex items-center px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+                                            >
+                                                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                </svg>
+                                                Generate Test CSV
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </>
             )}
 
             <div className="flex items-center justify-between pt-6 border-t border-gray-200">

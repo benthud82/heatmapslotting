@@ -16,6 +16,7 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
     const router = useRouter();
     const [isProfileOpen, setIsProfileOpen] = useState(false);
     const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [userTier, setUserTier] = useState<string>('free');
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -26,6 +27,19 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
                 // Ensure token is synced for API calls
                 if (session.access_token) {
                     localStorage.setItem('token', session.access_token);
+
+                    // Fetch user preferences for tier
+                    try {
+                        const response = await fetch('http://localhost:3001/api/user/preferences', {
+                            headers: { Authorization: `Bearer ${session.access_token}` }
+                        });
+                        if (response.ok) {
+                            const data = await response.json();
+                            setUserTier(data.subscription_tier || 'free');
+                        }
+                    } catch (err) {
+                        console.error('Failed to fetch user tier', err);
+                    }
                 }
             } else {
                 localStorage.removeItem('token');
@@ -121,7 +135,7 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
                                         {userEmail ? userEmail.split('@')[0] : 'User'}
                                     </span>
                                     <span className="block text-[10px] font-mono text-slate-400 uppercase">
-                                        Standard Plan
+                                        {userTier === 'pro' ? 'Pro Plan' : userTier === 'enterprise' ? 'Enterprise' : 'Free Plan'}
                                     </span>
                                 </span>
                                 <span className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center border-2 border-slate-600 text-white font-bold">

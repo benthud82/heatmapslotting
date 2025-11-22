@@ -27,8 +27,20 @@ app.get('/api/health', (req, res) => {
 // Routes
 const authMiddleware = require('./middleware/auth');
 
+// Stripe webhook (MUST be before express.json() middleware for raw body)
+app.use('/api/stripe/webhook', require('./routes/stripe'));
+
+// Middleware
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  credentials: true,
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 // Routes
 
+app.use('/api/stripe', require('./routes/stripe'));
 app.use('/api/layouts', authMiddleware, require('./routes/layouts'));
 app.use('/api/elements', authMiddleware, require('./routes/bays')); // warehouse elements
 app.use('/api/picks', authMiddleware, require('./routes/picks')); // pick transactions
@@ -64,4 +76,6 @@ const startServer = async () => {
 };
 
 startServer();
+
+// Server ready (restarted for mock mode)
 
