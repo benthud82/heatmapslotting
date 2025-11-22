@@ -148,18 +148,19 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
                         <p className="text-sm text-green-700 mb-3">
                             Generate a test CSV file with all {elementNames.length} elements, 8 days of sample pick data, and proper formatting.
                         </p>
-                        <button
-                            onClick={generateTestCSV}
-                            className="inline-flex items-center px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
-                        >
-                            <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                            Generate Test CSV
-                        </button>
                     </div>
                 </div>
+                <button
+                    onClick={generateTestCSV}
+                    className="inline-flex items-center px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2"
+                >
+                    <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Generate Test CSV
+                </button>
             </div>
+
 
             {/* Drop Zone */}
             <div
@@ -167,37 +168,38 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
                 onDragLeave={onDragLeave}
                 onDrop={onDrop}
                 className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg transition-colors
-          ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'}
-          ${file ? 'bg-white' : ''}`}
+          ${isDragging ? 'border-blue-500 bg-blue-900/20' : 'border-slate-700 bg-slate-800/50 hover:bg-slate-800'}
+          ${file ? 'bg-slate-800' : ''}`
+                }
             >
                 {!file ? (
                     <div className="text-center">
-                        <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-12 h-12 mx-auto text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                         </svg>
-                        <p className="mt-2 text-sm text-gray-600">
-                            <label htmlFor="csv-file-input" className="font-medium text-blue-600 hover:text-blue-500 cursor-pointer">
+                        <p className="mt-2 text-sm text-slate-400">
+                            <label htmlFor="csv-file-input" className="font-medium text-blue-400 hover:text-blue-300 cursor-pointer">
                                 Click to upload
                             </label>
                             <input id="csv-file-input" type="file" accept=".csv" className="hidden" onChange={onFileSelect} />
                             {' '}or drag and drop
                         </p>
-                        <p className="mt-1 text-xs text-gray-500">CSV files only</p>
+                        <p className="mt-1 text-xs text-slate-500">CSV files only</p>
                     </div>
                 ) : (
                     <div className="flex items-center space-x-4">
-                        <div className="p-3 bg-blue-100 rounded-full">
-                            <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="p-3 bg-blue-900/30 rounded-full">
+                            <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 011.414.586l4 4a1 1 0 01.586 1.414V19a2 2 0 01-2 2z" />
                             </svg>
                         </div>
                         <div className="text-left">
-                            <p className="text-sm font-medium text-gray-900">{file.name}</p>
-                            <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
+                            <p className="text-sm font-medium text-white">{file.name}</p>
+                            <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(1)} KB</p>
                         </div>
                         <button
                             onClick={() => { setFile(null); setValidationResult(null); }}
-                            className="p-1 text-gray-400 hover:text-red-500"
+                            className="p-1 text-slate-400 hover:text-red-400"
                         >
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -205,31 +207,35 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
                         </button>
                     </div>
                 )}
-            </div>
+            </div >
 
             {/* Validation Results */}
-            {isValidating && (
-                <div className="py-8 text-center">
-                    <div className="inline-block w-8 h-8 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
-                    <p className="mt-2 text-sm text-gray-500">Validating file...</p>
-                </div>
-            )}
-
-            {validationResult && !isValidating && (
-                <div className="space-y-6 animate-fade-in">
-                    <ValidationSummary validationResult={validationResult} />
-
-                    <div>
-                        <h4 className="mb-2 text-sm font-medium text-gray-700">Data Preview</h4>
-                        <CSVPreviewTable rows={validationResult.rows} />
+            {
+                isValidating && (
+                    <div className="py-8 text-center">
+                        <div className="inline-block w-8 h-8 border-4 border-blue-500 rounded-full border-t-transparent animate-spin"></div>
+                        <p className="mt-2 text-sm text-slate-400">Validating file...</p>
                     </div>
-                </div>
-            )}
+                )
+            }
 
-            <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+            {
+                validationResult && !isValidating && (
+                    <div className="space-y-6 animate-fade-in">
+                        <ValidationSummary validationResult={validationResult} />
+
+                        <div>
+                            <h4 className="mb-2 text-sm font-medium text-slate-300">Data Preview</h4>
+                            <CSVPreviewTable rows={validationResult.rows} />
+                        </div>
+                    </div>
+                )
+            }
+
+            <div className="flex items-center justify-between pt-6 border-t border-slate-800">
                 <button
                     onClick={onBack}
-                    className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                    className="px-4 py-2 text-slate-300 bg-slate-800 border border-slate-700 rounded-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
                     Back
                 </button>
@@ -239,12 +245,12 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
                     disabled={!file || !validationResult?.isValid}
                     className={`px-6 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500
             ${(!file || !validationResult?.isValid)
-                            ? 'bg-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 hover:bg-blue-700'}`}
+                            ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                            : 'bg-blue-600 hover:bg-blue-500'}`}
                 >
                     Continue
                 </button>
             </div>
-        </div>
+        </div >
     );
 }

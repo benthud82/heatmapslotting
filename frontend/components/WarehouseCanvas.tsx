@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import React, { useEffect, useRef, useState, useMemo, useCallback, useImperativeHandle } from 'react';
@@ -599,21 +601,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setValidationError(null);
   };
 
-  // Zoom control handlers
-  const handleZoomIn = () => {
-    const newScale = Math.min(3, stageScale * 1.2);
-    setStageScale(newScale);
-  };
 
-  const handleZoomOut = () => {
-    const newScale = Math.max(0.1, stageScale / 1.2);
-    setStageScale(newScale);
-  };
-
-  const handleResetZoom = () => {
-    setStageScale(1);
-    setStagePosition({ x: 0, y: 0 });
-  };
 
   // Helper: Snap value to nearest grid line
   const snapToGrid = (value: number, gridSize: number = 50): number => {
@@ -755,7 +743,6 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   config={config}
                   isSelected={isSelected}
                   isHovered={isHovered}
-                  isEditing={editingLabel === element.id}
                   labelDisplayMode={labelDisplayMode}
                   ref={isSingleSelection ? selectedShapeRef : null}
                   onClick={(e) => onElementClick(element.id, e.evt.ctrlKey, e.evt.metaKey)}
@@ -1053,7 +1040,7 @@ interface ElementShapeProps {
   config: { width: number; height: number; color: string; displayName: string; description: string };
   isSelected: boolean;
   isHovered: boolean;
-  isEditing: boolean;
+
   labelDisplayMode: LabelDisplayMode;
   onClick: (e: KonvaEventObject<MouseEvent>) => void;
   onDoubleClick: () => void;
@@ -1067,7 +1054,7 @@ interface ElementShapeProps {
   onMouseMove?: (e: KonvaEventObject<MouseEvent>) => void;
   onMouseLeave: () => void;
   heatmapColor?: string;
-  pickCount?: number;
+
   isHeatmap?: boolean;
   draggable?: boolean;
 }
@@ -1079,7 +1066,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       config,
       isSelected,
       isHovered,
-      isEditing,
+
       labelDisplayMode,
       onClick,
       onDoubleClick,
@@ -1093,7 +1080,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       onMouseMove,
       onMouseLeave,
       heatmapColor,
-      pickCount,
+
       isHeatmap,
       draggable,
     },

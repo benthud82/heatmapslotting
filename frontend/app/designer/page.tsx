@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
@@ -8,6 +9,7 @@ import PropertiesPanel from '@/components/designer/PropertiesPanel';
 import StatusBar from '@/components/designer/StatusBar';
 import MenuBar from '@/components/designer/MenuBar';
 import BulkRenameModal from '@/components/BulkRenameModal';
+import LayoutManager from '@/components/designer/LayoutManager';
 import Header from '@/components/Header';
 import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal';
 import Toast from '@/components/ui/Toast';
@@ -18,7 +20,11 @@ import { useHistory } from '@/hooks/useHistory';
 import { alignElements, AlignmentType } from '@/lib/alignment';
 
 export default function Home() {
-  const [layout, setLayout] = useState<Layout | null>(null);
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
+
+  // Derived state for current layout object
+  const layout = layouts.find(l => l.id === currentLayoutId) || null;
 
   // History State
   const {
@@ -110,18 +116,103 @@ export default function Home() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [layoutData, elementsData] = await Promise.all([
-        layoutApi.getLayout(),
-        layoutApi.getElements(),
-      ]);
-      setLayout(layoutData);
-      resetHistory(elementsData); // Initialize history with loaded elements
-      setError(null);
+      // Fetch all layouts first
+      const layoutsData = await layoutApi.getLayouts();
+      setLayouts(layoutsData);
+
+      // If we have layouts but no current selection, select the first one
+      let activeId = currentLayoutId;
+      if (!activeId && layoutsData.length > 0) {
+        activeId = layoutsData[0].id;
+        setCurrentLayoutId(activeId);
+      }
+
+      // If we have an active layout, fetch its elements
+      if (activeId) {
+        const elementsData = await layoutApi.getElements(activeId);
+        resetHistory(elementsData);
+        setError(null);
+      } else {
+        // No layouts exist? Should not happen as backend creates default, but handle it
+        setElements([]);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
       console.error('Load error:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Effect to reload elements when layout changes
+  useEffect(() => {
+    if (currentLayoutId) {
+      const fetchElements = async () => {
+        try {
+          setLoading(true);
+          const elementsData = await layoutApi.getElements(currentLayoutId);
+          resetHistory(elementsData);
+        } catch (err) {
+          console.error('Failed to load elements:', err);
+          setError('Failed to load elements for this layout');
+        } finally {
+          setLoading(false);
+        }
+      };
+      fetchElements();
+    }
+  }, [currentLayoutId]);
+
+  // Layout CRUD Handlers
+  const handleLayoutCreate = async (name: string) => {
+    try {
+      setSaving(true);
+      const newLayout = await layoutApi.createLayout({ name });
+      setLayouts(prev => [...prev, newLayout]);
+      setCurrentLayoutId(newLayout.id); // Switch to new layout
+      setToast({ message: 'Layout created', type: 'success' });
+    } catch (err) {
+      setError('Failed to create layout');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLayoutRename = async (id: string, name: string) => {
+    try {
+      setSaving(true);
+      const updated = await layoutApi.updateLayout(id, { name });
+      setLayouts(prev => prev.map(l => l.id === id ? updated : l));
+      setToast({ message: 'Layout renamed', type: 'success' });
+    } catch (err) {
+      setError('Failed to rename layout');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLayoutDelete = async (id: string) => {
+    try {
+      setSaving(true);
+      await layoutApi.deleteLayout(id);
+
+      const newLayouts = layouts.filter(l => l.id !== id);
+      setLayouts(newLayouts);
+
+      // If we deleted the current layout, switch to another one
+      if (currentLayoutId === id) {
+        if (newLayouts.length > 0) {
+          setCurrentLayoutId(newLayouts[0].id);
+        } else {
+          setCurrentLayoutId(null);
+          setElements([]);
+        }
+      }
+      setToast({ message: 'Layout deleted', type: 'success' });
+    } catch (err) {
+      setError('Failed to delete layout');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -167,6 +258,7 @@ export default function Home() {
       try {
         setSaving(true);
         const created = await elementsApi.create({
+          layout_id: layout?.id || currentLayoutId || '',
           element_type: selectedType,
           label: tempElement.label,
           x_coordinate: x,
@@ -350,6 +442,7 @@ export default function Home() {
       setSaving(true);
       // Create all on backend
       const createdElements = await Promise.all(newElementsToAdd.map(el => elementsApi.create({
+        layout_id: layout?.id || currentLayoutId || '',
         element_type: el.element_type,
         label: el.label,
         x_coordinate: el.x_coordinate,
@@ -533,7 +626,20 @@ export default function Home() {
     <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
       <Header title="Warehouse Designer" subtitle={`${layout?.name || 'Untitled Layout'} • Layout Editor`} />
 
-      <MenuBar layoutName={layout?.name || 'Untitled Layout'} onAction={handleMenuAction} />
+      <MenuBar
+        layoutName={layout?.name || 'Untitled Layout'}
+        onAction={handleMenuAction}
+        headerContent={
+          <LayoutManager
+            layouts={layouts}
+            currentLayoutId={currentLayoutId}
+            onLayoutSelect={setCurrentLayoutId}
+            onLayoutCreate={handleLayoutCreate}
+            onLayoutRename={handleLayoutRename}
+            onLayoutDelete={handleLayoutDelete}
+          />
+        }
+      />
 
       <div className="flex-1 flex overflow-hidden">
         <Sidebar activeTool={activeTool} onSelectTool={setActiveTool} />

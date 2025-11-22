@@ -23,8 +23,8 @@ export default function StepIndicator({ currentStep, totalSteps, steps }: StepIn
                                 <div
                                     className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 shadow-sm
                                         ${isCompleted ? 'bg-emerald-500 border-emerald-500 text-white' :
-                                            isCurrent ? 'bg-white border-blue-600 text-blue-600 ring-4 ring-blue-50 scale-110' :
-                                                'bg-white border-slate-200 text-slate-300'}`}
+                                            isCurrent ? 'bg-slate-900 border-blue-500 text-blue-400 ring-4 ring-blue-500/20 scale-110' :
+                                                'bg-slate-800 border-slate-700 text-slate-500'}`}
                                 >
                                     {isCompleted ? (
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,7 +35,7 @@ export default function StepIndicator({ currentStep, totalSteps, steps }: StepIn
                                     )}
                                 </div>
                                 <div className={`absolute -bottom-8 w-32 text-center text-xs font-semibold tracking-wide transition-colors duration-300
-                                    ${isCurrent ? 'text-blue-600' : isCompleted ? 'text-emerald-600' : 'text-slate-400'}`}
+                                    ${isCurrent ? 'text-blue-400' : isCompleted ? 'text-emerald-500' : 'text-slate-600'}`}
                                 >
                                     {step}
                                 </div>
@@ -45,7 +45,7 @@ export default function StepIndicator({ currentStep, totalSteps, steps }: StepIn
                             {index < steps.length - 1 && (
                                 <div className="flex-1 h-[2px] mx-4 relative">
                                     {/* Background Line */}
-                                    <div className="absolute inset-0 bg-slate-100 rounded-full"></div>
+                                    <div className="absolute inset-0 bg-slate-800 rounded-full"></div>
                                     {/* Progress Line */}
                                     <div
                                         className={`absolute inset-y-0 left-0 bg-emerald-500 rounded-full transition-all duration-500 ease-out

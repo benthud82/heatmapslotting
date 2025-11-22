@@ -13,25 +13,23 @@ const ELEMENT_TYPES = {
   arrow: { width: 100, height: 2 }
 };
 
-// Helper function to get user's layout ID
-async function getUserLayoutId(userId) {
-  const result = await query(
-    'SELECT id FROM layouts WHERE user_id = $1',
-    [userId]
-  );
-  return result.rows.length > 0 ? result.rows[0].id : null;
-}
-
 // GET /api/elements - Fetch warehouse elements for user's layout
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { layout_id } = req.query;
 
-    // Get user's layout ID
-    let layoutId = layout_id || await getUserLayoutId(userId);
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
 
-    if (!layoutId) {
+    // Verify layout belongs to user
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
@@ -40,7 +38,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
       `SELECT * FROM warehouse_elements
        WHERE layout_id = $1
        ORDER BY created_at ASC`,
-      [layoutId]
+      [layout_id]
     );
 
     res.json(result.rows);
@@ -54,23 +52,25 @@ const { checkElementLimit } = require('../middleware/limits');
 router.post('/', authMiddleware, checkElementLimit, async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { element_type, label, x_coordinate, y_coordinate, rotation, width: reqWidth, height: reqHeight } = req.body;
+    const { element_type, label, x_coordinate, y_coordinate, rotation, width: reqWidth, height: reqHeight, layout_id } = req.body;
+
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
 
     // Validate element type
     if (!ELEMENT_TYPES[element_type]) {
       return res.status(400).json({ error: 'Invalid element_type. Must be: bay, flow_rack, full_pallet, text, line, or arrow' });
     }
 
-    // User is already authenticated via Supabase middleware
+    // Verify layout belongs to user
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
+    );
 
-    // Get or create layout
-    let layoutId = await getUserLayoutId(userId);
-    if (!layoutId) {
-      const layoutResult = await query(
-        `INSERT INTO layouts (user_id, name) VALUES ($1, $2) RETURNING id`,
-        [userId, 'My Warehouse Layout']
-      );
-      layoutId = layoutResult.rows[0].id;
+    if (layoutResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Layout not found' });
     }
 
     // Get element dimensions (prefer request body for resizable elements, fallback to defaults)
@@ -84,7 +84,7 @@ router.post('/', authMiddleware, checkElementLimit, async (req, res, next) => {
        (layout_id, element_type, label, x_coordinate, y_coordinate, width, height, rotation)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [layoutId, element_type, label, x_coordinate, y_coordinate, width, height, rotation || 0]
+      [layout_id, element_type, label, x_coordinate, y_coordinate, width, height, rotation || 0]
     );
 
     res.status(201).json(result.rows[0]);
@@ -100,11 +100,21 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
     const elementId = req.params.id;
     const { label, x_coordinate, y_coordinate, rotation, width, height } = req.body;
 
-    // Verify the element belongs to user's layout
-    const layoutId = await getUserLayoutId(userId);
-    if (!layoutId) {
-      return res.status(404).json({ error: 'Layout not found' });
+    // We need to verify ownership of the element via the layout
+    // First, get the layout_id of the element
+    const elementResult = await query(
+      `SELECT we.layout_id 
+       FROM warehouse_elements we
+       JOIN layouts l ON we.layout_id = l.id
+       WHERE we.id = $1 AND l.user_id = $2`,
+      [elementId, userId]
+    );
+
+    if (elementResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Element not found or access denied' });
     }
+
+    const layoutId = elementResult.rows[0].layout_id;
 
     // If label is being updated, check for duplicates (case-insensitive)
     if (label) {
@@ -132,14 +142,10 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
            width = COALESCE($5, width),
            height = COALESCE($6, height),
            updated_at = NOW()
-       WHERE id = $7 AND layout_id = $8
+       WHERE id = $7
        RETURNING *`,
-      [label, x_coordinate, y_coordinate, rotation, width, height, elementId, layoutId]
+      [label, x_coordinate, y_coordinate, rotation, width, height, elementId]
     );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Element not found' });
-    }
 
     res.json(result.rows[0]);
   } catch (error) {
@@ -153,19 +159,19 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
     const userId = req.user.id;
     const elementId = req.params.id;
 
-    // Verify the element belongs to user's layout
-    const layoutId = await getUserLayoutId(userId);
-    if (!layoutId) {
-      return res.status(404).json({ error: 'Layout not found' });
-    }
-
+    // Verify ownership via layout join
     const result = await query(
-      'DELETE FROM warehouse_elements WHERE id = $1 AND layout_id = $2 RETURNING id',
-      [elementId, layoutId]
+      `DELETE FROM warehouse_elements we
+       USING layouts l
+       WHERE we.layout_id = l.id
+       AND we.id = $1
+       AND l.user_id = $2
+       RETURNING we.id`,
+      [elementId, userId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Element not found' });
+      return res.status(404).json({ error: 'Element not found or access denied' });
     }
 
     res.json({ message: 'Element deleted successfully', id: elementId });
@@ -175,4 +181,3 @@ router.delete('/:id', authMiddleware, async (req, res, next) => {
 });
 
 module.exports = router;
-

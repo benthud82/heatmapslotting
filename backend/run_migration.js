@@ -10,10 +10,10 @@ const pool = new Pool({
 
 async function runMigration() {
     try {
-        const sqlPath = path.join(__dirname, 'db', 'migrations', '002_add_subscription_fields.sql');
+        const sqlPath = path.join(__dirname, 'db', 'migrations', '003_allow_multiple_layouts.sql');
         const sql = fs.readFileSync(sqlPath, 'utf8');
 
-        console.log('Running migration...');
+        console.log('Running migration 003_allow_multiple_layouts...');
         await pool.query(sql);
         console.log('Migration completed successfully.');
     } catch (error) {

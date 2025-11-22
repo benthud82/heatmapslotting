@@ -6,6 +6,7 @@ import Link from 'next/link';
 interface MenuBarProps {
     layoutName: string;
     onAction: (action: string) => void;
+    headerContent?: React.ReactNode;
 }
 
 interface MenuItem {
@@ -21,7 +22,7 @@ interface Menu {
     items: MenuItem[];
 }
 
-export default function MenuBar({ layoutName, onAction }: MenuBarProps) {
+export default function MenuBar({ layoutName, onAction, headerContent }: MenuBarProps) {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -97,10 +98,14 @@ export default function MenuBar({ layoutName, onAction }: MenuBarProps) {
 
                 <div className="h-4 w-px bg-slate-800"></div>
 
-                {/* File Name */}
-                <div className="text-sm text-slate-400 font-medium hover:text-white cursor-pointer transition-colors">
-                    {layoutName}
-                </div>
+                {/* File Name or Custom Content */}
+                {headerContent ? (
+                    headerContent
+                ) : (
+                    <div className="text-sm text-slate-400 font-medium hover:text-white cursor-pointer transition-colors">
+                        {layoutName}
+                    </div>
+                )}
 
                 {/* Menu Items */}
                 <nav className="hidden md:flex items-center gap-1 ml-2 relative">

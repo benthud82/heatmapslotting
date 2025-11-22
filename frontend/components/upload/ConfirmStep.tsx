@@ -4,12 +4,13 @@ import Link from 'next/link';
 
 interface ConfirmStepProps {
     file: File;
+    layoutId: string;
     validationResult: ValidationResult;
     onBack: () => void;
     onUploadComplete: () => void;
 }
 
-export default function ConfirmStep({ file, validationResult, onBack, onUploadComplete }: ConfirmStepProps) {
+export default function ConfirmStep({ file, layoutId, validationResult, onBack, onUploadComplete }: ConfirmStepProps) {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [isSuccess, setIsSuccess] = useState(false);
@@ -22,6 +23,7 @@ export default function ConfirmStep({ file, validationResult, onBack, onUploadCo
         try {
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('layoutId', layoutId);
 
             const token = localStorage.getItem('token');
             const response = await fetch('http://localhost:3001/api/picks/upload', {
@@ -50,24 +52,24 @@ export default function ConfirmStep({ file, validationResult, onBack, onUploadCo
 
     if (isSuccess) {
         return (
-            <div className="text-center py-12">
-                <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-green-100 rounded-full">
-                    <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-12 animate-fade-in">
+                <div className="inline-flex items-center justify-center w-16 h-16 mb-6 bg-emerald-500/20 rounded-full">
+                    <svg className="w-8 h-8 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>
                 </div>
-                <h2 className="text-3xl font-bold text-gray-900">Upload Complete!</h2>
-                <p className="mt-4 text-lg text-gray-600">
-                    Successfully processed <span className="font-semibold text-gray-900">{rowsProcessed}</span> pick records.
+                <h2 className="text-3xl font-bold text-white">Upload Complete!</h2>
+                <p className="mt-4 text-lg text-slate-400">
+                    Successfully processed <span className="font-semibold text-white">{rowsProcessed}</span> pick records.
                 </p>
 
                 <div className="mt-8 flex justify-center space-x-4">
-                    <Link href="/heatmap" className="px-6 py-3 text-white bg-blue-600 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    <Link href="/heatmap" className="px-6 py-3 text-white bg-blue-600 rounded-md hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg shadow-blue-900/20">
                         View Heatmap
                     </Link>
                     <button
                         onClick={() => window.location.reload()}
-                        className="px-6 py-3 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        className="px-6 py-3 text-slate-300 bg-slate-800 border border-slate-700 rounded-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500"
                     >
                         Upload Another File
                     </button>
@@ -79,32 +81,35 @@ export default function ConfirmStep({ file, validationResult, onBack, onUploadCo
     return (
         <div className="space-y-8">
             <div className="text-center">
-                <h2 className="text-2xl font-bold text-gray-900">Ready to Upload?</h2>
-                <p className="mt-2 text-gray-600">
-                    Please review the summary below before finalizing your upload.
+                <h2 className="text-2xl font-bold text-white">Confirm Upload</h2>
+                <p className="mt-2 text-slate-400">
+                    Review the summary below before finalizing your import.
                 </p>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-                    <h3 className="text-lg font-medium text-gray-900">Upload Summary</h3>
+            <div className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-slate-700 bg-slate-800/50">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-blue-900/30 rounded-lg">
+                            <svg className="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-medium text-white">{file.name}</h3>
+                            <p className="text-sm text-slate-400">{(file.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                    </div>
                 </div>
-                <div className="p-6 space-y-4">
-                    <div className="flex justify-between py-2 border-b border-gray-100">
-                        <span className="text-gray-500">File Name</span>
-                        <span className="font-medium text-gray-900">{file.name}</span>
+
+                <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-700">
+                        <p className="text-sm text-slate-400 mb-1">Total Records</p>
+                        <p className="text-2xl font-bold text-white">{validationResult.rows.length.toLocaleString()}</p>
                     </div>
-                    <div className="flex justify-between py-2 border-b border-gray-100">
-                        <span className="text-gray-500">File Size</span>
-                        <span className="font-medium text-gray-900">{(file.size / 1024).toFixed(1)} KB</span>
-                    </div>
-                    <div className="flex justify-between py-2 border-b border-gray-100">
-                        <span className="text-gray-500">Total Rows</span>
-                        <span className="font-medium text-gray-900">{validationResult.stats.totalRows}</span>
-                    </div>
-                    <div className="flex justify-between py-2">
-                        <span className="text-gray-500">Date Range</span>
-                        <span className="font-medium text-gray-900">
+                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-700">
+                        <p className="text-sm text-slate-400 mb-1">Date Range</p>
+                        <p className="text-lg font-semibold text-white">
                             {(() => {
                                 const dates = validationResult.rows
                                     .filter(row => row.isValid && row.original.date)
@@ -112,39 +117,41 @@ export default function ConfirmStep({ file, validationResult, onBack, onUploadCo
                                     .sort();
 
                                 if (dates.length === 0) return 'N/A';
-                                if (dates.length === 1) return dates[0];
-
                                 const minDate = dates[0];
                                 const maxDate = dates[dates.length - 1];
-
-                                return minDate === maxDate ? minDate : `${minDate} to ${maxDate}`;
+                                return (
+                                    <>
+                                        {minDate} <span className="text-slate-600 mx-1">to</span> {maxDate}
+                                    </>
+                                );
                             })()}
-                        </span>
+                        </p>
+                    </div>
+                    <div className="p-4 bg-slate-900 rounded-lg border border-slate-700">
+                        <p className="text-sm text-slate-400 mb-1">Total Picks</p>
+                        <p className="text-2xl font-bold text-emerald-400">
+                            {validationResult.rows.reduce((sum, row) => sum + (Number(row.original.pick_count) || 0), 0).toLocaleString()}
+                        </p>
                     </div>
                 </div>
+
+                {uploadError && (
+                    <div className="px-6 pb-6">
+                        <div className="p-4 bg-red-900/20 border border-red-800/50 rounded-lg flex items-start gap-3">
+                            <svg className="w-5 h-5 text-red-500 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <p className="text-red-300 text-sm">{uploadError}</p>
+                        </div>
+                    </div>
+                )}
             </div>
 
-            {uploadError && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-md">
-                    <div className="flex">
-                        <div className="flex-shrink-0">
-                            <svg className="w-5 h-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                            </svg>
-                        </div>
-                        <div className="ml-3">
-                            <h3 className="text-sm font-medium text-red-800">Upload Failed</h3>
-                            <div className="mt-2 text-sm text-red-700">{uploadError}</div>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="flex items-center justify-between pt-6 border-t border-gray-200">
+            <div className="flex items-center justify-between pt-6 border-t border-slate-800">
                 <button
                     onClick={onBack}
                     disabled={isUploading}
-                    className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                    className="px-4 py-2 text-slate-300 bg-slate-800 border border-slate-700 rounded-md hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                 >
                     Back
                 </button>
@@ -152,7 +159,7 @@ export default function ConfirmStep({ file, validationResult, onBack, onUploadCo
                 <button
                     onClick={handleUpload}
                     disabled={isUploading}
-                    className="inline-flex items-center px-6 py-2 text-white bg-green-600 rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-wait"
+                    className="inline-flex items-center px-6 py-2 text-white bg-emerald-600 rounded-md hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-wait shadow-lg shadow-emerald-900/20"
                 >
                     {isUploading ? (
                         <>

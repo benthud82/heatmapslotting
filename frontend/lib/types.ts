@@ -29,6 +29,7 @@ export interface Layout {
 }
 
 export interface CreateElementRequest {
+  layout_id?: string;
   element_type: ElementType;
   label: string;
   x_coordinate: number;

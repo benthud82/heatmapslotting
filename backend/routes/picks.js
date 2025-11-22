@@ -31,18 +31,23 @@ router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('fil
     }
 
     const userId = req.user.id;
+    // layoutId should be passed in the body, but multer handles the file first.
+    // req.body is populated after multer processes the file.
+    const layoutId = req.body.layoutId;
 
-    // Get user's layout
+    if (!layoutId) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layoutId, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No layout found. Please create a layout first.' });
+      return res.status(404).json({ error: 'Layout not found or access denied.' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     // Get all warehouse elements for this layout (for validation)
     const elementsResult = await query(
@@ -190,19 +195,21 @@ router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('fil
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { start_date, end_date } = req.query;
+    const { start_date, end_date, layout_id } = req.query;
 
-    // Get user's layout
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.json([]); // No layout yet, return empty array
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     // Build query with optional date filters
     let queryText = `
@@ -215,7 +222,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
       JOIN warehouse_elements we ON pt.element_id = we.id
       WHERE pt.layout_id = $1
     `;
-    const queryParams = [layoutId];
+    const queryParams = [layout_id];
 
     if (start_date) {
       queryParams.push(start_date);
@@ -241,19 +248,21 @@ router.get('/', authMiddleware, async (req, res, next) => {
 router.get('/aggregated', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { start_date, end_date } = req.query;
+    const { start_date, end_date, layout_id } = req.query;
 
-    // Get user's layout
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.json([]); // No layout yet, return empty array
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     // Build query with optional date filters and aggregation
     let queryText = `
@@ -268,7 +277,7 @@ router.get('/aggregated', authMiddleware, async (req, res, next) => {
       JOIN warehouse_elements we ON pt.element_id = we.id
       WHERE pt.layout_id = $1
     `;
-    const queryParams = [layoutId];
+    const queryParams = [layout_id];
 
     if (start_date) {
       queryParams.push(start_date);
@@ -294,25 +303,28 @@ router.get('/aggregated', authMiddleware, async (req, res, next) => {
 router.get('/dates', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const { layout_id } = req.query;
 
-    // Get user's layout
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.json([]);
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     const result = await query(
       `SELECT DISTINCT to_char(pick_date, 'YYYY-MM-DD') as pick_date 
        FROM pick_transactions 
        WHERE layout_id = $1 
        ORDER BY pick_date DESC`,
-      [layoutId]
+      [layout_id]
     );
 
     // Return array of date strings
@@ -326,22 +338,25 @@ router.get('/dates', authMiddleware, async (req, res, next) => {
 router.delete('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
+    const { layout_id } = req.query;
 
-    // Get user's layout
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No layout found' });
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     const result = await query(
       'DELETE FROM pick_transactions WHERE layout_id = $1',
-      [layoutId]
+      [layout_id]
     );
 
     res.json({
@@ -357,7 +372,11 @@ router.delete('/', authMiddleware, async (req, res, next) => {
 router.delete('/batch', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { dates } = req.body;
+    const { dates, layoutId } = req.body;
+
+    if (!layoutId) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
 
     if (!dates || !Array.isArray(dates) || dates.length === 0) {
       return res.status(400).json({ error: 'No dates provided' });
@@ -370,17 +389,15 @@ router.delete('/batch', authMiddleware, async (req, res, next) => {
       return res.status(400).json({ error: `Invalid date format for: ${invalidDates.join(', ')}` });
     }
 
-    // Get user's layout
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layoutId, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No layout found' });
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     const result = await query(
       'DELETE FROM pick_transactions WHERE layout_id = $1 AND pick_date = ANY($2::date[])',
@@ -401,28 +418,31 @@ router.delete('/by-date/:date', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { date } = req.params;
+    const { layout_id } = req.query;
+
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
 
     // Validate date format (YYYY-MM-DD)
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return res.status(400).json({ error: 'Invalid date format. Expected YYYY-MM-DD' });
     }
 
-    // Get user's layout
+    // Verify layout belongs to user
     const layoutResult = await query(
-      'SELECT id FROM layouts WHERE user_id = $1',
-      [userId]
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
     );
 
     if (layoutResult.rows.length === 0) {
-      return res.status(404).json({ error: 'No layout found' });
+      return res.status(404).json({ error: 'Layout not found' });
     }
-
-    const layoutId = layoutResult.rows[0].id;
 
     // Delete all pick transactions for this layout on the specified date
     const result = await query(
       'DELETE FROM pick_transactions WHERE layout_id = $1 AND pick_date = $2',
-      [layoutId, date]
+      [layout_id, date]
     );
 
     res.json({

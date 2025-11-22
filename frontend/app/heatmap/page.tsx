@@ -12,6 +12,7 @@ import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi } from '@/lib/api';
 import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
+import LayoutManager from '@/components/designer/LayoutManager';
 
 export default function Heatmap() {
   const { preferences } = useUserPreferences();
@@ -24,7 +25,10 @@ export default function Heatmap() {
       setIsUploadModalOpen(true);
     }
   };
-  const [layout, setLayout] = useState<Layout | null>(null);
+
+  const [layouts, setLayouts] = useState<Layout[]>([]);
+  const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
+  const layout = useMemo(() => layouts.find(l => l.id === currentLayoutId) || null, [layouts, currentLayoutId]);
   const [elements, setElements] = useState<WarehouseElement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,36 +63,58 @@ export default function Heatmap() {
     return `${year}-${month}-${day}`;
   };
 
-  // Load initial data
+  // Load initial layouts
   useEffect(() => {
-    loadData();
+    loadLayouts();
   }, []);
+
+  // Load layout details when currentLayoutId changes
+  useEffect(() => {
+    if (currentLayoutId) {
+      loadLayoutDetails(currentLayoutId);
+    }
+  }, [currentLayoutId]);
 
   // Load pick data when date range changes
   useEffect(() => {
-    if (hasPickData) {
-      loadPickData();
+    if (hasPickData && currentLayoutId) {
+      loadPickData(currentLayoutId);
     }
   }, [startDate, endDate]);
 
-  const loadData = async () => {
+  const loadLayouts = async () => {
     try {
       setLoading(true);
-      const [layoutData, elementsData] = await Promise.all([
-        layoutApi.getLayout(),
-        layoutApi.getElements(),
-      ]);
-      setLayout(layoutData);
+      const layoutsData = await layoutApi.getLayouts();
+      setLayouts(layoutsData);
+
+      if (layoutsData.length > 0 && !currentLayoutId) {
+        setCurrentLayoutId(layoutsData[0].id);
+      } else if (layoutsData.length === 0) {
+        setLoading(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load layouts');
+      setLoading(false);
+    }
+  };
+
+  const loadLayoutDetails = async (layoutId: string) => {
+    try {
+      setLoading(true);
+
+      // Fetch elements for active layout
+      const elementsData = await layoutApi.getElements(layoutId);
       setElements(elementsData);
       setError(null);
 
       // Try to load pick data
-      const allAggregatedData = await picksApi.getAggregated(undefined, undefined);
+      const allAggregatedData = await picksApi.getAggregated(layoutId, undefined, undefined);
 
       if (allAggregatedData.length > 0) {
         // Fetch available dates
         try {
-          const dates = await picksApi.getDates();
+          const dates = await picksApi.getDates(layoutId);
           setAvailableDates(dates);
         } catch (err) {
           console.error('Failed to fetch available dates:', err);
@@ -101,11 +127,15 @@ export default function Heatmap() {
         }, allAggregatedData[0].last_date);
 
         const formattedDate = formatDateForInput(mostRecentDate);
+
+        // Only update dates if they are not already set (to preserve user selection during switching if possible, 
+        // but usually we want to reset to latest for the new layout)
+        // For now, let's reset to latest for the new layout
         setStartDate(formattedDate);
         setEndDate(formattedDate);
 
         // Load pick data for the most recent day
-        const recentDayData = await picksApi.getAggregated(formattedDate, formattedDate);
+        const recentDayData = await picksApi.getAggregated(layoutId, formattedDate, formattedDate);
         const pickMap = new Map<string, number>();
         recentDayData.forEach(item => {
           pickMap.set(item.element_id, item.total_picks);
@@ -114,19 +144,26 @@ export default function Heatmap() {
         setAggregatedData(recentDayData);
         setHasPickData(recentDayData.length > 0);
       } else {
-        await loadPickData();
+        setPickData(new Map());
+        setAggregatedData([]);
+        setHasPickData(false);
+        setAvailableDates([]);
+        setStartDate('');
+        setEndDate('');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
+      setError(err instanceof Error ? err.message : 'Failed to load layout details');
       console.error('Load error:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadPickData = async () => {
+  const loadPickData = async (layoutId: string) => {
+    if (!layoutId) return;
     try {
       const data = await picksApi.getAggregated(
+        layoutId,
         startDate || undefined,
         endDate || undefined
       );
@@ -145,7 +182,11 @@ export default function Heatmap() {
   };
 
   const handleUploadSuccess = () => {
-    loadData(); // Reload everything to get new dates
+    if (currentLayoutId) {
+      loadLayoutDetails(currentLayoutId);
+    } else {
+      loadLayouts();
+    }
   };
 
   // No-op handlers
@@ -167,7 +208,7 @@ export default function Heatmap() {
     };
   }, [pickData]);
 
-  if (loading) {
+  if (loading && !layouts.length) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">
@@ -186,9 +227,21 @@ export default function Heatmap() {
     <div className="h-screen flex flex-col bg-slate-950 overflow-hidden">
       <Header
         title="Warehouse Heatmap"
-        subtitle={`${layout?.name || 'Primary Layout'} • Read-only visualization`}
+        subtitle="Read-only visualization"
       >
         <div className="flex items-center gap-4">
+          <LayoutManager
+            layouts={layouts}
+            currentLayoutId={currentLayoutId}
+            onLayoutSelect={(id) => {
+              setCurrentLayoutId(id);
+            }}
+            // Read-only mode
+            readOnly={true}
+            onLayoutCreate={() => { }}
+            onLayoutRename={() => { }}
+            onLayoutDelete={() => { }}
+          />
           <button
             onClick={handleUploadClick}
             className="px-4 py-2 bg-green-600 hover:bg-green-500 text-white font-mono text-sm rounded transition-colors flex items-center gap-2 shadow-lg shadow-green-900/20"

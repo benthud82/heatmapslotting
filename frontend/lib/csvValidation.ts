@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import Papa from 'papaparse';
 
 export interface CSVRow {
@@ -60,7 +61,7 @@ export const validateCSV = (
                 let validCount = 0;
                 let invalidCount = 0;
 
-                rows.forEach((row, index) => {
+                rows.forEach((row) => {
                     const rowErrors: string[] = [];
                     const elementName = row.element_name?.trim();
                     const date = row.date?.trim();

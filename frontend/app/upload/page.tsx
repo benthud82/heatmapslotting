@@ -88,24 +88,24 @@ export default function UploadPage() {
 
     if (prefsLoading) {
         return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-50">
+            <div className="flex items-center justify-center min-h-screen bg-slate-950">
                 <div className="flex flex-col items-center gap-4">
-                    <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-slate-500 font-medium">Loading preferences...</p>
+                    <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-slate-400 font-medium">Loading preferences...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-slate-50">
+        <div className="min-h-screen bg-slate-950 text-slate-200">
             <Header />
 
-            <main className="max-w-5xl px-4 py-12 mx-auto sm:px-6 lg:px-8">
-                <div className="mb-12">
-                    <div className="text-center mb-10">
-                        <h1 className="text-3xl font-bold text-slate-900 tracking-tight">Import Data</h1>
-                        <p className="mt-2 text-slate-500">Follow the steps to securely upload and validate your warehouse data</p>
+            <main className="w-full px-4 py-8 mx-auto sm:px-6 lg:px-8">
+                <div className="mb-8 max-w-4xl mx-auto">
+                    <div className="text-center mb-8">
+                        <h1 className="text-3xl font-bold text-white tracking-tight">Import Data</h1>
+                        <p className="mt-2 text-slate-400">Follow the steps to securely upload and validate your warehouse data</p>
                     </div>
 
                     <StepIndicator
@@ -115,7 +115,7 @@ export default function UploadPage() {
                     />
                 </div>
 
-                <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+                <div className="bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden max-w-[1600px] mx-auto">
                     <div className="p-8 md:p-10">
                         {currentStep === 1 && (
                             <IntroStep
@@ -144,6 +144,7 @@ export default function UploadPage() {
                         {currentStep === 4 && file && validationResult && (
                             <ConfirmStep
                                 file={file}
+                                layoutId={selectedLayoutId}
                                 validationResult={validationResult}
                                 onBack={handleBack}
                                 onUploadComplete={handleUploadComplete}

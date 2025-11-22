@@ -61,9 +61,7 @@ export function distributeElements(elements: WarehouseElement[], type: Distribut
     const last = sorted[sorted.length - 1];
 
     if (type === 'horizontal') {
-        const totalSpan = (last.x_coordinate) - (first.x_coordinate + first.width);
-        const totalWidth = sorted.slice(1, -1).reduce((acc, el) => acc + el.width, 0);
-        const gap = (totalSpan - totalWidth) / (sorted.length - 1);
+
 
         // Actually, simpler logic: distribute centers or start points?
         // Standard is usually distributing the space between them or their centers.

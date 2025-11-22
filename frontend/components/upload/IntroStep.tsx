@@ -11,8 +11,8 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
     return (
         <div className="space-y-10">
             <div className="text-center max-w-2xl mx-auto">
-                <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome to the Data Import Wizard</h2>
-                <p className="mt-3 text-slate-500 text-lg">
+                <h2 className="text-2xl font-bold text-white tracking-tight">Welcome to the Data Import Wizard</h2>
+                <p className="mt-3 text-slate-400 text-lg">
                     We'll guide you through uploading your pick history data. This ensures your heatmap is accurate and actionable.
                 </p>
             </div>
@@ -20,12 +20,12 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 {/* Left Column: Guide */}
                 <div className="space-y-6">
-                    <div className="bg-blue-50/50 rounded-xl p-6 border border-blue-100">
-                        <h3 className="font-semibold text-blue-900 mb-4 flex items-center gap-2">
-                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs font-bold">1</span>
+                    <div className="bg-blue-900/20 rounded-xl p-6 border border-blue-800/50">
+                        <h3 className="font-semibold text-blue-400 mb-4 flex items-center gap-2">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 text-xs font-bold">1</span>
                             Prepare Your Data
                         </h3>
-                        <p className="text-sm text-blue-800/80 mb-4 leading-relaxed">
+                        <p className="text-sm text-blue-200/80 mb-4 leading-relaxed">
                             Ensure your CSV file is formatted correctly. The system requires specific headers to map your data to the warehouse layout.
                         </p>
                         <CSVFormatGuide />
@@ -34,9 +34,9 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
 
                 {/* Right Column: Checklist & Action */}
                 <div className="space-y-6">
-                    <div className="bg-slate-50 rounded-xl p-6 border border-slate-200">
-                        <h3 className="font-semibold text-slate-900 mb-4 flex items-center gap-2">
-                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-200 text-slate-600 text-xs font-bold">2</span>
+                    <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
+                        <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
+                            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-700 text-slate-300 text-xs font-bold">2</span>
                             Pre-flight Checklist
                         </h3>
                         <ul className="space-y-3">
@@ -46,7 +46,7 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
                                 'Element names match your warehouse layout exactly',
                                 'Dates are formatted consistently (YYYY-MM-DD preferred)'
                             ].map((item, i) => (
-                                <li key={i} className="flex items-start gap-3 text-sm text-slate-600">
+                                <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
                                     <div className="mt-0.5 min-w-[16px]">
                                         <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -58,14 +58,14 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
                         </ul>
                     </div>
 
-                    <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                    <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-sm">
                         <label className="flex items-start gap-3 cursor-pointer group">
                             <div className="relative flex items-center">
                                 <input
                                     type="checkbox"
                                     checked={skipTutorial}
                                     onChange={(e) => setSkipTutorial(e.target.checked)}
-                                    className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border border-slate-300 transition-all checked:border-blue-600 checked:bg-blue-600 hover:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                                    className="peer h-5 w-5 cursor-pointer appearance-none rounded-md border border-slate-600 bg-slate-700 transition-all checked:border-blue-500 checked:bg-blue-500 hover:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
                                 />
                                 <svg
                                     className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-white opacity-0 peer-checked:opacity-100 transition-opacity"
@@ -78,8 +78,8 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
                                 </svg>
                             </div>
                             <div className="flex flex-col">
-                                <span className="text-sm font-medium text-slate-900 group-hover:text-blue-700 transition-colors">Skip this intro next time</span>
-                                <span className="text-xs text-slate-500">I know the format and want to start uploading immediately.</span>
+                                <span className="text-sm font-medium text-white group-hover:text-blue-400 transition-colors">Skip this intro next time</span>
+                                <span className="text-xs text-slate-400">I know the format and want to start uploading immediately.</span>
                             </div>
                         </label>
                     </div>
@@ -89,7 +89,7 @@ export default function IntroStep({ onNext, skipTutorial, setSkipTutorial }: Int
             <div className="flex justify-center pt-8">
                 <button
                     onClick={onNext}
-                    className="group relative inline-flex items-center justify-center px-8 py-3 text-base font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-600/40 hover:-translate-y-0.5"
+                    className="group relative inline-flex items-center justify-center px-8 py-3 text-base font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-lg shadow-blue-900/20 hover:shadow-blue-900/40 hover:-translate-y-0.5"
                 >
                     <span>Start Upload Process</span>
                     <svg className="w-5 h-5 ml-2 -mr-1 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

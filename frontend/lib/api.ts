@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // API client for warehouse element placement
 
 import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError } from './types';
@@ -88,19 +89,35 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
 
 // Layout API
 export const layoutApi = {
-  // Get or create user's layout
-  getLayout: () => apiFetch<Layout>('/api/layouts'),
+  // Get all layouts for the authenticated user
+  getLayouts: () => apiFetch<Layout[]>('/api/layouts'),
+
+  // Create a new layout
+  createLayout: (data: { name: string; canvas_width?: number; canvas_height?: number }) =>
+    apiFetch<Layout>('/api/layouts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Update layout properties
-  updateLayout: (data: { name?: string; canvas_width?: number; canvas_height?: number }) =>
-    apiFetch<Layout>('/api/layouts', {
+  updateLayout: (id: string, data: { name?: string; canvas_width?: number; canvas_height?: number }) =>
+    apiFetch<Layout>(`/api/layouts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
 
-  // Get all elements for user's layout
-  getElements: async () => {
-    const elements = await apiFetch<any[]>('/api/layouts/elements');
+  // Delete a layout
+  deleteLayout: (id: string) =>
+    apiFetch<{ message: string; id: string }>(`/api/layouts/${id}`, {
+      method: 'DELETE',
+    }),
+
+  // Get a specific layout
+  getLayout: (id: string) => apiFetch<Layout>(`/api/layouts/${id}`),
+
+  // Get all elements for a specific layout
+  getElements: async (layoutId: string) => {
+    const elements = await apiFetch<any[]>(`/api/layouts/${layoutId}/elements`);
     return elements.map(normalizeElement);
   },
 };
@@ -135,7 +152,7 @@ export const elementsApi = {
 // Picks API
 export const picksApi = {
   // Upload CSV file with pick data
-  uploadCSV: async (file: File): Promise<UploadPicksResponse> => {
+  uploadCSV: async (file: File, layoutId: string): Promise<UploadPicksResponse> => {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
 
@@ -144,6 +161,7 @@ export const picksApi = {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('layoutId', layoutId);
 
     try {
       const response = await fetch(url, {
@@ -181,8 +199,9 @@ export const picksApi = {
   },
 
   // Get raw pick transactions with optional date filters
-  getTransactions: (startDate?: string, endDate?: string): Promise<PickTransaction[]> => {
+  getTransactions: (layoutId: string, startDate?: string, endDate?: string): Promise<PickTransaction[]> => {
     const params = new URLSearchParams();
+    params.append('layout_id', layoutId);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
 
@@ -193,8 +212,9 @@ export const picksApi = {
   },
 
   // Get aggregated pick counts per element with optional date filters
-  getAggregated: async (startDate?: string, endDate?: string): Promise<AggregatedPickData[]> => {
+  getAggregated: async (layoutId: string, startDate?: string, endDate?: string): Promise<AggregatedPickData[]> => {
     const params = new URLSearchParams();
+    params.append('layout_id', layoutId);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
 
@@ -211,11 +231,11 @@ export const picksApi = {
   },
 
   // Clear all pick data
-  clearAll: () =>
-    apiFetch<{ message: string; rowsDeleted: number }>('/api/picks', {
+  clearAll: (layoutId: string) =>
+    apiFetch<{ message: string; rowsDeleted: number }>(`/api/picks?layout_id=${layoutId}`, {
       method: 'DELETE',
     }),
 
   // Get all dates that have pick data
-  getDates: () => apiFetch<string[]>('/api/picks/dates'),
+  getDates: (layoutId: string) => apiFetch<string[]>(`/api/picks/dates?layout_id=${layoutId}`),
 };
