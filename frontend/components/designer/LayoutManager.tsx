@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { Layout } from '@/lib/types';
+import ConfirmModal from '@/components/ConfirmModal';
+import Modal from '@/components/Modal';
 
 interface LayoutManagerProps {
     layouts: Layout[];
@@ -28,6 +30,32 @@ export default function LayoutManager({
     const [newLayoutName, setNewLayoutName] = useState('');
     const [renameLayoutId, setRenameLayoutId] = useState<string | null>(null);
 
+    // Confirmation Modal State
+    const [confirmModal, setConfirmModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        onConfirm: () => void;
+        isDestructive?: boolean;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        onConfirm: () => { },
+        isDestructive: false
+    });
+
+    // Alert Modal State (using simple Modal)
+    const [alertModal, setAlertModal] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+    }>({
+        isOpen: false,
+        title: '',
+        message: ''
+    });
+
     const currentLayout = layouts.find(l => l.id === currentLayoutId);
 
     const handleCreate = () => {
@@ -49,13 +77,27 @@ export default function LayoutManager({
 
     const handleDelete = (layoutId: string) => {
         if (layouts.length <= 1) {
-            alert('You must have at least one layout.');
+            setAlertModal({
+                isOpen: true,
+                title: 'Cannot Delete Layout',
+                message: 'You must have at least one layout.'
+            });
             return;
         }
-        if (confirm('Are you sure you want to delete this layout? All elements will be permanently removed.') && onLayoutDelete) {
-            onLayoutDelete(layoutId);
-            setShowDropdown(false);
-        }
+
+        setConfirmModal({
+            isOpen: true,
+            title: 'Delete Layout',
+            message: 'Are you sure you want to delete this layout? All elements will be permanently removed.',
+            isDestructive: true,
+            onConfirm: () => {
+                if (onLayoutDelete) {
+                    onLayoutDelete(layoutId);
+                    setShowDropdown(false);
+                }
+                setConfirmModal(prev => ({ ...prev, isOpen: false }));
+            }
+        });
     };
 
     return (
@@ -210,6 +252,36 @@ export default function LayoutManager({
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* Confirmation Modal */}
+            <ConfirmModal
+                isOpen={confirmModal.isOpen}
+                title={confirmModal.title}
+                message={confirmModal.message}
+                onConfirm={confirmModal.onConfirm}
+                onCancel={() => setConfirmModal(prev => ({ ...prev, isOpen: false }))}
+                isDestructive={confirmModal.isDestructive}
+                confirmText="Delete"
+            />
+
+            {/* Alert Modal */}
+            {alertModal.isOpen && (
+                <Modal
+                    title={alertModal.title}
+                    onClose={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+                    width="max-w-sm"
+                    footer={
+                        <button
+                            onClick={() => setAlertModal(prev => ({ ...prev, isOpen: false }))}
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md"
+                        >
+                            OK
+                        </button>
+                    }
+                >
+                    <p className="text-slate-300">{alertModal.message}</p>
+                </Modal>
             )}
         </>
     );

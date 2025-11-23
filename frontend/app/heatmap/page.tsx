@@ -5,8 +5,6 @@ import Link from 'next/link';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
-import QuickUploadModal from '@/components/QuickUploadModal';
-import { useUserPreferences } from '@/hooks/useUserPreferences';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
@@ -15,15 +13,10 @@ import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
 
 export default function Heatmap() {
-  const { preferences } = useUserPreferences();
   const router = useRouter();
 
   const handleUploadClick = () => {
-    if (preferences && !preferences.skip_upload_tutorial) {
-      router.push('/upload');
-    } else {
-      setIsUploadModalOpen(true);
-    }
+    router.push('/upload');
   };
 
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -32,9 +25,6 @@ export default function Heatmap() {
   const [elements, setElements] = useState<WarehouseElement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Upload modal state
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   // Date range state
   const [startDate, setStartDate] = useState<string>('');
@@ -178,14 +168,6 @@ export default function Heatmap() {
       setHasPickData(data.length > 0);
     } catch (err) {
       console.error('Failed to load pick data:', err);
-    }
-  };
-
-  const handleUploadSuccess = () => {
-    if (currentLayoutId) {
-      loadLayoutDetails(currentLayoutId);
-    } else {
-      loadLayouts();
     }
   };
 
@@ -340,18 +322,11 @@ export default function Heatmap() {
             totalPicks={totalPicks}
           />
         ) : (
-          <div className="h-full border-l border-slate-800 bg-slate-900/50 backdrop-blur-sm p-6">
-            <HeatmapGuide onUploadClick={() => setIsUploadModalOpen(true)} />
+          <div className="h-full border-l border-slate-800 bg-slate-900/50 backdrop-blur-sm p-6 min-w-[280px] w-[320px]">
+            <HeatmapGuide onUploadClick={handleUploadClick} />
           </div>
         )}
       </div>
-
-      {/* Upload Modal */}
-      <QuickUploadModal
-        isOpen={isUploadModalOpen}
-        onClose={() => setIsUploadModalOpen(false)}
-        onSuccess={handleUploadSuccess}
-      />
     </div>
   );
 }

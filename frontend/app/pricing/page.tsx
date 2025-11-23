@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/Header';
-import { getStripe } from '@/lib/stripe';
+import Modal from '@/components/Modal';
+import { loadStripe } from '@stripe/stripe-js';
 
 const TIERS = [
     {
@@ -34,7 +35,9 @@ const TIERS = [
 ];
 
 export default function PricingPage() {
+    const [billingInterval, setBillingInterval] = useState<'month' | 'year'>('month');
     const [loading, setLoading] = useState<string | null>(null);
+    const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
     const handleUpgrade = async (priceId: string, tierName: string) => {
         try {
@@ -58,9 +61,9 @@ export default function PricingPage() {
 
             // Redirect to Stripe Checkout
             window.location.href = data.sessionUrl;
-        } catch (error) {
-            console.error('Upgrade error:', error);
-            alert('Failed to start upgrade. Please try again.');
+        } catch (err) {
+            console.error('Upgrade error:', err);
+            setAlertMessage('Failed to start upgrade. Please try again.');
         } finally {
             setLoading(null);
         }
@@ -81,8 +84,8 @@ export default function PricingPage() {
                         <div
                             key={tier.id}
                             className={`rounded-2xl p-8 ${tier.highlighted
-                                    ? 'bg-gradient-to-br from-blue-600 to-blue-800 ring-4 ring-blue-400 shadow-2xl shadow-blue-900/50 scale-105'
-                                    : 'bg-slate-900 border-2 border-slate-800'
+                                ? 'bg-gradient-to-br from-blue-600 to-blue-800 ring-4 ring-blue-400 shadow-2xl shadow-blue-900/50 scale-105'
+                                : 'bg-slate-900 border-2 border-slate-800'
                                 }`}
                         >
                             {tier.highlighted && (
@@ -133,8 +136,8 @@ export default function PricingPage() {
                                     onClick={() => handleUpgrade(tier.stripePriceId!, tier.name)}
                                     disabled={loading === tier.name}
                                     className={`w-full py-3 px-6 font-bold rounded-lg transition-all ${tier.highlighted
-                                            ? 'bg-white text-blue-600 hover:bg-slate-100 shadow-lg'
-                                            : 'bg-blue-600 text-white hover:bg-blue-500'
+                                        ? 'bg-white text-blue-600 hover:bg-slate-100 shadow-lg'
+                                        : 'bg-blue-600 text-white hover:bg-blue-500'
                                         } ${loading === tier.name ? 'opacity-50 cursor-wait' : ''}`}
                                 >
                                     {loading === tier.name ? 'Processing...' : tier.cta}
@@ -150,6 +153,24 @@ export default function PricingPage() {
                     </Link>
                 </div>
             </main>
+
+            {alertMessage && (
+                <Modal
+                    title="Notification"
+                    onClose={() => setAlertMessage(null)}
+                    width="max-w-sm"
+                    footer={
+                        <button
+                            onClick={() => setAlertMessage(null)}
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md"
+                        >
+                            OK
+                        </button>
+                    }
+                >
+                    <p className="text-slate-300">{alertMessage}</p>
+                </Modal>
+            )}
         </div>
     );
 }

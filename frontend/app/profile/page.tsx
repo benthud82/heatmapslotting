@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Header from '@/components/Header';
+import Modal from '@/components/Modal';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
 
 export default function ProfilePage() {
@@ -13,6 +14,7 @@ export default function ProfilePage() {
     const [upgrading, setUpgrading] = useState(false);
     const [user, setUser] = useState<any>(null);
     const { preferences, updateSkipTutorial, refresh } = useUserPreferences();
+    const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
     useEffect(() => {
         if (searchParams.get('upgrade') === 'success') {
@@ -30,7 +32,7 @@ export default function ProfilePage() {
             const priceId = process.env.NEXT_PUBLIC_STRIPE_PRO_PRICE_ID;
 
             if (!priceId) {
-                alert('Stripe configuration missing. Please contact support.');
+                setAlertMessage('Stripe configuration missing. Please contact support.');
                 return;
             }
 
@@ -53,7 +55,7 @@ export default function ProfilePage() {
             window.location.href = data.sessionUrl;
         } catch (error) {
             console.error('Upgrade error:', error);
-            alert('Failed to start upgrade. Please try again.');
+            setAlertMessage('Failed to start upgrade. Please try again.');
         } finally {
             setUpgrading(false);
         }
@@ -209,6 +211,24 @@ export default function ProfilePage() {
                     </div>
                 </div>
             </main>
+
+            {alertMessage && (
+                <Modal
+                    title="Notification"
+                    onClose={() => setAlertMessage(null)}
+                    width="max-w-sm"
+                    footer={
+                        <button
+                            onClick={() => setAlertMessage(null)}
+                            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-md"
+                        >
+                            OK
+                        </button>
+                    }
+                >
+                    <p className="text-slate-300">{alertMessage}</p>
+                </Modal>
+            )}
         </div>
     );
 }

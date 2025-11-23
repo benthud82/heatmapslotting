@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Header from '@/components/Header';
+import LayoutManager from '@/components/designer/LayoutManager';
+import ConfirmModal from '@/components/ConfirmModal';
 import { layoutApi, picksApi } from '@/lib/api';
 import { Layout, AggregatedPickData, PickTransaction } from '@/lib/types';
 import { getHeatmapColor } from '@/lib/heatmapColors';
@@ -23,7 +25,12 @@ import {
 export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [layout, setLayout] = useState<Layout | null>(null);
+    const [layouts, setLayouts] = useState<Layout[]>([]);
+    const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+    // Derived state for current layout
+    const layout = layouts.find(l => l.id === currentLayoutId) || null;
     const [aggregatedData, setAggregatedData] = useState<AggregatedPickData[]>([]);
     const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
     const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -37,15 +44,49 @@ export default function Dashboard() {
         loadData();
     }, []);
 
+    // Reload data when layout changes
+    useEffect(() => {
+        if (currentLayoutId) {
+            loadLayoutData(currentLayoutId);
+        }
+    }, [currentLayoutId]);
+
     const loadData = async () => {
         try {
             setLoading(true);
-            const [layoutData, dates, rawTransactions] = await Promise.all([
-                layoutApi.getLayout(),
-                picksApi.getDates(),
-                picksApi.getTransactions()
+            // Fetch all layouts first
+            const layoutsData = await layoutApi.getLayouts();
+            setLayouts(layoutsData);
+
+            // If we have layouts but no current selection, select the first one
+            let activeId = currentLayoutId;
+            if (!activeId && layoutsData.length > 0) {
+                activeId = layoutsData[0].id;
+                setCurrentLayoutId(activeId);
+            }
+
+            // If we have an active layout, fetch its data
+            if (activeId) {
+                await loadLayoutData(activeId);
+            } else {
+                setAvailableDates([]);
+                setTransactions([]);
+                setAggregatedData([]);
+            }
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
+            console.error('Dashboard load error:', err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadLayoutData = async (layoutId: string) => {
+        try {
+            const [dates, rawTransactions] = await Promise.all([
+                picksApi.getDates(layoutId),
+                picksApi.getTransactions(layoutId)
             ]);
-            setLayout(layoutData);
             setAvailableDates(dates);
             setTransactions(rawTransactions);
 
@@ -57,14 +98,15 @@ export default function Dashboard() {
                 });
 
                 // Fetch all aggregated data for charts
-                const data = await picksApi.getAggregated();
+                const data = await picksApi.getAggregated(layoutId);
                 setAggregatedData(data);
+            } else {
+                setDateRange(null);
+                setAggregatedData([]);
             }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
-            console.error('Dashboard load error:', err);
-        } finally {
-            setLoading(false);
+            console.error('Failed to load layout data:', err);
+            setError('Failed to load data for this layout');
         }
     };
 
@@ -105,6 +147,18 @@ export default function Dashboard() {
             setSelectedDates(new Set());
         } catch (err) {
             alert(err instanceof Error ? err.message : 'Failed to delete picks');
+        }
+    };
+
+    const handleDeletePicks = async () => {
+        if (!currentLayoutId) return;
+
+        try {
+            await picksApi.clearAll(currentLayoutId);
+            await loadLayoutData(currentLayoutId);
+            setShowDeleteConfirm(false);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to delete picks');
         }
     };
 
@@ -226,8 +280,15 @@ export default function Dashboard() {
         <div className="min-h-screen bg-slate-950 flex flex-col">
             <Header
                 title="Dashboard"
-                subtitle={`${layout?.name || 'Overview'} • Analytics & Insights`}
-            />
+                subtitle="Analytics & Insights"
+            >
+                <LayoutManager
+                    layouts={layouts}
+                    currentLayoutId={currentLayoutId}
+                    onLayoutSelect={setCurrentLayoutId}
+                    readOnly={true}
+                />
+            </Header>
 
             {/* Full Width Container */}
             <main className="flex-1 p-6 w-full space-y-6">
@@ -384,22 +445,29 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between mb-6">
                         <h3 className="text-white font-bold flex items-center gap-2">
                             <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
                             </svg>
                             Data Management
                         </h3>
-
-                        {datePickCounts.length > 0 && (
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedDates.size === datePickCounts.length && datePickCounts.length > 0}
-                                    onChange={toggleSelectAll}
-                                    className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
-                                />
-                                <span className="text-sm text-slate-400">Select All</span>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-4">
+                            {datePickCounts.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedDates.size === datePickCounts.length && datePickCounts.length > 0}
+                                        onChange={toggleSelectAll}
+                                        className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
+                                    />
+                                    <span className="text-sm text-slate-400">Select All</span>
+                                </div>
+                            )}
+                            <button
+                                onClick={() => setShowDeleteConfirm(true)}
+                                className="px-4 py-2 bg-red-900/20 hover:bg-red-900/30 text-red-400 rounded-md border border-red-900/50 transition-colors text-sm"
+                            >
+                                Clear All Pick Data
+                            </button>
+                        </div>
                     </div>
 
                     {datePickCounts.length > 0 ? (
@@ -461,7 +529,7 @@ export default function Dashboard() {
                                     className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-md shadow-lg hover:shadow-red-900/20 transition-all flex items-center gap-2"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
                                     </svg>
                                     Delete Selected
                                 </button>
@@ -512,6 +580,16 @@ export default function Dashboard() {
                         </div>
                     </div>
                 )}
+
+                <ConfirmModal
+                    isOpen={showDeleteConfirm}
+                    title="Clear All Pick Data"
+                    message="Are you sure you want to delete all pick data for this layout? This action cannot be undone."
+                    confirmText="Clear Data"
+                    isDestructive={true}
+                    onConfirm={handleDeletePicks}
+                    onCancel={() => setShowDeleteConfirm(false)}
+                />
             </main>
         </div>
     );
