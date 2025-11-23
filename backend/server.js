@@ -7,10 +7,15 @@ const { testConnection } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Stripe webhook (MUST be before express.json() middleware for raw body)
+app.use('/api/stripe/webhook', require('./routes/stripe'));
+
 // Middleware
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -26,17 +31,6 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 const authMiddleware = require('./middleware/auth');
-
-// Stripe webhook (MUST be before express.json() middleware for raw body)
-app.use('/api/stripe/webhook', require('./routes/stripe'));
-
-// Middleware
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,
-}));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Routes
 
