@@ -49,6 +49,9 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
                 { label: 'Delete', action: 'delete', shortcut: 'Del' },
                 { divider: true },
                 { label: 'Select All', action: 'select_all', shortcut: 'Ctrl+A' },
+                { divider: true },
+                { label: 'Generate Pattern...', action: 'generate_pattern', shortcut: 'G' },
+                { label: 'Re-sequence Selection...', action: 'resequence', shortcut: 'R' },
             ]
         },
         {

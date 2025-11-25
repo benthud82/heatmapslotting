@@ -7,9 +7,11 @@ interface PropertiesPanelProps {
     element: WarehouseElement | null;
     selectedCount: number;
     onUpdate: (id: string, updates: any) => void;
+    onGeneratePattern?: () => void;
+    onResequence?: () => void;
 }
 
-export default function PropertiesPanel({ element, selectedCount, onUpdate }: PropertiesPanelProps) {
+export default function PropertiesPanel({ element, selectedCount, onUpdate, onGeneratePattern, onResequence }: PropertiesPanelProps) {
     if (selectedCount === 0) {
         return (
             <div className="h-full bg-slate-900 border-l border-slate-800 p-4 flex flex-col items-center justify-center text-slate-500">
@@ -28,8 +30,46 @@ export default function PropertiesPanel({ element, selectedCount, onUpdate }: Pr
                 <div className="bg-slate-800 rounded p-3 border border-slate-700">
                     <p className="text-white font-mono text-sm">{selectedCount} items selected</p>
                 </div>
-                <div className="mt-4">
-                    <p className="text-xs text-slate-500">Bulk editing coming soon.</p>
+
+                {/* Quick Actions */}
+                <div className="mt-6 space-y-3">
+                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Quick Actions</h4>
+
+                    {onGeneratePattern && (
+                        <button
+                            onClick={onGeneratePattern}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800 hover:bg-blue-600 border border-slate-700 hover:border-blue-500 rounded-lg transition-all group"
+                        >
+                            <div className="w-8 h-8 bg-slate-700 group-hover:bg-blue-500 rounded flex items-center justify-center">
+                                <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                                </svg>
+                            </div>
+                            <div className="text-left">
+                                <div className="text-sm font-medium text-slate-300 group-hover:text-white">Generate Pattern</div>
+                                <div className="text-xs text-slate-500 group-hover:text-blue-200">Create grid from selection</div>
+                            </div>
+                            <span className="ml-auto text-xs text-slate-600 group-hover:text-blue-300 font-mono">G</span>
+                        </button>
+                    )}
+
+                    {onResequence && (
+                        <button
+                            onClick={onResequence}
+                            className="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800 hover:bg-green-600 border border-slate-700 hover:border-green-500 rounded-lg transition-all group"
+                        >
+                            <div className="w-8 h-8 bg-slate-700 group-hover:bg-green-500 rounded flex items-center justify-center">
+                                <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                                </svg>
+                            </div>
+                            <div className="text-left">
+                                <div className="text-sm font-medium text-slate-300 group-hover:text-white">Re-sequence</div>
+                                <div className="text-xs text-slate-500 group-hover:text-green-200">Rename by position</div>
+                            </div>
+                            <span className="ml-auto text-xs text-slate-600 group-hover:text-green-300 font-mono">R</span>
+                        </button>
+                    )}
                 </div>
             </div>
         );
@@ -158,6 +198,31 @@ export default function PropertiesPanel({ element, selectedCount, onUpdate }: Pr
                         </div>
                     </div>
                 </div>
+
+                {/* Quick Actions for single element */}
+                {onGeneratePattern && (
+                    <>
+                        <div className="h-px bg-slate-800"></div>
+                        <div className="space-y-3">
+                            <label className="text-xs font-bold text-slate-500 uppercase">Quick Actions</label>
+                            <button
+                                onClick={onGeneratePattern}
+                                className="w-full flex items-center gap-3 px-3 py-2.5 bg-slate-800 hover:bg-blue-600 border border-slate-700 hover:border-blue-500 rounded-lg transition-all group"
+                            >
+                                <div className="w-8 h-8 bg-slate-700 group-hover:bg-blue-500 rounded flex items-center justify-center">
+                                    <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                                    </svg>
+                                </div>
+                                <div className="text-left">
+                                    <div className="text-sm font-medium text-slate-300 group-hover:text-white">Generate Pattern</div>
+                                    <div className="text-xs text-slate-500 group-hover:text-blue-200">Create row/grid from this element</div>
+                                </div>
+                                <span className="ml-auto text-xs text-slate-600 group-hover:text-blue-300 font-mono">G</span>
+                            </button>
+                        </div>
+                    </>
+                )}
 
             </div>
         </div>

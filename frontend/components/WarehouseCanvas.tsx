@@ -14,6 +14,7 @@ import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
 export interface WarehouseCanvasRef {
   exportAsPNG: () => void;
   exportAsPDF: () => void;
+  fitToElements: () => void;
 }
 
 interface WarehouseCanvasProps {
@@ -53,20 +54,6 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  // Expose export methods to parent via ref
-  useImperativeHandle(ref, () => ({
-    exportAsPNG: () => {
-      if (stageRef.current) {
-        exportStageAsPNG(stageRef.current);
-      }
-    },
-    exportAsPDF: () => {
-      if (stageRef.current) {
-        exportStageAsPDF(stageRef.current);
-      }
-    },
-  }));
   const transformerRef = useRef<Konva.Transformer>(null);
   const selectedShapeRef = useRef<Konva.Group>(null);
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
@@ -167,6 +154,23 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setStagePosition(newPosition);
   }, [elements, containerSize]);
 
+  // Expose methods to parent via ref
+  useImperativeHandle(ref, () => ({
+    exportAsPNG: () => {
+      if (stageRef.current) {
+        exportStageAsPNG(stageRef.current);
+      }
+    },
+    exportAsPDF: () => {
+      if (stageRef.current) {
+        exportStageAsPDF(stageRef.current);
+      }
+    },
+    fitToElements: () => {
+      fitToElements();
+    },
+  }), [fitToElements]);
+
   // Update transformer when selection changes (only for single selection)
   useEffect(() => {
     if (transformerRef.current && selectedShapeRef.current && selectedElementIds.length === 1) {
@@ -178,12 +182,16 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     }
   }, [selectedElementIds]);
 
-  // Fit to elements on initial load
+  // Track if initial fit has been done (only fit once on first load)
+  const hasInitialFit = useRef(false);
+
+  // Fit to elements ONLY on initial load, not when adding new elements
   useEffect(() => {
-    if (elements.length > 0) {
+    if (elements.length > 0 && !hasInitialFit.current) {
       // Small delay to ensure canvas is mounted
       const timer = setTimeout(() => {
         fitToElements();
+        hasInitialFit.current = true;
       }, 100);
       return () => clearTimeout(timer);
     }
@@ -966,6 +974,20 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             </div>
           </div>
         )}
+
+        {/* Fit All Button - Floating bottom-right */}
+        {elements.length > 0 && (
+          <button
+            onClick={fitToElements}
+            className="absolute bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-2 bg-slate-800/90 hover:bg-blue-600 border border-slate-600 hover:border-blue-500 rounded-lg shadow-lg backdrop-blur-sm transition-all group"
+            title="Fit all elements in view (show entire layout)"
+          >
+            <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+            </svg>
+            <span className="text-xs font-medium text-slate-300 group-hover:text-white">Fit All</span>
+          </button>
+        )}
       </div>
 
       {/* Canvas Info Panel */}
@@ -1203,10 +1225,11 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
             />
 
             {/* Element Label - conditionally rendered based on display mode */}
+            {/* For bay elements, rotate text 90 degrees for vertical orientation */}
             {shouldShowLabel && (
               <Text
-                x={-Number(element.width) / 2 + 4}
-                y={-Number(element.height) / 2 + 4}
+                x={element.element_type === 'bay' ? -Number(element.width) / 2 + Number(element.width) / 2 + fontSize / 2 : -Number(element.width) / 2 + 4}
+                y={element.element_type === 'bay' ? -Number(element.height) / 2 + 4 : -Number(element.height) / 2 + 4}
                 text={element.label}
                 fontSize={fontSize}
                 fontFamily="monospace"
@@ -1216,6 +1239,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
                 shadowColor="#000000"
                 shadowBlur={4}
                 shadowOpacity={0.8}
+                rotation={element.element_type === 'bay' ? 90 : 0}
               />
             )}
           </>

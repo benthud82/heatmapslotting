@@ -13,6 +13,8 @@ import LayoutManager from '@/components/designer/LayoutManager';
 import Header from '@/components/Header';
 import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal';
 import Toast from '@/components/ui/Toast';
+import PatternGeneratorModal, { GeneratedElementData } from '@/components/designer/PatternGeneratorModal';
+import ResequenceModal from '@/components/designer/ResequenceModal';
 import { layoutApi, elementsApi } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
@@ -38,7 +40,7 @@ export default function Home() {
   } = useHistory<WarehouseElement[]>([]);
 
   // Tool State
-  const [activeTool, setActiveTool] = useState<'select' | 'pan' | ElementType>('select');
+  const [activeTool, setActiveTool] = useState<'select' | ElementType>('select');
 
   // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -61,6 +63,8 @@ export default function Home() {
   // Modals & Toasts
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showPatternModal, setShowPatternModal] = useState(false);
+  const [showResequenceModal, setShowResequenceModal] = useState(false);
   const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info'; duration?: number; onUndo?: () => void; onClose?: () => void } | null>(null);
 
@@ -219,7 +223,7 @@ export default function Home() {
   // Create new element
   const handleElementCreate = useCallback(
     async (x: number, y: number) => {
-      if (activeTool === 'select' || activeTool === 'pan') return;
+      if (activeTool === 'select') return;
 
       const selectedType = activeTool as ElementType;
       const tempId = nanoid();
@@ -528,10 +532,31 @@ export default function Home() {
       case 'help_shortcuts':
         setShowShortcutsModal(true);
         break;
+      case 'help_about':
+        setToast({ 
+          message: 'SlottingPRO v1.0 - Warehouse Heatmap Designer', 
+          type: 'info',
+          duration: 3000
+        });
+        break;
+      case 'generate_pattern':
+        if (selectedElementIds.length >= 1) {
+          setShowPatternModal(true);
+        } else {
+          setToast({ message: 'Select at least 1 element to use as a template', type: 'info' });
+        }
+        break;
+      case 'resequence':
+        if (selectedElementIds.length >= 2) {
+          setShowResequenceModal(true);
+        } else {
+          setToast({ message: 'Select at least 2 elements to resequence', type: 'info' });
+        }
+        break;
       default:
         console.log('Unknown action:', action);
     }
-  }, [canUndo, canRedo, undo, redo, handleCopy, handleElementDelete, handlePaste, elements, snapToGrid]);
+  }, [canUndo, canRedo, undo, redo, handleCopy, handleElementDelete, handlePaste, elements, snapToGrid, selectedElementIds]);
 
   // Alignment
   const handleAlign = useCallback((type: AlignmentType) => {
@@ -553,6 +578,106 @@ export default function Home() {
       elementsApi.update(el.id, { x_coordinate: el.x_coordinate, y_coordinate: el.y_coordinate });
     });
   }, [selectedElementIds, elements, setElements]);
+
+  // Pattern Generation - bulk create elements from a template
+  const handlePatternGenerate = useCallback(async (generatedElements: GeneratedElementData[]) => {
+    if (generatedElements.length === 0) return;
+
+    // Create temporary elements with temp IDs for optimistic update
+    const tempElements: WarehouseElement[] = generatedElements.map((el, index) => ({
+      id: `temp-${nanoid()}`,
+      layout_id: layout?.id || currentLayoutId || '',
+      element_type: el.element_type,
+      label: el.label,
+      x_coordinate: el.x_coordinate,
+      y_coordinate: el.y_coordinate,
+      width: el.width,
+      height: el.height,
+      rotation: el.rotation,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Optimistic update
+    const newElements = [...elements, ...tempElements];
+    setElements(newElements);
+    setShowPatternModal(false);
+
+    try {
+      setSaving(true);
+
+      // Create all elements on backend
+      const createdElements = await Promise.all(
+        generatedElements.map(el =>
+          elementsApi.create({
+            layout_id: layout?.id || currentLayoutId || '',
+            element_type: el.element_type,
+            label: el.label,
+            x_coordinate: el.x_coordinate,
+            y_coordinate: el.y_coordinate,
+            width: el.width,
+            height: el.height,
+            rotation: el.rotation,
+          })
+        )
+      );
+
+      // Replace temp elements with real ones
+      const finalElements = elements.concat(createdElements);
+      setElements(finalElements);
+
+      // Select all newly created elements
+      setSelectedElementIds(createdElements.map(el => el.id));
+
+      setToast({
+        message: `Generated ${createdElements.length} elements`,
+        type: 'success',
+      });
+    } catch (err) {
+      // Revert on error
+      setElements(elements);
+      // @ts-ignore
+      const message = err.data?.message || err.message || 'Failed to generate elements';
+      setError(message);
+    } finally {
+      setSaving(false);
+    }
+  }, [elements, layout, currentLayoutId, setElements]);
+
+  // Re-sequence - bulk rename elements based on position
+  const handleResequenceApply = useCallback(async (renames: { id: string; newLabel: string }[]) => {
+    if (renames.length === 0) return;
+
+    // Optimistic update
+    const newElements = elements.map(el => {
+      const rename = renames.find(r => r.id === el.id);
+      return rename ? { ...el, label: rename.newLabel } : el;
+    });
+    setElements(newElements);
+    setShowResequenceModal(false);
+
+    try {
+      setSaving(true);
+
+      // Update all on backend
+      await Promise.all(
+        renames.map(({ id, newLabel }) =>
+          elementsApi.update(id, { label: newLabel })
+        )
+      );
+
+      setToast({
+        message: `Renamed ${renames.length} elements`,
+        type: 'success',
+      });
+    } catch (err) {
+      // Revert on error
+      setElements(elements);
+      setError('Failed to rename elements');
+    } finally {
+      setSaving(false);
+    }
+  }, [elements, setElements]);
 
   // Keyboard Shortcuts
   useEffect(() => {
@@ -598,16 +723,32 @@ export default function Home() {
             break;
         }
       } else {
-        if (e.key === 'Delete') {
-          e.preventDefault();
-          handleElementDelete();
+        switch (e.key.toLowerCase()) {
+          case 'delete':
+            e.preventDefault();
+            handleElementDelete();
+            break;
+          case 'g':
+            // G - Generate pattern (requires at least 1 element selected)
+            if (selectedElementIds.length >= 1) {
+              e.preventDefault();
+              setShowPatternModal(true);
+            }
+            break;
+          case 'r':
+            // R - Resequence selection (requires at least 2 elements selected)
+            if (selectedElementIds.length >= 2) {
+              e.preventDefault();
+              setShowResequenceModal(true);
+            }
+            break;
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete]);
+  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, selectedElementIds]);
 
   if (loading) {
     return (
@@ -648,12 +789,12 @@ export default function Home() {
           <WarehouseCanvas
             ref={canvasRef}
             elements={elements}
-            selectedType={activeTool !== 'select' && activeTool !== 'pan' ? (activeTool as ElementType) : null}
+            selectedType={activeTool !== 'select' ? (activeTool as ElementType) : null}
             selectedElementIds={selectedElementIds}
             labelDisplayMode={labelDisplayMode}
             onElementClick={(id: string, ctrl: boolean, meta: boolean) => {
               // If in placement mode (drawing), auto-switch to select mode
-              if (activeTool !== 'select' && activeTool !== 'pan') {
+              if (activeTool !== 'select') {
                 setActiveTool('select');
                 setSelectedElementIds([id]);
                 return;
@@ -711,6 +852,8 @@ export default function Home() {
             element={selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) || null : null}
             selectedCount={selectedElementIds.length}
             onUpdate={handleElementUpdate}
+            onGeneratePattern={selectedElementIds.length >= 1 ? () => setShowPatternModal(true) : undefined}
+            onResequence={selectedElementIds.length >= 2 ? () => setShowResequenceModal(true) : undefined}
           />
           {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>
@@ -747,6 +890,26 @@ export default function Home() {
             }
           }}
           onCancel={() => setShowBulkRenameModal(false)}
+        />
+      )}
+
+      {showPatternModal && selectedElementIds.length >= 1 && (
+        <PatternGeneratorModal
+          templateElement={elements.find(el => el.id === selectedElementIds[0])!}
+          existingLabels={elements.map(el => el.label)}
+          elementLimit={elementLimit}
+          currentElementCount={elements.length}
+          onGenerate={handlePatternGenerate}
+          onCancel={() => setShowPatternModal(false)}
+        />
+      )}
+
+      {showResequenceModal && selectedElementIds.length >= 2 && (
+        <ResequenceModal
+          selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
+          allElements={elements}
+          onApply={handleResequenceApply}
+          onCancel={() => setShowResequenceModal(false)}
         />
       )}
 

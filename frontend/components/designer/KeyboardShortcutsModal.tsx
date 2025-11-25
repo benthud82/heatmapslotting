@@ -24,12 +24,14 @@ export default function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShor
                 { keys: ['Ctrl', 'V'], description: 'Paste Selection' },
                 { keys: ['Delete'], description: 'Delete Selection' },
                 { keys: ['Ctrl', 'A'], description: 'Select All' },
+                { keys: ['G'], description: 'Generate Pattern (Grid/Row)' },
+                { keys: ['R'], description: 'Re-sequence Selection' },
             ]
         },
         {
             category: 'Tools', items: [
                 { keys: ['V'], description: 'Select Tool' },
-                { keys: ['Space'], description: 'Pan Tool (Hold)' },
+                { keys: ['Space'], description: 'Pan Canvas (Hold)' },
             ]
         },
         {
