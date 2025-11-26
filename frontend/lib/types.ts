@@ -221,7 +221,7 @@ export const ROUTE_MARKER_CONFIGS: Record<
   cart_parking: {
     width: 40,
     height: 24,
-    color: '#3b82f6', // Blue
+    color: '#f59e0b', // Amber - indicates parking spot
     displayName: 'Cart Parking',
     description: 'Cart staging area',
     icon: '🛒'

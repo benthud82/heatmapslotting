@@ -55,6 +55,7 @@ export default function Home() {
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
+  const [snappingEnabled, setSnappingEnabled] = useState(true);
 
   // System State
   const [loading, setLoading] = useState(true);
@@ -662,8 +663,9 @@ export default function Home() {
         setShowGrid(prev => !prev);
         break;
       case 'toggle_snap':
-        setSnapToGrid(prev => !prev);
-        setToast({ message: `Snap to Grid: ${!snapToGrid ? 'On' : 'Off'}`, type: 'info' });
+        // Snapping toggle moved to canvas button - keeping for backward compatibility
+        setSnappingEnabled(prev => !prev);
+        setToast({ message: `Smart Snapping: ${!snappingEnabled ? 'On' : 'Off'}`, type: 'info' });
         break;
       case 'help_shortcuts':
         setShowShortcutsModal(true);
@@ -963,6 +965,9 @@ export default function Home() {
             onMarkerClick={handleMarkerClick}
             onMarkerCreate={handleMarkerCreate}
             onMarkerUpdate={handleMarkerUpdate}
+            snappingEnabled={snappingEnabled}
+            onSnappingToggle={() => setSnappingEnabled(prev => !prev)}
+            showRouteMarkers={true}
           />
 
           {error && (

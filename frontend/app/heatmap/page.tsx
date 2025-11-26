@@ -8,8 +8,8 @@ import HeatmapGuide from '@/components/HeatmapGuide';
 import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
-import { layoutApi, picksApi } from '@/lib/api';
-import { WarehouseElement, Layout, AggregatedPickData } from '@/lib/types';
+import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
+import { WarehouseElement, Layout, AggregatedPickData, RouteMarker } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
 
 export default function Heatmap() {
@@ -37,6 +37,10 @@ export default function Heatmap() {
 
   // Available dates state
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+
+  // Route markers state
+  const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
+  const [showRouteMarkers, setShowRouteMarkers] = useState(false);
 
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
@@ -96,6 +100,16 @@ export default function Heatmap() {
       // Fetch elements for active layout
       const elementsData = await layoutApi.getElements(layoutId);
       setElements(elementsData);
+
+      // Fetch route markers for the layout
+      try {
+        const markersData = await routeMarkersApi.getMarkers(layoutId);
+        setRouteMarkers(markersData);
+      } catch (markerErr) {
+        console.error('Failed to load route markers:', markerErr);
+        setRouteMarkers([]);
+      }
+
       setError(null);
 
       // Try to load pick data
@@ -310,6 +324,10 @@ export default function Heatmap() {
             isReadOnly={true}
             pickData={hasPickData ? pickData : undefined}
             isHeatmap={true}
+            routeMarkers={routeMarkers}
+            showRouteMarkers={showRouteMarkers}
+            onRouteMarkersToggle={() => setShowRouteMarkers(prev => !prev)}
+            onSnappingToggle={() => {}} // No-op for heatmap page
           />
         </div>
 

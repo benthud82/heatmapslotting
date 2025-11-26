@@ -7,9 +7,234 @@ import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow } from 'react
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType, ROUTE_MARKER_CONFIGS } from '@/lib/types';
-import { findSnapPoints, snapRotation } from '@/lib/snapping';
+import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
+
+// Route marker snapping function with intelligent prioritization
+const findRouteMarkerSnapPoints = (
+  draggedMarker: { x: number; y: number; width: number; height: number; type: RouteMarkerType },
+  routeMarkers: RouteMarker[],
+  warehouseElements: WarehouseElement[],
+  threshold: number = SNAP_THRESHOLD
+): { snapX: number | null; snapY: number | null; snapLines: Array<{ points: number[]; orientation: 'horizontal' | 'vertical' }>; snappedElementIds: string[] } => {
+  const result = {
+    snapX: null as number | null,
+    snapY: null as number | null,
+    snapLines: [] as Array<{ points: number[]; orientation: 'horizontal' | 'vertical' }>,
+    snappedElementIds: [] as string[]
+  };
+
+  if (!routeMarkers.length && !warehouseElements.length) return result;
+
+  const dragEdges = {
+    left: draggedMarker.x,
+    right: draggedMarker.x + draggedMarker.width,
+    centerX: draggedMarker.x + draggedMarker.width / 2,
+    top: draggedMarker.y,
+    bottom: draggedMarker.y + draggedMarker.height,
+    centerY: draggedMarker.y + draggedMarker.height / 2,
+  };
+
+  let minXDiff = threshold;
+  let minYDiff = threshold;
+
+  // For cart parking: specific snapping logic
+  if (draggedMarker.type === 'cart_parking') {
+    // Phase 1: Cart-to-cart alignment (High Priority)
+    const otherCartParking = routeMarkers.filter(m => m.marker_type === 'cart_parking');
+
+    otherCartParking.forEach((cart) => {
+      const cartX = Number(cart.x_coordinate);
+      const cartY = Number(cart.y_coordinate);
+      const cartWidth = ROUTE_MARKER_CONFIGS.cart_parking.width;
+      const cartHeight = ROUTE_MARKER_CONFIGS.cart_parking.height;
+
+      const cartEdges = {
+        left: cartX,
+        right: cartX + cartWidth,
+        centerX: cartX + cartWidth / 2,
+        top: cartY,
+        bottom: cartY + cartHeight,
+        centerY: cartY + cartHeight / 2,
+      };
+
+      // X-axis snapping to cart parking
+      const xDiffs = [
+        { diff: Math.abs(dragEdges.left - cartEdges.left), target: cartEdges.left, offset: dragEdges.left - draggedMarker.x },
+        { diff: Math.abs(dragEdges.right - cartEdges.right), target: cartEdges.right, offset: dragEdges.right - draggedMarker.x },
+        { diff: Math.abs(dragEdges.centerX - cartEdges.centerX), target: cartEdges.centerX, offset: dragEdges.centerX - draggedMarker.x },
+      ];
+
+      // Y-axis snapping to cart parking
+      const yDiffs = [
+        { diff: Math.abs(dragEdges.top - cartEdges.top), target: cartEdges.top, offset: dragEdges.top - draggedMarker.y },
+        { diff: Math.abs(dragEdges.bottom - cartEdges.bottom), target: cartEdges.bottom, offset: dragEdges.bottom - draggedMarker.y },
+        { diff: Math.abs(dragEdges.centerY - cartEdges.centerY), target: cartEdges.centerY, offset: dragEdges.centerY - draggedMarker.y },
+      ];
+
+      xDiffs.forEach(({ diff, target, offset }) => {
+        if (diff < minXDiff) {
+          minXDiff = diff;
+          result.snapX = target - offset;
+          // Line from dragged cart to target cart
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'vertical'); // Replace existing X snap
+          result.snapLines.push({
+            points: [target, Math.min(dragEdges.top, cartEdges.top) - 20, target, Math.max(dragEdges.bottom, cartEdges.bottom) + 20],
+            orientation: 'vertical'
+          });
+          if (!result.snappedElementIds.includes(cart.id)) result.snappedElementIds.push(cart.id);
+        }
+      });
+
+      yDiffs.forEach(({ diff, target, offset }) => {
+        if (diff < minYDiff) {
+          minYDiff = diff;
+          result.snapY = target - offset;
+          // Line from dragged cart to target cart
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'horizontal'); // Replace existing Y snap
+          result.snapLines.push({
+            points: [Math.min(dragEdges.left, cartEdges.left) - 20, target, Math.max(dragEdges.right, cartEdges.right) + 20, target],
+            orientation: 'horizontal'
+          });
+          if (!result.snappedElementIds.includes(cart.id)) result.snappedElementIds.push(cart.id);
+        }
+      });
+    });
+
+    // Phase 2: Element Snapping (Sub-snapping)
+    const currentX = result.snapX !== null ? result.snapX : draggedMarker.x;
+    const currentY = result.snapY !== null ? result.snapY : draggedMarker.y;
+
+    const currentEdges = {
+      left: currentX,
+      right: currentX + draggedMarker.width,
+      centerX: currentX + draggedMarker.width / 2,
+      top: currentY,
+      bottom: currentY + draggedMarker.height,
+      centerY: currentY + draggedMarker.height / 2,
+    };
+
+    warehouseElements.forEach((element) => {
+      const elementEdges = getElementEdges(element);
+      let snappedToElement = false;
+
+      // Rule: Center to Center for Flow Rack or Full Pallet
+      if (element.element_type === 'flow_rack' || element.element_type === 'full_pallet') {
+        // X-axis Center
+        const xDiff = Math.abs(currentEdges.centerX - elementEdges.centerX);
+        if (xDiff < minXDiff) {
+          minXDiff = xDiff;
+          result.snapX = elementEdges.centerX - (dragEdges.centerX - draggedMarker.x);
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'vertical');
+          result.snapLines.push({
+            points: [
+              elementEdges.centerX,
+              Math.min(currentEdges.top, elementEdges.top) - 20,
+              elementEdges.centerX,
+              Math.max(currentEdges.bottom, elementEdges.bottom) + 20
+            ],
+            orientation: 'vertical'
+          });
+          snappedToElement = true;
+        }
+
+        // Y-axis Center
+        const yDiff = Math.abs(currentEdges.centerY - elementEdges.centerY);
+        if (yDiff < minYDiff) {
+          minYDiff = yDiff;
+          result.snapY = elementEdges.centerY - (dragEdges.centerY - draggedMarker.y);
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'horizontal');
+          result.snapLines.push({
+            points: [
+              Math.min(currentEdges.left, elementEdges.left) - 20,
+              elementEdges.centerY,
+              Math.max(currentEdges.right, elementEdges.right) + 20,
+              elementEdges.centerY
+            ],
+            orientation: 'horizontal'
+          });
+          snappedToElement = true;
+        }
+      }
+
+      // Rule: Front of Cart to Leading Edge of Bin (Bay)
+      if (element.element_type === 'bay') {
+        // Cart Right to Element Left
+        const diff1 = Math.abs(currentEdges.right - elementEdges.left);
+        if (diff1 < minXDiff) {
+          minXDiff = diff1;
+          result.snapX = elementEdges.left - (dragEdges.right - draggedMarker.x);
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'vertical');
+          result.snapLines.push({
+            points: [
+              elementEdges.left,
+              Math.min(currentEdges.top, elementEdges.top) - 20,
+              elementEdges.left,
+              Math.max(currentEdges.bottom, elementEdges.bottom) + 20
+            ],
+            orientation: 'vertical'
+          });
+          snappedToElement = true;
+        }
+
+        // Cart Left to Element Right
+        const diff2 = Math.abs(currentEdges.left - elementEdges.right);
+        if (diff2 < minXDiff) {
+          minXDiff = diff2;
+          result.snapX = elementEdges.right - (dragEdges.left - draggedMarker.x);
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'vertical');
+          result.snapLines.push({
+            points: [
+              elementEdges.right,
+              Math.min(currentEdges.top, elementEdges.top) - 20,
+              elementEdges.right,
+              Math.max(currentEdges.bottom, elementEdges.bottom) + 20
+            ],
+            orientation: 'vertical'
+          });
+          snappedToElement = true;
+        }
+
+        // Center-to-Center Y alignment for Bins
+        const yCenterDiff = Math.abs(currentEdges.centerY - elementEdges.centerY);
+        if (yCenterDiff < minYDiff) {
+          minYDiff = yCenterDiff;
+          result.snapY = elementEdges.centerY - (dragEdges.centerY - draggedMarker.y);
+          result.snapLines = result.snapLines.filter(l => l.orientation !== 'horizontal');
+          result.snapLines.push({
+            points: [
+              Math.min(currentEdges.left, elementEdges.left) - 20,
+              elementEdges.centerY,
+              Math.max(currentEdges.right, elementEdges.right) + 20,
+              elementEdges.centerY
+            ],
+            orientation: 'horizontal'
+          });
+          snappedToElement = true;
+        }
+      }
+
+      if (snappedToElement) {
+        if (!result.snappedElementIds.includes(element.id)) result.snappedElementIds.push(element.id);
+      }
+    });
+
+  } else {
+    // For other markers (start/stop points), use regular warehouse element snapping
+    const elementSnapResult = findSnapPoints(
+      { x: draggedMarker.x, y: draggedMarker.y, width: draggedMarker.width, height: draggedMarker.height, rotation: 0 },
+      warehouseElements,
+      threshold
+    );
+    result.snapX = elementSnapResult.snapX;
+    result.snapY = elementSnapResult.snapY;
+    // For non-cart_parking markers, we don't currently highlight snapped elements from findSnapPoints
+    result.snappedElementIds = [];
+  }
+
+  return result;
+};
 
 export interface WarehouseCanvasRef {
   exportAsPNG: () => void;
@@ -39,6 +264,12 @@ interface WarehouseCanvasProps {
   onMarkerClick?: (id: string) => void;
   onMarkerCreate?: (x: number, y: number, type: RouteMarkerType) => void;
   onMarkerUpdate?: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => void;
+  // Snapping
+  snappingEnabled?: boolean;
+  onSnappingToggle?: () => void;
+  // Route marker visibility (for heatmap page)
+  showRouteMarkers?: boolean;
+  onRouteMarkersToggle?: () => void;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -62,6 +293,10 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onMarkerClick,
   onMarkerCreate,
   onMarkerUpdate,
+  snappingEnabled = true,
+  onSnappingToggle,
+  showRouteMarkers = false,
+  onRouteMarkersToggle,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -260,10 +495,32 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       // If placing a new element, apply snapping to the ghost position
       if (selectedType && !isReadOnly) {
         const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
-        
+
         if (isRouteMarker) {
-          // Route markers don't snap - just use cursor position
-          setCursorCanvasPos(pos);
+          // Apply intelligent snapping for route markers if enabled
+          if (snappingEnabled && selectedType === 'cart_parking') {
+            const markerConfig = ROUTE_MARKER_CONFIGS[selectedType as RouteMarkerType];
+            const ghostMarker = {
+              x: pos.x - markerConfig.width / 2,
+              y: pos.y - markerConfig.height / 2,
+              width: markerConfig.width,
+              height: markerConfig.height,
+              type: selectedType as RouteMarkerType
+            };
+
+            const snapResult = findRouteMarkerSnapPoints(ghostMarker, routeMarkers, elements);
+
+            const snappedX = snapResult.snapX !== null ? snapResult.snapX + markerConfig.width / 2 : pos.x;
+            const snappedY = snapResult.snapY !== null ? snapResult.snapY + markerConfig.height / 2 : pos.y;
+
+            setCursorCanvasPos({ x: snappedX, y: snappedY });
+            setSnapPreviewLines(snapResult.snapLines);
+            setSnappedElementIds(snapResult.snappedElementIds);
+          } else {
+            setCursorCanvasPos(pos);
+            setSnapPreviewLines([]);
+            setSnappedElementIds([]);
+          }
         } else {
           const config = ELEMENT_CONFIGS[selectedType as ElementType];
 
@@ -284,12 +541,19 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(config.height) / 2 : pos.y;
 
             setCursorCanvasPos({ x: snappedX, y: snappedY });
+            // For warehouse elements, findSnapPoints doesn't return snappedElementIds, so clear it
+            setSnapPreviewLines([]);
+            setSnappedElementIds([]);
           } else {
             setCursorCanvasPos(pos);
+            setSnapPreviewLines([]);
+            setSnappedElementIds([]);
           }
         }
       } else {
         setCursorCanvasPos(pos);
+        setSnapPreviewLines([]);
+        setSnappedElementIds([]);
       }
 
       onCursorMove?.(pos.x, pos.y);
@@ -316,15 +580,15 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
         // Check if it's a route marker type
         const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
-        
+
         if (isRouteMarker) {
           // Create route marker
           const markerConfig = ROUTE_MARKER_CONFIGS[selectedType as RouteMarkerType];
           if (!markerConfig || !onMarkerCreate) return;
-          
+
           const placeX = canvasPosition.x - markerConfig.width / 2;
           const placeY = canvasPosition.y - markerConfig.height / 2;
-          
+
           onMarkerCreate(placeX, placeY, selectedType as RouteMarkerType);
         } else {
           // Create warehouse element
@@ -341,9 +605,13 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         if (selectedElementIds.length > 0) {
           onCanvasClick();
         }
+        setSnapPreviewLines([]);
+        setSnappedElementIds([]);
       } else {
         // No placement mode, just deselect any selected elements
         onCanvasClick();
+        setSnapPreviewLines([]);
+        setSnappedElementIds([]);
       }
     }
   };
@@ -707,6 +975,10 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   // Track stage drag state for cursor styling
   const [isStageDragging, setIsStageDragging] = useState(false);
 
+  // Snap preview lines for cart alignment
+  const [snapPreviewLines, setSnapPreviewLines] = useState<Array<{ points: number[], orientation: 'horizontal' | 'vertical' }>>([]);
+  const [snappedElementIds, setSnappedElementIds] = useState<string[]>([]);
+
   return (
     <div className="relative w-full h-full">
       {/* Canvas Container with Blueprint Styling */}
@@ -730,6 +1002,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           onMouseMove={handleStageMouseMove}
           onMouseLeave={() => {
             setCursorCanvasPos(null);
+            setSnapPreviewLines([]);
+            setSnappedElementIds([]);
           }}
           scaleY={stageScale}
           x={stagePosition.x}
@@ -761,6 +1035,40 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               listening={true}
             />
             {gridLines}
+
+            {/* Snap Preview Lines for Cart Alignment */}
+            {snapPreviewLines.map((line, index) => (
+              <Line
+                key={`snap-preview-${index}`}
+                points={line.points}
+                stroke="#ef4444"
+                strokeWidth={1}
+                dash={[3, 3]}
+                opacity={0.7}
+                listening={false}
+              />
+            ))}
+
+            {/* Highlight Snapped Elements */}
+            {snappedElementIds.map((id) => {
+              const element = elements.find(e => e.id === id);
+              if (!element) return null;
+              const config = ELEMENT_CONFIGS[element.element_type];
+              return (
+                <Rect
+                  key={`snap-highlight-${id}`}
+                  x={Number(element.x_coordinate)}
+                  y={Number(element.y_coordinate)}
+                  width={Number(element.width)}
+                  height={Number(element.height)}
+                  stroke="#ef4444"
+                  strokeWidth={2}
+                  fill="transparent"
+                  listening={false}
+                  opacity={0.5}
+                />
+              );
+            })}
 
             {/* Render all elements */}
             {elements.map((element) => {
@@ -830,12 +1138,12 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             })}
 
             {/* Route Markers */}
-            {routeMarkers.map((marker) => {
+            {showRouteMarkers && routeMarkers.map((marker) => {
               const config = ROUTE_MARKER_CONFIGS[marker.marker_type];
               const isSelected = selectedMarkerId === marker.id;
               const x = Number(marker.x_coordinate);
               const y = Number(marker.y_coordinate);
-              
+
               return (
                 <Group
                   key={marker.id}
@@ -843,23 +1151,85 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   y={y + config.height / 2}
                   draggable={!isReadOnly}
                   onClick={() => onMarkerClick?.(marker.id)}
+                  onDragMove={marker.marker_type === 'cart_parking' && snappingEnabled ? (e) => {
+                    // Show snap preview lines for cart parking
+                    const node = e.target;
+                    const currentX = node.x() - config.width / 2;
+                    const currentY = node.y() - config.height / 2;
+
+                    const snapResult = findRouteMarkerSnapPoints(
+                      {
+                        x: currentX,
+                        y: currentY,
+                        width: config.width,
+                        height: config.height,
+                        type: marker.marker_type
+                      },
+                      routeMarkers.filter(m => m.id !== marker.id),
+                      elements
+                    );
+
+                    // Apply magnetic snap to the node
+                    if (snapResult.snapX !== null) {
+                      node.x(snapResult.snapX + config.width / 2);
+                    }
+                    if (snapResult.snapY !== null) {
+                      node.y(snapResult.snapY + config.height / 2);
+                    }
+
+                    setSnapPreviewLines(snapResult.snapLines);
+                    setSnappedElementIds(snapResult.snappedElementIds);
+                  } : undefined}
+                  onDragStart={() => {
+                    // Clear any existing snap preview lines when starting drag
+                    setSnapPreviewLines([]);
+                    setSnappedElementIds([]);
+                  }}
                   onDragEnd={(e) => {
-                    const newX = e.target.x() - config.width / 2;
-                    const newY = e.target.y() - config.height / 2;
+                    // Clear snap preview lines when drag ends
+                    setSnapPreviewLines([]);
+                    setSnappedElementIds([]);
+
+                    let newX = e.target.x() - config.width / 2;
+                    let newY = e.target.y() - config.height / 2;
+
+                    // Apply intelligent snapping if enabled
+                    if (snappingEnabled) {
+                      const snapResult = findRouteMarkerSnapPoints(
+                        {
+                          x: newX,
+                          y: newY,
+                          width: config.width,
+                          height: config.height,
+                          type: marker.marker_type
+                        },
+                        routeMarkers.filter(m => m.id !== marker.id),
+                        elements
+                      );
+
+                      if (snapResult.snapX !== null) {
+                        newX = snapResult.snapX;
+                      }
+                      if (snapResult.snapY !== null) {
+                        newY = snapResult.snapY;
+                      }
+                    }
+
                     onMarkerUpdate?.(marker.id, { x_coordinate: newX, y_coordinate: newY });
                   }}
                 >
                   {marker.marker_type === 'cart_parking' ? (
-                    // Cart parking - rounded rectangle
+                    // Cart parking - dashed outline (no fill)
                     <>
                       <Rect
                         x={-config.width / 2}
                         y={-config.height / 2}
                         width={config.width}
                         height={config.height}
-                        fill={config.color}
+                        fill="transparent"
                         stroke={isSelected ? '#fff' : config.color}
                         strokeWidth={isSelected ? 3 : 2}
+                        dash={[8, 4]}
                         cornerRadius={4}
                         shadowColor={config.color}
                         shadowBlur={isSelected ? 15 : 8}
@@ -874,7 +1244,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                         fontSize={12}
                         fontFamily="monospace"
                         fontStyle="bold"
-                        fill="#fff"
+                        fill={config.color}
                         align="center"
                         verticalAlign="middle"
                       />
@@ -972,25 +1342,25 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             {/* Ghost/Preview element when drawing */}
             {selectedType && !isReadOnly && cursorCanvasPos && (() => {
               const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
-              
+
               if (isRouteMarker) {
                 const markerConfig = ROUTE_MARKER_CONFIGS[selectedType as RouteMarkerType];
                 if (!markerConfig) return null;
-                
+
                 // Route marker ghost
                 if (selectedType === 'cart_parking') {
-                  // Cart parking - rectangle
+                  // Cart parking - dashed outline (no fill, matches actual marker)
                   return (
                     <Rect
                       x={cursorCanvasPos.x - markerConfig.width / 2}
                       y={cursorCanvasPos.y - markerConfig.height / 2}
                       width={markerConfig.width}
                       height={markerConfig.height}
-                      fill={markerConfig.color}
-                      opacity={0.4}
+                      fill="transparent"
+                      opacity={0.6}
                       stroke={markerConfig.color}
                       strokeWidth={2}
-                      dash={[4, 4]}
+                      dash={[8, 4]}
                       cornerRadius={4}
                       listening={false}
                     />
@@ -1016,7 +1386,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   );
                 }
               }
-              
+
               const config = ELEMENT_CONFIGS[selectedType as ElementType];
               if (!config) return null;
               return (
@@ -1150,19 +1520,60 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           </div>
         )}
 
-        {/* Fit All Button - Floating bottom-right */}
-        {elements.length > 0 && (
-          <button
-            onClick={fitToElements}
-            className="absolute bottom-4 right-4 z-40 flex items-center gap-2 px-3 py-2 bg-slate-800/90 hover:bg-blue-600 border border-slate-600 hover:border-blue-500 rounded-lg shadow-lg backdrop-blur-sm transition-all group"
-            title="Fit all elements in view (show entire layout)"
-          >
-            <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            </svg>
-            <span className="text-xs font-medium text-slate-300 group-hover:text-white">Fit All</span>
-          </button>
-        )}
+        {/* Canvas Control Buttons - Floating bottom-right */}
+        <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-2">
+          {/* Route Markers Toggle Button */}
+          {onRouteMarkersToggle && routeMarkers.length > 0 && (
+            <button
+              onClick={onRouteMarkersToggle}
+              className={`flex items-center gap-2 px-3 py-2 border rounded-lg shadow-lg backdrop-blur-sm transition-all group ${showRouteMarkers
+                ? 'bg-purple-600/90 hover:bg-purple-500 border-purple-500 hover:border-purple-400'
+                : 'bg-slate-800/90 hover:bg-slate-700 border-slate-600 hover:border-slate-500'
+                }`}
+              title={`${showRouteMarkers ? 'Hide' : 'Show'} start/stop/cart parking markers`}
+            >
+              <svg className={`w-4 h-4 ${showRouteMarkers ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              </svg>
+              <span className={`text-xs font-medium ${showRouteMarkers ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
+                {showRouteMarkers ? 'Hide Markers' : 'Show Markers'}
+              </span>
+            </button>
+          )}
+
+          {/* Snapping Toggle Button */}
+          {onSnappingToggle && (
+            <button
+              onClick={onSnappingToggle}
+              className={`flex items-center gap-2 px-3 py-2 border rounded-lg shadow-lg backdrop-blur-sm transition-all group ${snappingEnabled
+                ? 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-500 hover:border-emerald-400'
+                : 'bg-slate-800/90 hover:bg-slate-700 border-slate-600 hover:border-slate-500'
+                }`}
+              title={`${snappingEnabled ? 'Disable' : 'Enable'} smart snapping for element placement`}
+            >
+              <svg className={`w-4 h-4 ${snappingEnabled ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className={`text-xs font-medium ${snappingEnabled ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
+                {snappingEnabled ? 'Snap On' : 'Snap Off'}
+              </span>
+            </button>
+          )}
+
+          {/* Fit All Button */}
+          {elements.length > 0 && (
+            <button
+              onClick={fitToElements}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-800/90 hover:bg-blue-600 border border-slate-600 hover:border-blue-500 rounded-lg shadow-lg backdrop-blur-sm transition-all group"
+              title="Fit all elements in view (show entire layout)"
+            >
+              <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
+              <span className="text-xs font-medium text-slate-300 group-hover:text-white">Fit All</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Canvas Info Panel */}
