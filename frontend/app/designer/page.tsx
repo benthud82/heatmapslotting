@@ -44,7 +44,7 @@ export default function Home() {
   
   // Route Markers State
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
-  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
+  const [selectedMarkerIds, setSelectedMarkerIds] = useState<string[]>([]);
 
   // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -71,6 +71,7 @@ export default function Home() {
   const [showPatternModal, setShowPatternModal] = useState(false);
   const [showResequenceModal, setShowResequenceModal] = useState(false);
   const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
+  const [copiedMarkers, setCopiedMarkers] = useState<RouteMarker[]>([]);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info'; duration?: number; onUndo?: () => void; onClose?: () => void } | null>(null);
 
   // Delete Undo State
@@ -427,36 +428,79 @@ export default function Home() {
     [routeMarkers]
   );
 
-  const handleMarkerDelete = useCallback(
-    async (id: string) => {
-      const originalMarkers = [...routeMarkers];
-      const marker = routeMarkers.find(m => m.id === id);
-      
-      // Optimistic delete
-      setRouteMarkers(markers => markers.filter(m => m.id !== id));
-      setSelectedMarkerId(null);
-      
-      try {
-        setSaving(true);
-        await routeMarkersApi.delete(id);
-        if (marker) {
-          setToast({ message: `${marker.label} deleted`, type: 'info', duration: 2000 });
-        }
-      } catch (err) {
-        // Revert
-        setRouteMarkers(originalMarkers);
-        setError(err instanceof Error ? err.message : 'Failed to delete route marker');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [routeMarkers]
-  );
+  const handleMarkerDelete = useCallback(async () => {
+    if (selectedMarkerIds.length === 0) return;
 
-  const handleMarkerClick = useCallback((id: string) => {
-    setSelectedMarkerId(id);
-    setSelectedElementIds([]); // Deselect elements when selecting a marker
-  }, []);
+    const markersToDelete = routeMarkers.filter((m) => selectedMarkerIds.includes(m.id));
+    if (markersToDelete.length === 0) return;
+
+    // Optimistic delete
+    const remainingMarkers = routeMarkers.filter((m) => !selectedMarkerIds.includes(m.id));
+    setRouteMarkers(remainingMarkers);
+    setSelectedMarkerIds([]);
+
+    try {
+      setSaving(true);
+      // Execute delete immediately to prevent data loss on refresh
+      await Promise.all(markersToDelete.map((marker) => routeMarkersApi.delete(marker.id)));
+
+      setToast({
+        message: `Deleted ${markersToDelete.length} marker${markersToDelete.length > 1 ? 's' : ''}`,
+        type: 'success',
+        duration: 5000,
+        onUndo: async () => {
+          // Restore markers
+          setRouteMarkers(routeMarkers);
+          setToast(null);
+
+          try {
+            setSaving(true);
+            // Re-create markers on backend
+            const restoredMarkers = await Promise.all(markersToDelete.map(marker => routeMarkersApi.create(currentLayoutId!, {
+              marker_type: marker.marker_type,
+              label: marker.label,
+              x_coordinate: marker.x_coordinate,
+              y_coordinate: marker.y_coordinate,
+              sequence_order: marker.sequence_order,
+            })));
+
+            setRouteMarkers(prev => [...prev, ...restoredMarkers]);
+            setSelectedMarkerIds(restoredMarkers.map(m => m.id));
+          } catch (err) {
+            console.error('Undo failed:', err);
+            setError('Failed to restore markers. Please try again.');
+            loadData(); // Fallback to ensure consistency
+          } finally {
+            setSaving(false);
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Delete error:', err);
+      // Revert optimistic update on failure
+      setRouteMarkers(routeMarkers);
+      setError('Failed to delete markers. Please try again.');
+      // Reload data to ensure sync
+      loadData();
+    } finally {
+      setSaving(false);
+    }
+  }, [selectedMarkerIds, routeMarkers, currentLayoutId]);
+
+  const handleMarkerClick = useCallback((id: string, ctrl: boolean, meta: boolean) => {
+    // If clicking the only selected marker, deselect it
+    if (selectedMarkerIds.length === 1 && selectedMarkerIds[0] === id && !ctrl && !meta) {
+      setSelectedMarkerIds([]);
+      return;
+    }
+
+    if (ctrl || meta) {
+      setSelectedMarkerIds(prev => prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]);
+    } else {
+      setSelectedMarkerIds([id]);
+    }
+    setSelectedElementIds([]); // Deselect elements when selecting markers
+  }, [selectedMarkerIds]);
 
   // Delete element(s)
   const handleElementDelete = useCallback(async () => {
@@ -529,86 +573,150 @@ export default function Home() {
 
   // Copy & Paste
   const handleCopy = useCallback(() => {
-    if (selectedElementIds.length === 0) return;
-    const elementsToCopy = elements.filter((el) => selectedElementIds.includes(el.id));
-    setCopiedElements(elementsToCopy);
-    setToast({ message: `Copied ${elementsToCopy.length} elements`, type: 'success' });
-  }, [selectedElementIds, elements]);
+    if (selectedMarkerIds.length > 0) {
+      const markersToCopy = routeMarkers.filter((m) => selectedMarkerIds.includes(m.id));
+      setCopiedMarkers(markersToCopy);
+      setCopiedElements([]); // Clear element clipboard
+      setToast({ message: `Copied ${markersToCopy.length} marker${markersToCopy.length > 1 ? 's' : ''}`, type: 'success' });
+    } else if (selectedElementIds.length > 0) {
+      const elementsToCopy = elements.filter((el) => selectedElementIds.includes(el.id));
+      setCopiedElements(elementsToCopy);
+      setCopiedMarkers([]); // Clear marker clipboard
+      setToast({ message: `Copied ${elementsToCopy.length} elements`, type: 'success' });
+    }
+  }, [selectedElementIds, selectedMarkerIds, elements, routeMarkers]);
 
   const handlePaste = useCallback(async () => {
-    if (copiedElements.length === 0) return;
+    if (copiedMarkers.length > 0) {
+      // Paste markers
+      const newMarkerIds: string[] = [];
+      const PASTE_OFFSET = 20;
+      const newMarkersToAdd: RouteMarker[] = [];
 
-    const newElementIds: string[] = [];
-    const PASTE_OFFSET = 20;
-    const newElementsToAdd: WarehouseElement[] = [];
+      for (const copiedMarker of copiedMarkers) {
+        const tempId = nanoid();
+        const markerCount = routeMarkers.filter(m => m.marker_type === copiedMarker.marker_type).length + 1 + newMarkersToAdd.filter(m => m.marker_type === copiedMarker.marker_type).length;
+        const label = markerCount === 1 ? copiedMarker.marker_type.replace('_', ' ') : `${copiedMarker.marker_type.replace('_', ' ')} ${markerCount}`;
 
-    for (const copiedElement of copiedElements) {
-      const tempId = nanoid();
-      const config = ELEMENT_CONFIGS[copiedElement.element_type];
+        const newMarker: RouteMarker = {
+          id: tempId,
+          layout_id: currentLayoutId || '',
+          marker_type: copiedMarker.marker_type,
+          label,
+          x_coordinate: copiedMarker.x_coordinate + PASTE_OFFSET,
+          y_coordinate: copiedMarker.y_coordinate + PASTE_OFFSET,
+          sequence_order: copiedMarker.marker_type === 'cart_parking' ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1 + newMarkersToAdd.filter(m => m.marker_type === 'cart_parking').length : undefined,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
 
-      const typeCount = elements.filter(el => el.element_type === copiedElement.element_type).length + 1 + newElementsToAdd.filter(el => el.element_type === copiedElement.element_type).length;
-      const abbreviations: Record<ElementType, string> = {
-        bay: 'B',
-        flow_rack: 'FR',
-        full_pallet: 'P',
-        text: 'T',
-        line: 'L',
-        arrow: 'A'
-      };
-      const newLabel = `${abbreviations[copiedElement.element_type]}${typeCount}`;
+        newMarkersToAdd.push(newMarker);
+        newMarkerIds.push(tempId);
+      }
 
-      const newElement: WarehouseElement = {
-        id: tempId,
-        layout_id: layout?.id || '',
-        element_type: copiedElement.element_type,
-        label: newLabel,
-        x_coordinate: copiedElement.x_coordinate + PASTE_OFFSET,
-        y_coordinate: copiedElement.y_coordinate + PASTE_OFFSET,
-        width: config.width,
-        height: config.height,
-        rotation: copiedElement.rotation,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
+      const updatedMarkers = [...routeMarkers, ...newMarkersToAdd];
+      setRouteMarkers(updatedMarkers);
+      setSelectedMarkerIds(newMarkerIds);
+      setSelectedElementIds([]);
 
-      newElementsToAdd.push(newElement);
-      newElementIds.push(tempId);
+      try {
+        setSaving(true);
+        // Create all markers on backend
+        const createdMarkers = await Promise.all(newMarkersToAdd.map(marker => routeMarkersApi.create(currentLayoutId!, {
+          marker_type: marker.marker_type,
+          label: marker.label,
+          x_coordinate: marker.x_coordinate,
+          y_coordinate: marker.y_coordinate,
+          sequence_order: marker.sequence_order,
+        })));
+
+        // Replace temp markers with real ones
+        setRouteMarkers(prev => prev.map(m => {
+          const created = createdMarkers.find(cm => cm.marker_type === m.marker_type && Math.abs(cm.x_coordinate - m.x_coordinate) < 1);
+          return created || m;
+        }));
+
+        // Select all newly created markers
+        setSelectedMarkerIds(createdMarkers.map(m => m.id));
+
+        setToast({
+          message: `Pasted ${createdMarkers.length} marker${createdMarkers.length > 1 ? 's' : ''}`,
+          type: 'success',
+        });
+      } catch (err) {
+        setRouteMarkers(routeMarkers); // Revert
+        setError('Failed to paste markers');
+      } finally {
+        setSaving(false);
+      }
+    } else if (copiedElements.length > 0) {
+      // Paste elements
+      const newElementIds: string[] = [];
+      const PASTE_OFFSET = 20;
+      const newElementsToAdd: WarehouseElement[] = [];
+
+      for (const copiedElement of copiedElements) {
+        const tempId = nanoid();
+        const config = ELEMENT_CONFIGS[copiedElement.element_type];
+
+        const typeCount = elements.filter(el => el.element_type === copiedElement.element_type).length + 1 + newElementsToAdd.filter(el => el.element_type === copiedElement.element_type).length;
+        const abbreviations: Record<ElementType, string> = {
+          bay: 'B',
+          flow_rack: 'FR',
+          full_pallet: 'P',
+          text: 'T',
+          line: 'L',
+          arrow: 'A'
+        };
+        const newLabel = `${abbreviations[copiedElement.element_type]}${typeCount}`;
+
+        const newElement: WarehouseElement = {
+          id: tempId,
+          layout_id: layout?.id || '',
+          element_type: copiedElement.element_type,
+          label: newLabel,
+          x_coordinate: copiedElement.x_coordinate + PASTE_OFFSET,
+          y_coordinate: copiedElement.y_coordinate + PASTE_OFFSET,
+          width: config.width,
+          height: config.height,
+          rotation: copiedElement.rotation,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        newElementsToAdd.push(newElement);
+        newElementIds.push(tempId);
+      }
+
+      const updatedElements = [...elements, ...newElementsToAdd];
+      setElements(updatedElements);
+      setSelectedElementIds(newElementIds);
+      setSelectedMarkerIds([]);
+
+      try {
+        setSaving(true);
+        // Create all on backend
+        const createdElements = await Promise.all(newElementsToAdd.map(el => elementsApi.create({
+          layout_id: layout?.id || currentLayoutId || '',
+          element_type: el.element_type,
+          label: el.label,
+          x_coordinate: el.x_coordinate,
+          y_coordinate: el.y_coordinate,
+          rotation: el.rotation,
+        })));
+
+        // Actually, simpler to just reload or map carefully.
+        // For now, let's just assume success and reload if critical, but we need IDs for future updates.
+        // Let's reload data to be safe and get real IDs
+        await loadData();
+      } catch (err) {
+        setElements(elements); // Revert
+        setError('Failed to paste elements');
+      } finally {
+        setSaving(false);
+      }
     }
-
-    const updatedElements = [...elements, ...newElementsToAdd];
-    setElements(updatedElements);
-    setSelectedElementIds(newElementIds);
-
-    try {
-      setSaving(true);
-      // Create all on backend
-      const createdElements = await Promise.all(newElementsToAdd.map(el => elementsApi.create({
-        layout_id: layout?.id || currentLayoutId || '',
-        element_type: el.element_type,
-        label: el.label,
-        x_coordinate: el.x_coordinate,
-        y_coordinate: el.y_coordinate,
-        rotation: el.rotation,
-      })));
-
-      // Update IDs
-      const finalElements = updatedElements.map(el => {
-        const created = createdElements.find(c => c.label === el.label && c.element_type === el.element_type); // Simple matching
-        // Better matching: use index
-        return created ? created : el;
-      });
-
-      // Actually, simpler to just reload or map carefully.
-      // For now, let's just assume success and reload if critical, but we need IDs for future updates.
-      // Let's reload data to be safe and get real IDs
-      await loadData();
-    } catch (err) {
-      setElements(elements); // Revert
-      setError('Failed to paste elements');
-    } finally {
-      setSaving(false);
-    }
-  }, [copiedElements, elements, layout, setElements]);
+  }, [copiedElements, copiedMarkers, elements, routeMarkers, layout, currentLayoutId, setElements]);
 
   // Menu Actions
   const handleMenuAction = useCallback((action: string) => {
@@ -636,7 +744,11 @@ export default function Home() {
         break;
       case 'cut':
         handleCopy();
-        handleElementDelete();
+        if (selectedMarkerIds.length > 0) {
+          handleMarkerDelete();
+        } else {
+          handleElementDelete();
+        }
         break;
       case 'copy':
         handleCopy();
@@ -648,7 +760,13 @@ export default function Home() {
         handleElementDelete();
         break;
       case 'select_all':
-        setSelectedElementIds(elements.map(el => el.id));
+        if (selectedMarkerIds.length > 0) {
+          // If markers are selected, select all markers
+          setSelectedMarkerIds(routeMarkers.map(m => m.id));
+        } else {
+          // Otherwise select all elements
+          setSelectedElementIds(elements.map(el => el.id));
+        }
         break;
       case 'zoom_in':
         setZoom(z => Math.min(z * 1.2, 5));
@@ -864,7 +982,11 @@ export default function Home() {
         switch (e.key.toLowerCase()) {
           case 'delete':
             e.preventDefault();
-            handleElementDelete();
+            if (selectedMarkerIds.length > 0) {
+              handleMarkerDelete();
+            } else {
+              handleElementDelete();
+            }
             break;
           case 'g':
             // G - Generate pattern (requires at least 1 element selected)
@@ -886,7 +1008,7 @@ export default function Home() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, selectedElementIds]);
+  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, handleMarkerDelete, selectedElementIds, selectedMarkerIds]);
 
   if (loading) {
     return (
@@ -954,14 +1076,14 @@ export default function Home() {
             onElementUpdate={handleElementUpdate}
             onCanvasClick={() => {
               setSelectedElementIds([]);
-              setSelectedMarkerId(null);
+              setSelectedMarkerIds([]);
             }}
             canvasWidth={layout?.canvas_width || 1200}
             canvasHeight={layout?.canvas_height || 800}
             onZoomChange={setZoom}
             onCursorMove={(x, y) => setCursorPos({ x, y })}
             routeMarkers={routeMarkers}
-            selectedMarkerId={selectedMarkerId}
+            selectedMarkerIds={selectedMarkerIds}
             onMarkerClick={handleMarkerClick}
             onMarkerCreate={handleMarkerCreate}
             onMarkerUpdate={handleMarkerUpdate}
@@ -1003,7 +1125,7 @@ export default function Home() {
             onUpdate={handleElementUpdate}
             onGeneratePattern={selectedElementIds.length >= 1 ? () => setShowPatternModal(true) : undefined}
             onResequence={selectedElementIds.length >= 2 ? () => setShowResequenceModal(true) : undefined}
-            selectedMarker={selectedMarkerId ? routeMarkers.find(m => m.id === selectedMarkerId) || null : null}
+            selectedMarker={selectedMarkerIds.length === 1 ? routeMarkers.find(m => m.id === selectedMarkerIds[0]) || null : null}
             onMarkerUpdate={handleMarkerUpdate}
             onMarkerDelete={handleMarkerDelete}
           />

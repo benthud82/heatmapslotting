@@ -260,8 +260,8 @@ interface WarehouseCanvasProps {
   isHeatmap?: boolean;
   // Route markers
   routeMarkers?: RouteMarker[];
-  selectedMarkerId?: string | null;
-  onMarkerClick?: (id: string) => void;
+  selectedMarkerIds?: string[];
+  onMarkerClick?: (id: string, ctrl: boolean, meta: boolean) => void;
   onMarkerCreate?: (x: number, y: number, type: RouteMarkerType) => void;
   onMarkerUpdate?: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => void;
   // Snapping
@@ -289,7 +289,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onCursorMove,
   isHeatmap = false,
   routeMarkers = [],
-  selectedMarkerId,
+  selectedMarkerIds = [],
   onMarkerClick,
   onMarkerCreate,
   onMarkerUpdate,
@@ -876,8 +876,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setValidationError(null);
   };
 
-  const handleLabelChange = (elementId: string, newLabel: string) => {
-    // Validate: check for duplicate names (excluding current element)
+  const handleLabelChange = (id: string, newLabel: string) => {
+    // Validate: check for duplicate names (excluding current item)
     const trimmedLabel = newLabel.trim();
 
     if (!trimmedLabel) {
@@ -885,17 +885,33 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       return;
     }
 
-    const isDuplicate = elements.some(
-      (el) => el.id !== elementId && el.label.toLowerCase() === trimmedLabel.toLowerCase()
+    // Check for duplicates in elements
+    const isDuplicateElement = elements.some(
+      (el) => el.id !== id && el.label.toLowerCase() === trimmedLabel.toLowerCase()
     );
 
-    if (isDuplicate) {
+    // Check for duplicates in route markers
+    const isDuplicateMarker = routeMarkers.some(
+      (marker) => marker.id !== id && marker.label.toLowerCase() === trimmedLabel.toLowerCase()
+    );
+
+    if (isDuplicateElement || isDuplicateMarker) {
       setValidationError(`Name "${trimmedLabel}" already exists`);
       return;
     }
 
-    // Valid - save changes
-    onElementUpdate(elementId, { label: trimmedLabel });
+    // Check if this is an element or marker
+    const isElement = elements.some(el => el.id === id);
+    if (isElement) {
+      onElementUpdate(id, { label: trimmedLabel });
+    } else {
+      // It's a marker
+      const marker = routeMarkers.find(m => m.id === id);
+      if (marker && onMarkerUpdate) {
+        onMarkerUpdate(id, { label: trimmedLabel });
+      }
+    }
+
     setEditingLabel(null);
     setEditingValue('');
     setEditingPosition(null);
@@ -1140,7 +1156,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             {/* Route Markers */}
             {showRouteMarkers && routeMarkers.map((marker) => {
               const config = ROUTE_MARKER_CONFIGS[marker.marker_type];
-              const isSelected = selectedMarkerId === marker.id;
+              const isSelected = selectedMarkerIds.includes(marker.id);
               const x = Number(marker.x_coordinate);
               const y = Number(marker.y_coordinate);
 
@@ -1150,7 +1166,17 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   x={x + config.width / 2}
                   y={y + config.height / 2}
                   draggable={!isReadOnly}
-                  onClick={() => onMarkerClick?.(marker.id)}
+                  onClick={(e) => onMarkerClick?.(marker.id, e.evt.ctrlKey, e.evt.metaKey)}
+                  onDblClick={() => {
+                    // Start inline editing for marker label
+                    setEditingLabel(marker.id);
+                    setEditingValue(marker.label);
+                    const canvasPos = canvasToScreenCoords(Number(marker.x_coordinate) + ROUTE_MARKER_CONFIGS[marker.marker_type].width / 2, Number(marker.y_coordinate) + ROUTE_MARKER_CONFIGS[marker.marker_type].height / 2 - 10);
+                    if (canvasPos) {
+                      setEditingPosition(canvasPos);
+                    }
+                    setValidationError(null);
+                  }}
                   onDragMove={marker.marker_type === 'cart_parking' && snappingEnabled ? (e) => {
                     // Show snap preview lines for cart parking
                     const node = e.target;
