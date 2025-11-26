@@ -15,9 +15,9 @@ import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal
 import Toast from '@/components/ui/Toast';
 import PatternGeneratorModal, { GeneratedElementData } from '@/components/designer/PatternGeneratorModal';
 import ResequenceModal from '@/components/designer/ResequenceModal';
-import { layoutApi, elementsApi } from '@/lib/api';
+import { layoutApi, elementsApi, routeMarkersApi } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
-import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
+import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
 import { useHistory } from '@/hooks/useHistory';
 import { alignElements, AlignmentType } from '@/lib/alignment';
 
@@ -40,7 +40,11 @@ export default function Home() {
   } = useHistory<WarehouseElement[]>([]);
 
   // Tool State
-  const [activeTool, setActiveTool] = useState<'select' | ElementType>('select');
+  const [activeTool, setActiveTool] = useState<'select' | ElementType | RouteMarkerType>('select');
+  
+  // Route Markers State
+  const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
 
   // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -131,14 +135,25 @@ export default function Home() {
         setCurrentLayoutId(activeId);
       }
 
-      // If we have an active layout, fetch its elements
+      // If we have an active layout, fetch its elements and route markers
       if (activeId) {
         const elementsData = await layoutApi.getElements(activeId);
         resetHistory(elementsData);
+        
+        // Load route markers
+        try {
+          const markersData = await routeMarkersApi.getMarkers(activeId);
+          setRouteMarkers(markersData);
+        } catch (markerErr) {
+          console.error('Failed to load route markers:', markerErr);
+          setRouteMarkers([]);
+        }
+        
         setError(null);
       } else {
         // No layouts exist? Should not happen as backend creates default, but handle it
         setElements([]);
+        setRouteMarkers([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -148,14 +163,23 @@ export default function Home() {
     }
   };
 
-  // Effect to reload elements when layout changes
+  // Effect to reload elements and route markers when layout changes
   useEffect(() => {
     if (currentLayoutId) {
-      const fetchElements = async () => {
+      const fetchLayoutData = async () => {
         try {
           setLoading(true);
           const elementsData = await layoutApi.getElements(currentLayoutId);
           resetHistory(elementsData);
+          
+          // Load route markers for this layout
+          try {
+            const markersData = await routeMarkersApi.getMarkers(currentLayoutId);
+            setRouteMarkers(markersData);
+          } catch (markerErr) {
+            console.error('Failed to load route markers:', markerErr);
+            setRouteMarkers([]);
+          }
         } catch (err) {
           console.error('Failed to load elements:', err);
           setError('Failed to load elements for this layout');
@@ -163,7 +187,7 @@ export default function Home() {
           setLoading(false);
         }
       };
-      fetchElements();
+      fetchLayoutData();
     }
   }, [currentLayoutId]);
 
@@ -320,6 +344,118 @@ export default function Home() {
     },
     [elements, setElements]
   );
+
+  // Route Marker Handlers
+  const handleMarkerCreate = useCallback(
+    async (x: number, y: number, markerType: RouteMarkerType) => {
+      if (!currentLayoutId) return;
+      
+      const tempId = nanoid();
+      const markerCount = routeMarkers.filter(m => m.marker_type === markerType).length + 1;
+      const labelPrefixes: Record<RouteMarkerType, string> = {
+        start_point: 'Start',
+        stop_point: 'Stop',
+        cart_parking: 'Cart',
+      };
+      const label = markerCount === 1 ? labelPrefixes[markerType] : `${labelPrefixes[markerType]} ${markerCount}`;
+      
+      // Calculate sequence order for cart parking
+      const sequenceOrder = markerType === 'cart_parking' 
+        ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1 
+        : undefined;
+      
+      const tempMarker: RouteMarker = {
+        id: tempId,
+        layout_id: currentLayoutId,
+        marker_type: markerType,
+        label,
+        x_coordinate: x,
+        y_coordinate: y,
+        sequence_order: sequenceOrder,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      // Optimistic update
+      setRouteMarkers([...routeMarkers, tempMarker]);
+      
+      try {
+        setSaving(true);
+        const created = await routeMarkersApi.create(currentLayoutId, {
+          marker_type: markerType,
+          label,
+          x_coordinate: x,
+          y_coordinate: y,
+          sequence_order: sequenceOrder,
+        });
+        
+        // Replace temp with real
+        setRouteMarkers(markers => markers.map(m => m.id === tempId ? created : m));
+        setToast({ message: `${label} placed`, type: 'success', duration: 2000 });
+      } catch (err) {
+        // Revert
+        setRouteMarkers(markers => markers.filter(m => m.id !== tempId));
+        setError(err instanceof Error ? err.message : 'Failed to create route marker');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [currentLayoutId, routeMarkers]
+  );
+
+  const handleMarkerUpdate = useCallback(
+    async (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => {
+      const originalMarkers = [...routeMarkers];
+      
+      // Optimistic update
+      setRouteMarkers(markers => markers.map(m =>
+        m.id === id ? { ...m, ...updates, updated_at: new Date().toISOString() } : m
+      ));
+      
+      try {
+        setSaving(true);
+        await routeMarkersApi.update(id, updates);
+      } catch (err) {
+        // Revert
+        setRouteMarkers(originalMarkers);
+        setError(err instanceof Error ? err.message : 'Failed to update route marker');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [routeMarkers]
+  );
+
+  const handleMarkerDelete = useCallback(
+    async (id: string) => {
+      const originalMarkers = [...routeMarkers];
+      const marker = routeMarkers.find(m => m.id === id);
+      
+      // Optimistic delete
+      setRouteMarkers(markers => markers.filter(m => m.id !== id));
+      setSelectedMarkerId(null);
+      
+      try {
+        setSaving(true);
+        await routeMarkersApi.delete(id);
+        if (marker) {
+          setToast({ message: `${marker.label} deleted`, type: 'info', duration: 2000 });
+        }
+      } catch (err) {
+        // Revert
+        setRouteMarkers(originalMarkers);
+        setError(err instanceof Error ? err.message : 'Failed to delete route marker');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [routeMarkers]
+  );
+
+  const handleMarkerClick = useCallback((id: string) => {
+    setSelectedMarkerId(id);
+    setSelectedElementIds([]); // Deselect elements when selecting a marker
+  }, []);
 
   // Delete element(s)
   const handleElementDelete = useCallback(async () => {
@@ -814,11 +950,19 @@ export default function Home() {
             }}
             onElementCreate={handleElementCreate}
             onElementUpdate={handleElementUpdate}
-            onCanvasClick={() => setSelectedElementIds([])}
+            onCanvasClick={() => {
+              setSelectedElementIds([]);
+              setSelectedMarkerId(null);
+            }}
             canvasWidth={layout?.canvas_width || 1200}
             canvasHeight={layout?.canvas_height || 800}
             onZoomChange={setZoom}
             onCursorMove={(x, y) => setCursorPos({ x, y })}
+            routeMarkers={routeMarkers}
+            selectedMarkerId={selectedMarkerId}
+            onMarkerClick={handleMarkerClick}
+            onMarkerCreate={handleMarkerCreate}
+            onMarkerUpdate={handleMarkerUpdate}
           />
 
           {error && (
@@ -854,6 +998,9 @@ export default function Home() {
             onUpdate={handleElementUpdate}
             onGeneratePattern={selectedElementIds.length >= 1 ? () => setShowPatternModal(true) : undefined}
             onResequence={selectedElementIds.length >= 2 ? () => setShowResequenceModal(true) : undefined}
+            selectedMarker={selectedMarkerId ? routeMarkers.find(m => m.id === selectedMarkerId) || null : null}
+            onMarkerUpdate={handleMarkerUpdate}
+            onMarkerDelete={handleMarkerDelete}
           />
           {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>

@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback, useImperative
 import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
-import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode } from '@/lib/types';
+import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType, ROUTE_MARKER_CONFIGS } from '@/lib/types';
 import { findSnapPoints, snapRotation } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
@@ -19,7 +19,7 @@ export interface WarehouseCanvasRef {
 
 interface WarehouseCanvasProps {
   elements: WarehouseElement[];
-  selectedType: ElementType | null;
+  selectedType: ElementType | RouteMarkerType | null;
   selectedElementIds: string[];
   labelDisplayMode: LabelDisplayMode;
   onElementClick: (id: string, ctrlKey: boolean, metaKey: boolean) => void;
@@ -33,6 +33,12 @@ interface WarehouseCanvasProps {
   onZoomChange?: (zoom: number) => void;
   onCursorMove?: (x: number, y: number) => void;
   isHeatmap?: boolean;
+  // Route markers
+  routeMarkers?: RouteMarker[];
+  selectedMarkerId?: string | null;
+  onMarkerClick?: (id: string) => void;
+  onMarkerCreate?: (x: number, y: number, type: RouteMarkerType) => void;
+  onMarkerUpdate?: (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => void;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -51,6 +57,11 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onZoomChange,
   onCursorMove,
   isHeatmap = false,
+  routeMarkers = [],
+  selectedMarkerId,
+  onMarkerClick,
+  onMarkerCreate,
+  onMarkerUpdate,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -248,26 +259,35 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     if (pos) {
       // If placing a new element, apply snapping to the ghost position
       if (selectedType && !isReadOnly) {
-        const config = ELEMENT_CONFIGS[selectedType];
+        const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
+        
+        if (isRouteMarker) {
+          // Route markers don't snap - just use cursor position
+          setCursorCanvasPos(pos);
+        } else {
+          const config = ELEMENT_CONFIGS[selectedType as ElementType];
 
-        // Calculate potential snap points
-        // We use a temporary object representing the ghost element
-        const ghostElement = {
-          x: pos.x - Number(config.width) / 2,
-          y: pos.y - Number(config.height) / 2,
-          width: Number(config.width),
-          height: Number(config.height),
-          rotation: 0,
-        };
+          // Guard: only process if config exists
+          if (config) {
+            // Calculate potential snap points
+            const ghostElement = {
+              x: pos.x - Number(config.width) / 2,
+              y: pos.y - Number(config.height) / 2,
+              width: Number(config.width),
+              height: Number(config.height),
+              rotation: 0,
+            };
 
-        const snapResult = findSnapPoints(ghostElement, elements);
+            const snapResult = findSnapPoints(ghostElement, elements);
 
-        // Use snapped coordinates if available, otherwise use raw cursor position
-        // Note: findSnapPoints returns top-left coordinates
-        const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(config.width) / 2 : pos.x;
-        const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(config.height) / 2 : pos.y;
+            const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(config.width) / 2 : pos.x;
+            const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(config.height) / 2 : pos.y;
 
-        setCursorCanvasPos({ x: snappedX, y: snappedY });
+            setCursorCanvasPos({ x: snappedX, y: snappedY });
+          } else {
+            setCursorCanvasPos(pos);
+          }
+        }
       } else {
         setCursorCanvasPos(pos);
       }
@@ -289,21 +309,33 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       targetType === 'Line'; // Grid lines
 
     if (clickedOnEmpty) {
-      // If placement mode is active and not read-only, place new element at click position
+      // If placement mode is active and not read-only
       if (selectedType && !isReadOnly) {
-        // Use the ghost position if available (which is already snapped), otherwise calculate raw position
-        // This ensures the element is placed exactly where the ghost was shown
         const canvasPosition = cursorCanvasPos || getRelativePointerPosition();
         if (!canvasPosition) return;
 
-        console.log('Placing element at:', canvasPosition); // Debug log
+        // Check if it's a route marker type
+        const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
+        
+        if (isRouteMarker) {
+          // Create route marker
+          const markerConfig = ROUTE_MARKER_CONFIGS[selectedType as RouteMarkerType];
+          if (!markerConfig || !onMarkerCreate) return;
+          
+          const placeX = canvasPosition.x - markerConfig.width / 2;
+          const placeY = canvasPosition.y - markerConfig.height / 2;
+          
+          onMarkerCreate(placeX, placeY, selectedType as RouteMarkerType);
+        } else {
+          // Create warehouse element
+          const config = ELEMENT_CONFIGS[selectedType as ElementType];
+          if (!config) return;
 
-        // Calculate top-left position from center position (canvasPosition)
-        const config = ELEMENT_CONFIGS[selectedType];
-        const placeX = canvasPosition.x - Number(config.width) / 2;
-        const placeY = canvasPosition.y - Number(config.height) / 2;
+          const placeX = canvasPosition.x - Number(config.width) / 2;
+          const placeY = canvasPosition.y - Number(config.height) / 2;
 
-        onElementCreate(placeX, placeY);
+          onElementCreate(placeX, placeY);
+        }
 
         // Clear any element selection after placing
         if (selectedElementIds.length > 0) {
@@ -797,6 +829,102 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               );
             })}
 
+            {/* Route Markers */}
+            {routeMarkers.map((marker) => {
+              const config = ROUTE_MARKER_CONFIGS[marker.marker_type];
+              const isSelected = selectedMarkerId === marker.id;
+              const x = Number(marker.x_coordinate);
+              const y = Number(marker.y_coordinate);
+              
+              return (
+                <Group
+                  key={marker.id}
+                  x={x + config.width / 2}
+                  y={y + config.height / 2}
+                  draggable={!isReadOnly}
+                  onClick={() => onMarkerClick?.(marker.id)}
+                  onDragEnd={(e) => {
+                    const newX = e.target.x() - config.width / 2;
+                    const newY = e.target.y() - config.height / 2;
+                    onMarkerUpdate?.(marker.id, { x_coordinate: newX, y_coordinate: newY });
+                  }}
+                >
+                  {marker.marker_type === 'cart_parking' ? (
+                    // Cart parking - rounded rectangle
+                    <>
+                      <Rect
+                        x={-config.width / 2}
+                        y={-config.height / 2}
+                        width={config.width}
+                        height={config.height}
+                        fill={config.color}
+                        stroke={isSelected ? '#fff' : config.color}
+                        strokeWidth={isSelected ? 3 : 2}
+                        cornerRadius={4}
+                        shadowColor={config.color}
+                        shadowBlur={isSelected ? 15 : 8}
+                        shadowOpacity={0.6}
+                      />
+                      <Text
+                        x={-config.width / 2}
+                        y={-config.height / 2}
+                        width={config.width}
+                        height={config.height}
+                        text={marker.sequence_order?.toString() || '🛒'}
+                        fontSize={12}
+                        fontFamily="monospace"
+                        fontStyle="bold"
+                        fill="#fff"
+                        align="center"
+                        verticalAlign="middle"
+                      />
+                    </>
+                  ) : (
+                    // Start/Stop point - circle
+                    <>
+                      <Rect
+                        x={-config.width / 2}
+                        y={-config.height / 2}
+                        width={config.width}
+                        height={config.height}
+                        fill={config.color}
+                        stroke={isSelected ? '#fff' : config.color}
+                        strokeWidth={isSelected ? 3 : 2}
+                        cornerRadius={config.width / 2}
+                        shadowColor={config.color}
+                        shadowBlur={isSelected ? 15 : 8}
+                        shadowOpacity={0.6}
+                      />
+                      <Text
+                        x={-config.width / 2}
+                        y={-config.height / 2}
+                        width={config.width}
+                        height={config.height}
+                        text={marker.marker_type === 'start_point' ? '▶' : '■'}
+                        fontSize={14}
+                        fontFamily="monospace"
+                        fontStyle="bold"
+                        fill="#fff"
+                        align="center"
+                        verticalAlign="middle"
+                      />
+                    </>
+                  )}
+                  {/* Label below marker */}
+                  <Text
+                    x={-50}
+                    y={config.height / 2 + 4}
+                    width={100}
+                    text={marker.label}
+                    fontSize={10}
+                    fontFamily="monospace"
+                    fill="#94a3b8"
+                    align="center"
+                  />
+                </Group>
+              );
+            })}
+
             {/* Bounding box for multi-select */}
             {selectedElementIds.length > 1 && (() => {
               // Calculate bounding box around all selected elements
@@ -843,7 +971,54 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
             {/* Ghost/Preview element when drawing */}
             {selectedType && !isReadOnly && cursorCanvasPos && (() => {
-              const config = ELEMENT_CONFIGS[selectedType];
+              const isRouteMarker = ['start_point', 'stop_point', 'cart_parking'].includes(selectedType);
+              
+              if (isRouteMarker) {
+                const markerConfig = ROUTE_MARKER_CONFIGS[selectedType as RouteMarkerType];
+                if (!markerConfig) return null;
+                
+                // Route marker ghost
+                if (selectedType === 'cart_parking') {
+                  // Cart parking - rectangle
+                  return (
+                    <Rect
+                      x={cursorCanvasPos.x - markerConfig.width / 2}
+                      y={cursorCanvasPos.y - markerConfig.height / 2}
+                      width={markerConfig.width}
+                      height={markerConfig.height}
+                      fill={markerConfig.color}
+                      opacity={0.4}
+                      stroke={markerConfig.color}
+                      strokeWidth={2}
+                      dash={[4, 4]}
+                      cornerRadius={4}
+                      listening={false}
+                    />
+                  );
+                } else {
+                  // Start/Stop point - circle
+                  return (
+                    <Group x={cursorCanvasPos.x} y={cursorCanvasPos.y} listening={false}>
+                      <Rect
+                        x={-markerConfig.width / 2}
+                        y={-markerConfig.height / 2}
+                        width={markerConfig.width}
+                        height={markerConfig.height}
+                        fill={markerConfig.color}
+                        opacity={0.4}
+                        stroke={markerConfig.color}
+                        strokeWidth={2}
+                        dash={[4, 4]}
+                        cornerRadius={markerConfig.width / 2}
+                        listening={false}
+                      />
+                    </Group>
+                  );
+                }
+              }
+              
+              const config = ELEMENT_CONFIGS[selectedType as ElementType];
+              if (!config) return null;
               return (
                 <Rect
                   x={cursorCanvasPos.x - Number(config.width) / 2}

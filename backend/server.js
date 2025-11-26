@@ -39,6 +39,7 @@ app.use('/api/layouts', authMiddleware, require('./routes/layouts'));
 app.use('/api/elements', authMiddleware, require('./routes/bays')); // warehouse elements
 app.use('/api/picks', authMiddleware, require('./routes/picks')); // pick transactions
 app.use('/api/user', authMiddleware, require('./routes/user')); // user preferences and profile
+app.use('/api', authMiddleware, require('./routes/routeMarkers')); // route markers for walk distance
 
 // Error handling middleware
 app.use((err, req, res, next) => {

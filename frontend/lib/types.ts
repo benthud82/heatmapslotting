@@ -2,6 +2,8 @@
 
 export type ElementType = 'bay' | 'flow_rack' | 'full_pallet' | 'text' | 'line' | 'arrow';
 
+export type RouteMarkerType = 'start_point' | 'stop_point' | 'cart_parking';
+
 export type LabelDisplayMode = 'none' | 'hover' | 'selected' | 'all';
 
 export interface WarehouseElement {
@@ -80,6 +82,59 @@ export interface UploadPicksError {
   message?: string;
 }
 
+// Route Markers for Walk Distance
+export interface RouteMarker {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  marker_type: RouteMarkerType;
+  label: string;
+  x_coordinate: number;
+  y_coordinate: number;
+  sequence_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateRouteMarkerRequest {
+  marker_type: RouteMarkerType;
+  label?: string;
+  x_coordinate: number;
+  y_coordinate: number;
+  sequence_order?: number;
+}
+
+export interface WalkDistanceData {
+  totalDistance: number;
+  totalDistanceFeet: number;
+  totalPicks: number;
+  avgDistancePerPick: number;
+  avgDistancePerPickFeet: number;
+  estimatedMinutes: number;
+  routeSummary: {
+    startToFirstCart: number;
+    lastCartToStop: number;
+    pickingDistance: number;
+  };
+  cartUtilization: Array<{
+    label: string;
+    picksServed: number;
+    totalWalkDistance: number;
+    totalWalkDistanceFeet: number;
+  }>;
+  markers: {
+    startPoint: { label: string; x: number; y: number } | null;
+    stopPoint: { label: string; x: number; y: number } | null;
+    cartParkingCount: number;
+  };
+  message?: string;
+  missingMarkers?: {
+    startPoint: boolean;
+    stopPoint: boolean;
+    cartParking: boolean;
+  };
+}
+
 // Element type configurations with actual pixel dimensions (1 inch = 1 pixel)
 export const ELEMENT_CONFIGS: Record<
   ElementType,
@@ -132,5 +187,43 @@ export const ELEMENT_CONFIGS: Record<
     color: '#e2e8f0',
     displayName: 'Arrow',
     description: 'Directional arrow'
+  }
+};
+
+// Route Marker configurations
+export const ROUTE_MARKER_CONFIGS: Record<
+  RouteMarkerType,
+  {
+    width: number;
+    height: number;
+    color: string;
+    displayName: string;
+    description: string;
+    icon: string;
+  }
+> = {
+  start_point: {
+    width: 32,
+    height: 32,
+    color: '#10b981', // Green
+    displayName: 'Start Point',
+    description: 'Pick route start',
+    icon: '🚀'
+  },
+  stop_point: {
+    width: 32,
+    height: 32,
+    color: '#ef4444', // Red
+    displayName: 'Stop Point',
+    description: 'Pick route end',
+    icon: '🏁'
+  },
+  cart_parking: {
+    width: 40,
+    height: 24,
+    color: '#3b82f6', // Blue
+    displayName: 'Cart Parking',
+    description: 'Cart staging area',
+    icon: '🛒'
   }
 };

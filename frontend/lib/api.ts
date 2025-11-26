@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API client for warehouse element placement
 
-import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError } from './types';
+import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError, RouteMarker, CreateRouteMarkerRequest, WalkDistanceData } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -238,4 +238,43 @@ export const picksApi = {
 
   // Get all dates that have pick data
   getDates: (layoutId: string) => apiFetch<string[]>(`/api/picks/dates?layout_id=${layoutId}`),
+};
+
+// Route Markers API (for walk distance)
+export const routeMarkersApi = {
+  // Get all route markers for a layout
+  getMarkers: (layoutId: string): Promise<RouteMarker[]> =>
+    apiFetch<RouteMarker[]>(`/api/layouts/${layoutId}/route-markers`),
+
+  // Create a new route marker
+  create: (layoutId: string, data: CreateRouteMarkerRequest): Promise<RouteMarker> =>
+    apiFetch<RouteMarker>(`/api/layouts/${layoutId}/route-markers`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  // Update a route marker
+  update: (markerId: string, data: Partial<CreateRouteMarkerRequest>): Promise<RouteMarker> =>
+    apiFetch<RouteMarker>(`/api/route-markers/${markerId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Delete a route marker
+  delete: (markerId: string): Promise<{ message: string; id: string }> =>
+    apiFetch<{ message: string; id: string }>(`/api/route-markers/${markerId}`, {
+      method: 'DELETE',
+    }),
+
+  // Get walk distance calculation
+  getWalkDistance: (layoutId: string, startDate?: string, endDate?: string): Promise<WalkDistanceData> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/layouts/${layoutId}/walk-distance${queryString ? `?${queryString}` : ''}`;
+
+    return apiFetch<WalkDistanceData>(endpoint);
+  },
 };

@@ -1,45 +1,75 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import Link from 'next/link';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
-import ConfirmModal from '@/components/ConfirmModal';
-import { layoutApi, picksApi } from '@/lib/api';
-import { Layout, AggregatedPickData, PickTransaction } from '@/lib/types';
-import { getHeatmapColor } from '@/lib/heatmapColors';
-import CalendarView from '@/components/CalendarView';
+import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
+import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData } from '@/lib/types';
 import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    BarChart,
-    Bar,
-    Cell,
-    Legend
-} from 'recharts';
+    analyzeVelocity,
+    getZoneBreakdown,
+    calculateKPIs,
+    comparePeriods,
+    generateSparklineData,
+    getDateRangeForPeriod,
+    VelocityAnalysis,
+    KPIData,
+    ZoneBreakdown,
+    PeriodComparison,
+} from '@/lib/dashboardUtils';
+
+// Import new dashboard components
+import HeroKPIs from '@/components/dashboard/HeroKPIs';
+import ZoneEfficiency from '@/components/dashboard/ZoneEfficiency';
+import VelocityTable from '@/components/dashboard/VelocityTable';
+import TimeComparison from '@/components/dashboard/TimeComparison';
+import WalkDistanceCard from '@/components/dashboard/WalkDistanceCard';
+
+type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
 export default function Dashboard() {
+    // Layout State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [layouts, setLayouts] = useState<Layout[]>([]);
     const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-    // Derived state for current layout
     const layout = layouts.find(l => l.id === currentLayoutId) || null;
-    const [aggregatedData, setAggregatedData] = useState<AggregatedPickData[]>([]);
-    const [dateRange, setDateRange] = useState<{ start: string; end: string } | null>(null);
-    const [availableDates, setAvailableDates] = useState<string[]>([]);
-    const [transactions, setTransactions] = useState<PickTransaction[]>([]);
-    const [deletingDate, setDeletingDate] = useState<string | null>(null);
-    const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
-    const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [isBatchDelete, setIsBatchDelete] = useState(false);
 
+    // Raw Data State
+    const [aggregatedData, setAggregatedData] = useState<AggregatedPickData[]>([]);
+    const [previousPeriodData, setPreviousPeriodData] = useState<AggregatedPickData[]>([]);
+    const [transactions, setTransactions] = useState<PickTransaction[]>([]);
+    const [elements, setElements] = useState<WarehouseElement[]>([]);
+    const [availableDates, setAvailableDates] = useState<string[]>([]);
+
+    // Period Selection
+    const [selectedPeriod, setSelectedPeriod] = useState<ComparisonPeriod>('week');
+    const [currentPeriodDates, setCurrentPeriodDates] = useState<{ start: string; end: string } | null>(null);
+    const [previousPeriodDates, setPreviousPeriodDates] = useState<{ start: string; end: string } | null>(null);
+
+    // Walk Distance State
+    const [walkDistanceData, setWalkDistanceData] = useState<WalkDistanceData | null>(null);
+    const [previousWalkDistanceData, setPreviousWalkDistanceData] = useState<WalkDistanceData | null>(null);
+
+    // Derived analytics data
+    const velocityAnalysis = useMemo<VelocityAnalysis[]>(() => {
+        return analyzeVelocity(aggregatedData, previousPeriodData);
+    }, [aggregatedData, previousPeriodData]);
+
+    const zoneBreakdown = useMemo<ZoneBreakdown[]>(() => {
+        return getZoneBreakdown(velocityAnalysis);
+    }, [velocityAnalysis]);
+
+    const kpiData = useMemo<KPIData>(() => {
+        return calculateKPIs(aggregatedData, previousPeriodData, elements.length);
+    }, [aggregatedData, previousPeriodData, elements.length]);
+
+    const periodComparison = useMemo<PeriodComparison>(() => {
+        return comparePeriods(aggregatedData, previousPeriodData);
+    }, [aggregatedData, previousPeriodData]);
+
+    // Load initial data
     useEffect(() => {
         loadData();
     }, []);
@@ -51,27 +81,27 @@ export default function Dashboard() {
         }
     }, [currentLayoutId]);
 
+    // Reload when period changes
+    useEffect(() => {
+        if (currentLayoutId && availableDates.length > 0) {
+            loadPeriodData(currentLayoutId, selectedPeriod);
+        }
+    }, [selectedPeriod, currentLayoutId, availableDates]);
+
     const loadData = async () => {
         try {
             setLoading(true);
-            // Fetch all layouts first
             const layoutsData = await layoutApi.getLayouts();
             setLayouts(layoutsData);
 
-            // If we have layouts but no current selection, select the first one
             let activeId = currentLayoutId;
             if (!activeId && layoutsData.length > 0) {
                 activeId = layoutsData[0].id;
                 setCurrentLayoutId(activeId);
             }
 
-            // If we have an active layout, fetch its data
             if (activeId) {
                 await loadLayoutData(activeId);
-            } else {
-                setAvailableDates([]);
-                setTransactions([]);
-                setAggregatedData([]);
             }
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to load dashboard data');
@@ -83,204 +113,114 @@ export default function Dashboard() {
 
     const loadLayoutData = async (layoutId: string) => {
         try {
-            const [dates, rawTransactions] = await Promise.all([
-                picksApi.getDates(layoutId),
-                picksApi.getTransactions(layoutId)
-            ]);
+            setLoading(true);
+
+            // Fetch layout elements for total count
+            const elementsData = await layoutApi.getElements(layoutId);
+            setElements(elementsData);
+
+            // Fetch available dates
+            const dates = await picksApi.getDates(layoutId);
             setAvailableDates(dates);
+
+            // Fetch transactions for sparkline
+            const rawTransactions = await picksApi.getTransactions(layoutId);
             setTransactions(rawTransactions);
 
             if (dates.length > 0) {
-                const sortedDates = [...dates].sort();
-                setDateRange({
-                    start: sortedDates[0],
-                    end: sortedDates[sortedDates.length - 1]
-                });
-
-                // Fetch all aggregated data for charts
-                const data = await picksApi.getAggregated(layoutId);
-                setAggregatedData(data);
+                await loadPeriodData(layoutId, selectedPeriod);
             } else {
-                setDateRange(null);
                 setAggregatedData([]);
+                setPreviousPeriodData([]);
+                setCurrentPeriodDates(null);
+                setPreviousPeriodDates(null);
             }
         } catch (err) {
             console.error('Failed to load layout data:', err);
             setError('Failed to load data for this layout');
+        } finally {
+            setLoading(false);
         }
     };
 
-    const handleDeleteDate = async () => {
-        if (!deletingDate && !isBatchDelete) return;
-
+    const loadPeriodData = async (layoutId: string, period: ComparisonPeriod) => {
         try {
-            const token = localStorage.getItem('token');
-            let url = `http://localhost:3001/api/picks/by-date/${deletingDate}`;
-            let method = 'DELETE';
-            let body = undefined;
-            let headers: Record<string, string> = {
-                Authorization: `Bearer ${token}`,
-            };
+            // Get current and previous period date ranges
+            const currentRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 0);
+            const previousRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 1);
 
-            if (isBatchDelete) {
-                url = 'http://localhost:3001/api/picks/batch';
-                headers['Content-Type'] = 'application/json';
-                body = JSON.stringify({ dates: Array.from(selectedDates) });
-            }
+            setCurrentPeriodDates(currentRange);
+            setPreviousPeriodDates(previousRange);
 
-            const response = await fetch(url, {
-                method,
-                headers,
-                body,
-            });
+            // Fetch data for both periods (including walk distance)
+            const [currentData, prevData, walkData, prevWalkData] = await Promise.all([
+                picksApi.getAggregated(layoutId, currentRange.start, currentRange.end),
+                picksApi.getAggregated(layoutId, previousRange.start, previousRange.end),
+                routeMarkersApi.getWalkDistance(layoutId, currentRange.start, currentRange.end).catch(() => null),
+                routeMarkersApi.getWalkDistance(layoutId, previousRange.start, previousRange.end).catch(() => null),
+            ]);
 
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.error || 'Failed to delete picks');
-            }
-
-            // Refresh data after successful deletion
-            await loadData();
-            setShowDeleteModal(false);
-            setDeletingDate(null);
-            setIsBatchDelete(false);
-            setSelectedDates(new Set());
+            setAggregatedData(currentData);
+            setPreviousPeriodData(prevData);
+            setWalkDistanceData(walkData);
+            setPreviousWalkDistanceData(prevWalkData);
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Failed to delete picks');
+            console.error('Failed to load period data:', err);
+            // Fallback to all data
+            const allData = await picksApi.getAggregated(layoutId);
+            setAggregatedData(allData);
+            setPreviousPeriodData([]);
+            setWalkDistanceData(null);
+            setPreviousWalkDistanceData(null);
         }
     };
 
-    const handleDeletePicks = async () => {
-        if (!currentLayoutId) return;
+    const handlePeriodChange = useCallback((period: ComparisonPeriod) => {
+        setSelectedPeriod(period);
+    }, []);
 
-        try {
-            await picksApi.clearAll(currentLayoutId);
-            await loadLayoutData(currentLayoutId);
-            setShowDeleteConfirm(false);
-        } catch (err) {
-            setError(err instanceof Error ? err.message : 'Failed to delete picks');
+    // Period labels
+    const getPeriodLabels = () => {
+        switch (selectedPeriod) {
+            case 'week':
+                return { current: 'This Week', previous: 'Last Week' };
+            case 'month':
+                return { current: 'This Month', previous: 'Last Month' };
+            case 'quarter':
+                return { current: 'This Quarter', previous: 'Last Quarter' };
+            default:
+                return { current: 'Current', previous: 'Previous' };
         }
     };
 
-    const toggleDateSelection = (date: string) => {
-        const newSelected = new Set(selectedDates);
-        if (newSelected.has(date)) {
-            newSelected.delete(date);
-        } else {
-            newSelected.add(date);
-        }
-        setSelectedDates(newSelected);
-    };
+    const periodLabels = getPeriodLabels();
 
-    const toggleSelectAll = () => {
-        if (selectedDates.size === datePickCounts.length) {
-            setSelectedDates(new Set());
-        } else {
-            setSelectedDates(new Set(datePickCounts.map(d => d.date)));
-        }
-    };
-
-    // Calculate summary statistics
-    const stats = useMemo(() => {
-        const totalPicks = aggregatedData.reduce((sum, item) => sum + item.total_picks, 0);
-        const activeElements = aggregatedData.length;
-        const topElement = aggregatedData.length > 0 ? aggregatedData[0] : null;
-
-        return {
-            totalPicks,
-            activeElements,
-            topElement,
-            daysTracked: availableDates.length
-        };
-    }, [aggregatedData, availableDates]);
-
-    // Calculate min/max picks for heatmap coloring
-    const { minPicks, maxPicks } = useMemo(() => {
-        if (aggregatedData.length === 0) return { minPicks: 0, maxPicks: 0 };
-        const picks = aggregatedData.map(d => d.total_picks);
-        return {
-            minPicks: Math.min(...picks),
-            maxPicks: Math.max(...picks)
-        };
-    }, [aggregatedData]);
-
-    // Prepare chart data
-    const topElementsData = useMemo(() => {
-        return aggregatedData
-            .slice(0, 10)
-            .map(item => ({
-                name: item.element_name,
-                picks: item.total_picks,
-                color: getHeatmapColor(item.total_picks, minPicks, maxPicks)
-            }));
-    }, [aggregatedData, minPicks, maxPicks]);
-
-    // Daily Trend Data
-    const dailyTrendData = useMemo(() => {
-        const dailyMap = new Map<string, number>();
-        transactions.forEach(t => {
-            const date = t.pick_date;
-            dailyMap.set(date, (dailyMap.get(date) || 0) + t.pick_count);
-        });
-
-        return Array.from(dailyMap.entries())
-            .map(([date, picks]) => ({ date, picks }))
-            .sort((a, b) => a.date.localeCompare(b.date));
-    }, [transactions]);
-
-    // Calculate picks per date for Data Management section
-    const datePickCounts = useMemo(() => {
-        const dateMap = new Map<string, number>();
-        transactions.forEach(t => {
-            dateMap.set(t.pick_date, (dateMap.get(t.pick_date) || 0) + t.pick_count);
-        });
-
-        return Array.from(availableDates).map(date => ({
-            date,
-            picks: dateMap.get(date) || 0
-        })).sort((a, b) => b.date.localeCompare(a.date)); // Most recent first
-    }, [availableDates, transactions]);
-
-    // Day of Week Data
-    const dayOfWeekData = useMemo(() => {
-        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const dayMap = new Map<string, number>();
-
-        // Initialize with 0
-        days.forEach(d => dayMap.set(d, 0));
-
-        transactions.forEach(t => {
-            // Parse date string (YYYY-MM-DD) to get day of week
-            // Note: Adding 'T00:00:00' to ensure local time parsing doesn't shift day due to timezone
-            const date = new Date(t.pick_date + 'T12:00:00');
-            const dayName = days[date.getDay()];
-            dayMap.set(dayName, (dayMap.get(dayName) || 0) + t.pick_count);
-        });
-
-        // Return in Mon-Sun order for business logic usually
-        const businessOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        return businessOrder.map(day => ({
-            name: day,
-            picks: dayMap.get(day) || 0
-        }));
-    }, [transactions]);
-
-    if (loading) {
+    if (loading && !layouts.length) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-950">
                 <div className="text-center">
-                    <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-slate-400 font-mono">Loading Dashboard...</p>
+                    <div className="relative w-20 h-20 mx-auto mb-6">
+                        <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-900/50 animate-pulse">
+                            <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                        </div>
+                    </div>
+                    <p className="text-lg font-mono font-bold text-slate-400 tracking-wider">LOADING ANALYTICS</p>
+                    <p className="text-sm text-slate-600 mt-2">Preparing your warehouse insights...</p>
                 </div>
             </div>
         );
     }
 
+    const hasData = aggregatedData.length > 0 || transactions.length > 0;
+
     return (
         <div className="min-h-screen bg-slate-950 flex flex-col">
+            {/* Header */}
             <Header
-                title="Dashboard"
-                subtitle="Analytics & Insights"
+                title="Analytics Dashboard"
+                subtitle="Warehouse Intelligence"
             >
                 <LayoutManager
                     layouts={layouts}
@@ -290,306 +230,134 @@ export default function Dashboard() {
                 />
             </Header>
 
-            {/* Full Width Container */}
-            <main className="flex-1 p-6 w-full space-y-6">
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-slate-400 text-sm font-mono uppercase mb-2">Total Picks</h3>
-                        <p className="text-3xl font-bold text-white">{stats.totalPicks.toLocaleString()}</p>
+            {/* Main Content */}
+            <main className="flex-1 p-6 w-full max-w-[1800px] mx-auto">
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-6 bg-red-900/30 border border-red-500/50 rounded-xl p-4 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <svg className="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="text-red-300">{error}</span>
+                        </div>
+                        <button
+                            onClick={() => setError(null)}
+                            className="text-red-400 hover:text-red-300"
+                        >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
                     </div>
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-slate-400 text-sm font-mono uppercase mb-2">Active Elements</h3>
-                        <p className="text-3xl font-bold text-blue-400">{stats.activeElements}</p>
-                    </div>
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-slate-400 text-sm font-mono uppercase mb-2">Days Tracked</h3>
-                        <p className="text-3xl font-bold text-green-400">{stats.daysTracked}</p>
-                    </div>
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-slate-400 text-sm font-mono uppercase mb-2">Top Performer</h3>
-                        <p className="text-xl font-bold text-purple-400 truncate" title={stats.topElement?.element_name}>
-                            {stats.topElement?.element_name || '-'}
+                )}
+
+                {!hasData ? (
+                    /* Empty State */
+                    <div className="flex flex-col items-center justify-center py-24">
+                        <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center mb-6 border border-slate-800">
+                            <svg className="w-12 h-12 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                            </svg>
+                        </div>
+                        <h2 className="text-2xl font-bold text-white mb-2">No Analytics Data Yet</h2>
+                        <p className="text-slate-400 text-center max-w-md mb-8">
+                            Upload pick data to see powerful analytics including velocity rankings,
+                            zone efficiency, and slotting recommendations.
                         </p>
-                        <p className="text-xs text-slate-500 mt-1">
-                            {stats.topElement?.total_picks.toLocaleString()} picks
-                        </p>
-                    </div>
-                </div>
-
-                {/* Charts Row 1: Trends & Distribution */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Daily Trend Chart */}
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-white font-bold mb-6 flex items-center gap-2">
-                            <svg className="w-5 h-5 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                            </svg>
-                            Daily Pick Trend
-                        </h3>
-                        <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <LineChart data={dailyTrendData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                                    <XAxis
-                                        dataKey="date"
-                                        stroke="#94a3b8"
-                                        fontSize={12}
-                                        tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                    />
-                                    <YAxis stroke="#94a3b8" fontSize={12} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
-                                        labelStyle={{ color: '#94a3b8' }}
-                                    />
-                                    <Line
-                                        type="monotone"
-                                        dataKey="picks"
-                                        stroke="#06b6d4"
-                                        strokeWidth={3}
-                                        dot={{ fill: '#06b6d4', r: 4 }}
-                                        activeDot={{ r: 6, fill: '#fff' }}
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-
-                    {/* Day of Week Chart */}
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-white font-bold mb-6 flex items-center gap-2">
-                            <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            Weekly Distribution
-                        </h3>
-                        <div className="h-[300px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={dayOfWeekData}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-                                    <XAxis
-                                        dataKey="name"
-                                        stroke="#94a3b8"
-                                        fontSize={12}
-                                        tickFormatter={(val) => val.substring(0, 3)}
-                                    />
-                                    <YAxis stroke="#94a3b8" fontSize={12} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
-                                        cursor={{ fill: '#1e293b' }}
-                                    />
-                                    <Bar dataKey="picks" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Charts Row 2: Top Elements & Calendar */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Top Elements Chart */}
-                    <div className="lg:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-                        <h3 className="text-white font-bold mb-6 flex items-center gap-2">
-                            <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                            </svg>
-                            Top 10 Elements by Volume
-                        </h3>
-                        <div className="h-[400px] w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={topElementsData} layout="vertical" margin={{ left: 40 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-                                    <XAxis type="number" stroke="#94a3b8" fontSize={12} />
-                                    <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={12} width={100} />
-                                    <Tooltip
-                                        contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', color: '#f8fafc' }}
-                                        cursor={{ fill: '#1e293b' }}
-                                    />
-                                    <Bar dataKey="picks" radius={[0, 4, 4, 0]}>
-                                        {topElementsData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.color} />
-                                        ))}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </div>
-
-                    {/* Data Availability Calendar */}
-                    <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg flex flex-col">
-                        <h3 className="text-white font-bold mb-4 flex items-center gap-2">
-                            <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            Data Availability
-                        </h3>
-
-                        <div className="flex-1 overflow-y-auto custom-scrollbar">
-                            {dateRange ? (
-                                <CalendarView
-                                    availableDates={availableDates}
-                                    startDate={dateRange.start}
-                                    endDate={dateRange.end}
-                                />
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                                    <p>No data available</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Data Management Section */}
-                <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg relative">
-                    <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-white font-bold flex items-center gap-2">
-                            <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                            Data Management
-                        </h3>
-                        <div className="flex items-center gap-4">
-                            {datePickCounts.length > 0 && (
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedDates.size === datePickCounts.length && datePickCounts.length > 0}
-                                        onChange={toggleSelectAll}
-                                        className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
-                                    />
-                                    <span className="text-sm text-slate-400">Select All</span>
-                                </div>
-                            )}
-                            <button
-                                onClick={() => setShowDeleteConfirm(true)}
-                                className="px-4 py-2 bg-red-900/20 hover:bg-red-900/30 text-red-400 rounded-md border border-red-900/50 transition-colors text-sm"
+                        <div className="flex gap-4">
+                            <Link
+                                href="/upload"
+                                className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-cyan-900/30"
                             >
-                                Clear All Pick Data
-                            </button>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                                Upload Pick Data
+                            </Link>
+                            <Link
+                                href="/designer"
+                                className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-mono rounded-xl transition-colors flex items-center gap-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" />
+                                </svg>
+                                Design Layout
+                            </Link>
                         </div>
                     </div>
-
-                    {datePickCounts.length > 0 ? (
-                        <div className="space-y-2">
-                            {datePickCounts.map(({ date, picks }) => (
-                                <div
-                                    key={date}
-                                    className={`flex items-center justify-between p-3 rounded-lg transition-colors cursor-pointer ${selectedDates.has(date) ? 'bg-blue-900/20 border border-blue-500/30' : 'bg-slate-800 hover:bg-slate-750 border border-transparent'
-                                        }`}
-                                    onClick={() => toggleDateSelection(date)}
-                                >
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedDates.has(date)}
-                                            onChange={() => { }} // Handled by parent div click
-                                            className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
-                                        />
-                                        <div>
-                                            <p className="text-white font-mono">{new Date(date + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}</p>
-                                            <p className="text-sm text-slate-400">{picks.toLocaleString()} picks</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setDeletingDate(date);
-                                            setIsBatchDelete(false);
-                                            setShowDeleteModal(true);
-                                        }}
-                                        className="px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded text-sm font-medium transition-colors"
-                                    >
-                                        Delete
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-slate-400 text-center py-4">No pick data available</p>
-                    )}
-
-                    {/* Bulk Action Floating Bar */}
-                    {selectedDates.size > 0 && (
-                        <div className="fixed bottom-8 right-8 z-40 animate-in slide-in-from-bottom-4 fade-in duration-200">
-                            <div className="bg-slate-800 border border-slate-700 shadow-2xl rounded-lg p-4 flex items-center gap-4">
-                                <span className="text-white font-medium">{selectedDates.size} selected</span>
-                                <div className="h-6 w-px bg-slate-600"></div>
-                                <button
-                                    onClick={() => setSelectedDates(new Set())}
-                                    className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setIsBatchDelete(true);
-                                        setShowDeleteModal(true);
-                                    }}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-md shadow-lg hover:shadow-red-900/20 transition-all flex items-center gap-2"
-                                >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 0 00-1-1h-4a1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                    Delete Selected
-                                </button>
+                ) : (
+                    /* Dashboard Content */
+                    <div className="space-y-6">
+                        {/* Row 1: Hero KPIs + Zone Efficiency */}
+                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+                            <div className="xl:col-span-3">
+                                <HeroKPIs data={kpiData} loading={loading} />
+                            </div>
+                            <div className="xl:col-span-1">
+                                <ZoneEfficiency zones={zoneBreakdown} loading={loading} />
                             </div>
                         </div>
-                    )}
-                </div>
 
-                {/* Delete Confirmation Modal */}
-                {showDeleteModal && (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 max-w-md mx-4 shadow-2xl">
-                            <h3 className="text-xl font-bold text-white mb-4">Confirm Delete</h3>
-                            <p className="text-slate-300 mb-6">
-                                {isBatchDelete ? (
-                                    <>
-                                        Are you sure you want to delete pick data for <span className="font-bold text-white">{selectedDates.size} selected dates</span>?
-                                    </>
-                                ) : (
-                                    <>
-                                        Are you sure you want to delete all pick data for{' '}
-                                        <span className="font-bold text-white">
-                                            {deletingDate && new Date(deletingDate + 'T12:00:00').toLocaleDateString()}
-                                        </span>?
-                                    </>
-                                )}
-                                <br />
-                                <span className="text-red-400 text-sm mt-2 block">This action cannot be undone.</span>
-                            </p>
-                            <div className="flex gap-3 justify-end">
-                                <button
-                                    onClick={() => {
-                                        setShowDeleteModal(false);
-                                        setDeletingDate(null);
-                                        setIsBatchDelete(false);
-                                    }}
-                                    className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-md transition-colors"
+                        {/* Row 2: Velocity Table + Walk Distance */}
+                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div className="xl:col-span-2">
+                                <VelocityTable data={velocityAnalysis} loading={loading} />
+                            </div>
+                            <div className="xl:col-span-1">
+                                <WalkDistanceCard 
+                                    data={walkDistanceData} 
+                                    loading={loading}
+                                    previousPeriodData={previousWalkDistanceData}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Row 3: Time Comparison */}
+                        <TimeComparison
+                            comparison={periodComparison}
+                            currentPeriodLabel={periodLabels.current}
+                            previousPeriodLabel={periodLabels.previous}
+                            currentPeriodDates={currentPeriodDates || undefined}
+                            previousPeriodDates={previousPeriodDates || undefined}
+                            onPeriodChange={handlePeriodChange}
+                            selectedPeriod={selectedPeriod}
+                            loading={loading}
+                        />
+
+                        {/* Footer Actions */}
+                        <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-slate-800">
+                            <div className="flex items-center gap-4 text-sm text-slate-500">
+                                <span className="font-mono">
+                                    Layout: <span className="text-slate-300">{layout?.name || 'None'}</span>
+                                </span>
+                                <span className="font-mono">
+                                    Data range: <span className="text-slate-300">{availableDates.length} days</span>
+                                </span>
+                            </div>
+                            <div className="flex gap-3">
+                                <Link
+                                    href="/heatmap"
+                                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleDeleteDate}
-                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-md transition-colors"
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                    </svg>
+                                    View Heatmap
+                                </Link>
+                                <Link
+                                    href="/upload"
+                                    className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
-                                    {isBatchDelete ? 'Delete All Selected' : 'Delete'}
-                                </button>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                    </svg>
+                                    Add More Data
+                                </Link>
                             </div>
                         </div>
                     </div>
                 )}
-
-                <ConfirmModal
-                    isOpen={showDeleteConfirm}
-                    title="Clear All Pick Data"
-                    message="Are you sure you want to delete all pick data for this layout? This action cannot be undone."
-                    confirmText="Clear Data"
-                    isDestructive={true}
-                    onConfirm={handleDeletePicks}
-                    onCancel={() => setShowDeleteConfirm(false)}
-                />
             </main>
         </div>
     );
