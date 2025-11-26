@@ -41,7 +41,7 @@ export default function Home() {
 
   // Tool State
   const [activeTool, setActiveTool] = useState<'select' | ElementType | RouteMarkerType>('select');
-  
+
   // Route Markers State
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
   const [selectedMarkerIds, setSelectedMarkerIds] = useState<string[]>([]);
@@ -141,7 +141,7 @@ export default function Home() {
       if (activeId) {
         const elementsData = await layoutApi.getElements(activeId);
         resetHistory(elementsData);
-        
+
         // Load route markers
         try {
           const markersData = await routeMarkersApi.getMarkers(activeId);
@@ -150,7 +150,7 @@ export default function Home() {
           console.error('Failed to load route markers:', markerErr);
           setRouteMarkers([]);
         }
-        
+
         setError(null);
       } else {
         // No layouts exist? Should not happen as backend creates default, but handle it
@@ -173,7 +173,7 @@ export default function Home() {
           setLoading(true);
           const elementsData = await layoutApi.getElements(currentLayoutId);
           resetHistory(elementsData);
-          
+
           // Load route markers for this layout
           try {
             const markersData = await routeMarkersApi.getMarkers(currentLayoutId);
@@ -347,11 +347,43 @@ export default function Home() {
     [elements, setElements]
   );
 
+  // Batch update elements
+  const handleMultiElementUpdate = useCallback(
+    async (updates: Array<{ id: string; changes: { x_coordinate?: number; y_coordinate?: number } }>) => {
+      // 1. Update local state immediately (optimistic)
+      const updatedElements = elements.map((el) => {
+        const update = updates.find(u => u.id === el.id);
+        if (update) {
+          return {
+            ...el,
+            ...update.changes
+          };
+        }
+        return el;
+      });
+
+      setElements(updatedElements);
+
+      // 2. Update backend
+      try {
+        setSaving(true);
+        // Process in parallel
+        await Promise.all(updates.map(u => elementsApi.update(u.id, u.changes)));
+      } catch (err) {
+        setElements(elements); // Revert
+        setError(err instanceof Error ? err.message : 'Failed to update elements');
+      } finally {
+        setSaving(false);
+      }
+    },
+    [elements, setElements]
+  );
+
   // Route Marker Handlers
   const handleMarkerCreate = useCallback(
     async (x: number, y: number, markerType: RouteMarkerType) => {
       if (!currentLayoutId) return;
-      
+
       const tempId = nanoid();
       const markerCount = routeMarkers.filter(m => m.marker_type === markerType).length + 1;
       const labelPrefixes: Record<RouteMarkerType, string> = {
@@ -360,12 +392,12 @@ export default function Home() {
         cart_parking: 'Cart',
       };
       const label = markerCount === 1 ? labelPrefixes[markerType] : `${labelPrefixes[markerType]} ${markerCount}`;
-      
+
       // Calculate sequence order for cart parking
-      const sequenceOrder = markerType === 'cart_parking' 
-        ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1 
+      const sequenceOrder = markerType === 'cart_parking'
+        ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1
         : undefined;
-      
+
       const tempMarker: RouteMarker = {
         id: tempId,
         layout_id: currentLayoutId,
@@ -377,10 +409,10 @@ export default function Home() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
-      
+
       // Optimistic update
       setRouteMarkers([...routeMarkers, tempMarker]);
-      
+
       try {
         setSaving(true);
         const created = await routeMarkersApi.create(currentLayoutId, {
@@ -390,7 +422,7 @@ export default function Home() {
           y_coordinate: y,
           sequence_order: sequenceOrder,
         });
-        
+
         // Replace temp with real
         setRouteMarkers(markers => markers.map(m => m.id === tempId ? created : m));
         setToast({ message: `${label} placed`, type: 'success', duration: 2000 });
@@ -408,12 +440,12 @@ export default function Home() {
   const handleMarkerUpdate = useCallback(
     async (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => {
       const originalMarkers = [...routeMarkers];
-      
+
       // Optimistic update
       setRouteMarkers(markers => markers.map(m =>
         m.id === id ? { ...m, ...updates, updated_at: new Date().toISOString() } : m
       ));
-      
+
       try {
         setSaving(true);
         await routeMarkersApi.update(id, updates);
@@ -789,8 +821,8 @@ export default function Home() {
         setShowShortcutsModal(true);
         break;
       case 'help_about':
-        setToast({ 
-          message: 'SlottingPRO v1.0 - Warehouse Heatmap Designer', 
+        setToast({
+          message: 'SlottingPRO v1.0 - Warehouse Heatmap Designer',
           type: 'info',
           duration: 3000
         });
@@ -1090,6 +1122,8 @@ export default function Home() {
             snappingEnabled={snappingEnabled}
             onSnappingToggle={() => setSnappingEnabled(prev => !prev)}
             showRouteMarkers={true}
+            onMultiElementSelect={(ids) => setSelectedElementIds(ids)}
+            onMultiElementUpdate={handleMultiElementUpdate}
           />
 
           {error && (

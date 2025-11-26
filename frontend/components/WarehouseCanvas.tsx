@@ -270,6 +270,8 @@ interface WarehouseCanvasProps {
   // Route marker visibility (for heatmap page)
   showRouteMarkers?: boolean;
   onRouteMarkersToggle?: () => void;
+  onMultiElementSelect?: (ids: string[]) => void;
+  onMultiElementUpdate?: (updates: Array<{ id: string; changes: { x_coordinate?: number; y_coordinate?: number } }>) => void;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -297,6 +299,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onSnappingToggle,
   showRouteMarkers = false,
   onRouteMarkersToggle,
+  onMultiElementSelect,
+  onMultiElementUpdate,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -319,6 +323,13 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [isGroupDragging, setIsGroupDragging] = useState(false);
   const [groupDragStart, setGroupDragStart] = useState<{ x: number; y: number } | null>(null);
   const [isTransforming, setIsTransforming] = useState(false);
+
+  // Selection Rectangle State
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; width: number; height: number; isVisible: boolean }>({
+    x: 0, y: 0, width: 0, height: 0, isVisible: false
+  });
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Calculate min/max picks for heatmap color scaling
   const { minPicks, maxPicks } = useMemo(() => {
@@ -470,6 +481,31 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     };
   }, [isPanning, isReadOnly]);
 
+  // Keyboard listener for Shift key (Selection Mode)
+  useEffect(() => {
+    if (isReadOnly) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsShiftPressed(true);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') {
+        setIsShiftPressed(false);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isReadOnly]);
+
   // Coordinate conversion utility: screen coordinates → canvas coordinates
   // Accounts for zoom (scale) and pan (position offset)
   const getRelativePointerPosition = () => {
@@ -484,10 +520,23 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     return transform.point(pointerPosition);
   };
 
-  // Mouse move handler for ghost snapping
+  // Mouse move handler for ghost snapping and selection
   const handleStageMouseMove = (e: KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current;
     if (!stage) return;
+
+    // Selection Logic
+    if (selectionStartRef.current && selectionRect.isVisible) {
+      const pos = getRelativePointerPosition();
+      if (pos) {
+        const x = Math.min(selectionStartRef.current.x, pos.x);
+        const y = Math.min(selectionStartRef.current.y, pos.y);
+        const width = Math.abs(pos.x - selectionStartRef.current.x);
+        const height = Math.abs(pos.y - selectionStartRef.current.y);
+        setSelectionRect({ x, y, width, height, isVisible: true });
+      }
+      return; // Skip ghost logic if selecting
+    }
 
     // Track cursor position for ghost preview
     const pos = getRelativePointerPosition();
@@ -560,9 +609,76 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     }
   };
 
+  const handleStageMouseDown = (e: KonvaEventObject<MouseEvent>) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+
+    // If clicking on stage (empty area) and Shift is pressed -> Start Selection
+    const isBackground = e.target === stage || e.target.name() === 'background';
+
+    if (isBackground && e.evt.shiftKey && !isReadOnly) {
+      const pos = getRelativePointerPosition();
+      if (pos) {
+        selectionStartRef.current = pos;
+        setSelectionRect({ x: pos.x, y: pos.y, width: 0, height: 0, isVisible: true });
+      }
+    }
+  };
+
+  // Ref to prevent click handler from clearing selection after a drag
+  const shouldIgnoreClickRef = useRef(false);
+
+  const handleStageMouseUp = (e: KonvaEventObject<MouseEvent>) => {
+    if (selectionRect.isVisible) {
+      // Prevent the subsequent click event from clearing the selection
+      // only if we actually dragged a selection box
+      if (selectionRect.width > 5 || selectionRect.height > 5) {
+        shouldIgnoreClickRef.current = true;
+        // Reset after a short delay to ensure we don't block future clicks if the click event doesn't fire
+        setTimeout(() => {
+          shouldIgnoreClickRef.current = false;
+        }, 100);
+      }
+
+      // Perform selection
+      const box = selectionRect;
+      const selectedIds: string[] = [];
+
+      elements.forEach(el => {
+        // Simple AABB intersection
+        const elX = Number(el.x_coordinate);
+        const elY = Number(el.y_coordinate);
+        const elW = Number(el.width);
+        const elH = Number(el.height);
+
+        // Check intersection
+        if (
+          box.x < elX + elW &&
+          box.x + box.width > elX &&
+          box.y < elY + elH &&
+          box.y + box.height > elY
+        ) {
+          selectedIds.push(el.id);
+        }
+      });
+
+      if (onMultiElementSelect) {
+        onMultiElementSelect(selectedIds);
+      }
+    }
+
+    setSelectionRect({ ...selectionRect, isVisible: false });
+    selectionStartRef.current = null;
+  };
+
   const handleStageClick = (e: KonvaEventObject<MouseEvent>) => {
     const stage = stageRef.current;
     if (!stage) return;
+
+    if (shouldIgnoreClickRef.current) {
+      shouldIgnoreClickRef.current = false;
+      return;
+    }
 
     // Check if clicked on empty space (Stage, Layer, background Rect, or grid lines)
     const targetType = e.target.getType();
@@ -692,8 +808,44 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     // Multi-select group drag
     if (isGroupDragging && groupDragStart && selectedElementIds.length > 1 && selectedElementIds.includes(element.id)) {
       // Calculate the delta from the drag start position
-      const deltaX = node.x() - groupDragStart.x;
-      const deltaY = node.y() - groupDragStart.y;
+      let currentX = node.x();
+      let currentY = node.y();
+
+      // --- SNAPPING LOGIC FOR GROUP DRAG ---
+      // Snap the "leader" element (the one being dragged) to anything NOT in the selection
+      const nonSelectedElements = elements.filter(el => !selectedElementIds.includes(el.id));
+
+      // Convert center position to top-left for snap calculations
+      const halfWidth = Number(element.width) / 2;
+      const halfHeight = Number(element.height) / 2;
+      const topLeftX = currentX - halfWidth;
+      const topLeftY = currentY - halfHeight;
+
+      const snapResult = findSnapPoints(
+        {
+          x: topLeftX,
+          y: topLeftY,
+          width: Number(element.width),
+          height: Number(element.height),
+          rotation: node.rotation(),
+        },
+        nonSelectedElements
+      );
+
+      // Apply snap if found (converting back to center coordinates)
+      if (snapResult.snapX !== null) {
+        currentX = snapResult.snapX + halfWidth;
+        // Force the node to the snapped position so the user feels it
+        node.x(currentX);
+      }
+      if (snapResult.snapY !== null) {
+        currentY = snapResult.snapY + halfHeight;
+        node.y(currentY);
+      }
+      // -------------------------------------
+
+      const deltaX = currentX - groupDragStart.x;
+      const deltaY = currentY - groupDragStart.y;
 
       // Move all other selected elements by the same delta
       const stage = stageRef.current;
@@ -709,12 +861,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         const selectedElement = elements.find(el => el.id === selectedId);
         if (!selectedElement) return;
 
-        // Find the Konva node for this element
-        const selectedNode = layer.findOne((node: any) => {
-          return node.getType() === 'Group' &&
-            node.x() === Number(selectedElement.x_coordinate) + Number(selectedElement.width) / 2 &&
-            node.y() === Number(selectedElement.y_coordinate) + Number(selectedElement.height) / 2;
-        });
+        // Find the Konva node for this element using ID
+        const selectedNode = layer.findOne('#' + selectedId);
 
         if (selectedNode) {
           // Calculate new position for this element
@@ -773,6 +921,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       const deltaY = node.y() - groupDragStart.y;
 
       // Update all selected elements in the backend
+      // Collect all updates
+      const updates: Array<{ id: string; changes: { x_coordinate: number; y_coordinate: number } }> = [];
+
       selectedElementIds.forEach((selectedId) => {
         const selectedElement = elements.find(el => el.id === selectedId);
         if (!selectedElement) return;
@@ -780,11 +931,23 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         const newX = Number(selectedElement.x_coordinate) + deltaX;
         const newY = Number(selectedElement.y_coordinate) + deltaY;
 
-        onElementUpdate(selectedId, {
-          x_coordinate: newX,
-          y_coordinate: newY,
+        updates.push({
+          id: selectedId,
+          changes: {
+            x_coordinate: newX,
+            y_coordinate: newY,
+          }
         });
       });
+
+      // Send batch update if handler exists, otherwise fall back to individual updates (which may cause race conditions)
+      if (onMultiElementUpdate) {
+        onMultiElementUpdate(updates);
+      } else {
+        updates.forEach(update => {
+          onElementUpdate(update.id, update.changes);
+        });
+      }
 
       // Reset group drag state
       setIsGroupDragging(false);
@@ -1026,7 +1189,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           y={stagePosition.y}
           // Enable panning by default (unless placing an element, though Konva handles click vs drag well)
           // We allow panning even in read-only mode
-          draggable={true}
+          draggable={!isReadOnly && !isShiftPressed}
+          onMouseDown={handleStageMouseDown}
+          onMouseUp={handleStageMouseUp}
           onDragStart={(e) => {
             if (e.target === stageRef.current) {
               setIsStageDragging(true);
@@ -1051,6 +1216,20 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               listening={true}
             />
             {gridLines}
+
+            {/* Selection Rectangle */}
+            {selectionRect.isVisible && (
+              <Rect
+                x={selectionRect.x}
+                y={selectionRect.y}
+                width={selectionRect.width}
+                height={selectionRect.height}
+                fill="rgba(59, 130, 246, 0.2)"
+                stroke="#3b82f6"
+                strokeWidth={1}
+                listening={false}
+              />
+            )}
 
             {/* Snap Preview Lines for Cart Alignment */}
             {snapPreviewLines.map((line, index) => (
@@ -1761,6 +1940,8 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
 
     return (
       <Group
+        id={element.id}
+        name="element-group"
         ref={ref}
         x={Number(element.x_coordinate) + Number(element.width) / 2}
         y={Number(element.y_coordinate) + Number(element.height) / 2}
