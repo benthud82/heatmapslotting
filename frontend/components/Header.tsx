@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { API_URL } from '@/lib/api';
 
 interface HeaderProps {
     title?: string;
@@ -30,7 +31,7 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
 
                     // Fetch user preferences for tier
                     try {
-                        const response = await fetch('http://localhost:3001/api/user/preferences', {
+                        const response = await fetch(`${API_URL}/api/user/preferences`, {
                             headers: { Authorization: `Bearer ${session.access_token}` }
                         });
                         if (response.ok) {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { validateCSV, ValidationResult } from '@/lib/csvValidation';
+import { API_URL } from '@/lib/api';
 import ValidationSummary from './upload/ValidationSummary';
 import Link from 'next/link';
 
@@ -46,7 +47,7 @@ export default function QuickUploadModal({ isOpen, onClose, onSuccess }: QuickUp
     const fetchLayouts = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/layouts', {
+            const response = await fetch(`${API_URL}/api/layouts`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
@@ -62,7 +63,7 @@ export default function QuickUploadModal({ isOpen, onClose, onSuccess }: QuickUp
     const fetchLayoutElements = async (layoutId: string) => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:3001/api/elements?layout_id=${layoutId}`, {
+            const response = await fetch(`${API_URL}/api/elements?layout_id=${layoutId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
@@ -124,7 +125,7 @@ export default function QuickUploadModal({ isOpen, onClose, onSuccess }: QuickUp
             // So selectedLayoutId is mainly for fetching the correct elements for validation.
 
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/picks/upload', {
+            const response = await fetch(`${API_URL}/api/picks/upload`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}` },
                 body: formData,

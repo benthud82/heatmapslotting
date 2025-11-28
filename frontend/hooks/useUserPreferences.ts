@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { API_URL } from '@/lib/api';
 
 interface UserPreferences {
     user_id: string;
@@ -25,7 +26,7 @@ export function useUserPreferences() {
                 return;
             }
 
-            const response = await fetch('http://localhost:3001/api/user/preferences', {
+            const response = await fetch(`${API_URL}/api/user/preferences`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -44,7 +45,7 @@ export function useUserPreferences() {
     const updateSkipTutorial = async (skip: boolean) => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/user/preferences', {
+            const response = await fetch(`${API_URL}/api/user/preferences`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json',

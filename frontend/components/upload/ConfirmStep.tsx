@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ValidationResult } from '@/lib/csvValidation';
+import { API_URL } from '@/lib/api';
 import Link from 'next/link';
 
 interface ConfirmStepProps {
@@ -26,7 +27,7 @@ export default function ConfirmStep({ file, layoutId, validationResult, onBack, 
             formData.append('layoutId', layoutId);
 
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/picks/upload', {
+            const response = await fetch(`${API_URL}/api/picks/upload`, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,

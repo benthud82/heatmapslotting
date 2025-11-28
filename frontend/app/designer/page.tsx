@@ -15,7 +15,7 @@ import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal
 import Toast from '@/components/ui/Toast';
 import PatternGeneratorModal, { GeneratedElementData } from '@/components/designer/PatternGeneratorModal';
 import ResequenceModal from '@/components/designer/ResequenceModal';
-import { layoutApi, elementsApi, routeMarkersApi } from '@/lib/api';
+import { layoutApi, elementsApi, routeMarkersApi, API_URL } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
 import { useHistory } from '@/hooks/useHistory';
@@ -94,7 +94,7 @@ export default function Home() {
       // Default to free if no token (though auth should prevent this)
       if (!token) return;
 
-      const response = await fetch('http://localhost:3001/api/stripe/subscription-status', {
+      const response = await fetch(`${API_URL}/api/stripe/subscription-status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 

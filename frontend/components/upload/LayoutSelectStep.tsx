@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { API_URL } from '@/lib/api';
 
 interface Layout {
     id: string;
@@ -35,7 +36,7 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
     const fetchLayouts = async () => {
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/layouts', {
+            const response = await fetch(`${API_URL}/api/layouts`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -61,7 +62,7 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
         setLoadingElements(true);
         try {
             const token = localStorage.getItem('token');
-            const response = await fetch(`http://localhost:3001/api/elements?layout_id=${layoutId}`, {
+            const response = await fetch(`${API_URL}/api/elements?layout_id=${layoutId}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 

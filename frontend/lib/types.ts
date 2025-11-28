@@ -86,12 +86,12 @@ export interface UploadPicksError {
 export interface RouteMarker {
   id: string;
   layout_id: string;
-  user_id: string;
+  user_id?: string;
   marker_type: RouteMarkerType;
   label: string;
   x_coordinate: number;
   y_coordinate: number;
-  sequence_order: number;
+  sequence_order?: number;
   created_at: string;
   updated_at: string;
 }

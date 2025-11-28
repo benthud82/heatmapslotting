@@ -3,7 +3,7 @@
 
 import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError, RouteMarker, CreateRouteMarkerRequest, WalkDistanceData } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 // Helper to normalize backend response (convert string numbers to numbers)
 function normalizeElement(element: any): WarehouseElement {

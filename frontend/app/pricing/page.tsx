@@ -5,6 +5,7 @@ import Link from 'next/link';
 import Header from '@/components/Header';
 import Modal from '@/components/Modal';
 import { loadStripe } from '@stripe/stripe-js';
+import { API_URL } from '@/lib/api';
 
 const TIERS = [
     {
@@ -44,7 +45,7 @@ export default function PricingPage() {
             setLoading(tierName);
 
             const token = localStorage.getItem('token');
-            const response = await fetch('http://localhost:3001/api/stripe/create-checkout-session', {
+            const response = await fetch(`${API_URL}/api/stripe/create-checkout-session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import Header from '@/components/Header';
 import Modal from '@/components/Modal';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
+import { API_URL } from '@/lib/api';
 
 export default function ProfilePage() {
     const router = useRouter();
@@ -36,7 +37,7 @@ export default function ProfilePage() {
                 return;
             }
 
-            const response = await fetch('http://localhost:3001/api/stripe/create-checkout-session', {
+            const response = await fetch(`${API_URL}/api/stripe/create-checkout-session`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
