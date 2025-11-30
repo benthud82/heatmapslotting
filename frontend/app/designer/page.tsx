@@ -28,23 +28,41 @@ export default function Home() {
   // Derived state for current layout object
   const layout = layouts.find(l => l.id === currentLayoutId) || null;
 
-  // History State
+  // History State - Combined for synchronized undo/redo
   const {
-    state: elements,
-    set: setElements,
+    state: historyState,
+    set: setHistoryState,
     undo,
     redo,
     canUndo,
     canRedo,
     reset: resetHistory
-  } = useHistory<WarehouseElement[]>([]);
+  } = useHistory<{ elements: WarehouseElement[], routeMarkers: RouteMarker[] }>({ elements: [], routeMarkers: [] });
+
+  const { elements, routeMarkers } = historyState;
+
+  // Wrapper setters to maintain existing API while updating combined history
+  const setElements = useCallback((newElementsOrFn: WarehouseElement[] | ((prev: WarehouseElement[]) => WarehouseElement[])) => {
+    setHistoryState(prevState => ({
+      ...prevState,
+      elements: typeof newElementsOrFn === 'function' ? newElementsOrFn(prevState.elements) : newElementsOrFn
+    }));
+  }, [setHistoryState]);
+
+  const setRouteMarkers = useCallback((newMarkersOrFn: RouteMarker[] | ((prev: RouteMarker[]) => RouteMarker[])) => {
+    setHistoryState(prevState => ({
+      ...prevState,
+      routeMarkers: typeof newMarkersOrFn === 'function' ? newMarkersOrFn(prevState.routeMarkers) : newMarkersOrFn
+    }));
+  }, [setHistoryState]);
 
   // Tool State
   const [activeTool, setActiveTool] = useState<'select' | ElementType | RouteMarkerType>('select');
 
-  // Route Markers State
-  const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
+  // Route Markers State (Selection & Display only)
+  // routeMarkers state is now managed by useHistory above
   const [selectedMarkerIds, setSelectedMarkerIds] = useState<string[]>([]);
+  const [showDistances, setShowDistances] = useState(false);
 
   // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
@@ -140,22 +158,22 @@ export default function Home() {
       // If we have an active layout, fetch its elements and route markers
       if (activeId) {
         const elementsData = await layoutApi.getElements(activeId);
-        resetHistory(elementsData);
 
         // Load route markers
+        let markersData: RouteMarker[] = [];
         try {
-          const markersData = await routeMarkersApi.getMarkers(activeId);
-          setRouteMarkers(markersData);
+          markersData = await routeMarkersApi.getMarkers(activeId);
         } catch (markerErr) {
           console.error('Failed to load route markers:', markerErr);
-          setRouteMarkers([]);
         }
+
+        resetHistory({ elements: elementsData, routeMarkers: markersData });
 
         setError(null);
       } else {
         // No layouts exist? Should not happen as backend creates default, but handle it
-        setElements([]);
-        setRouteMarkers([]);
+        // No layouts exist? Should not happen as backend creates default, but handle it
+        resetHistory({ elements: [], routeMarkers: [] });
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load data');
@@ -172,16 +190,16 @@ export default function Home() {
         try {
           setLoading(true);
           const elementsData = await layoutApi.getElements(currentLayoutId);
-          resetHistory(elementsData);
 
           // Load route markers for this layout
+          let markersData: RouteMarker[] = [];
           try {
-            const markersData = await routeMarkersApi.getMarkers(currentLayoutId);
-            setRouteMarkers(markersData);
+            markersData = await routeMarkersApi.getMarkers(currentLayoutId);
           } catch (markerErr) {
             console.error('Failed to load route markers:', markerErr);
-            setRouteMarkers([]);
           }
+
+          resetHistory({ elements: elementsData, routeMarkers: markersData });
         } catch (err) {
           console.error('Failed to load elements:', err);
           setError('Failed to load elements for this layout');
@@ -479,33 +497,7 @@ export default function Home() {
       setToast({
         message: `Deleted ${markersToDelete.length} marker${markersToDelete.length > 1 ? 's' : ''}`,
         type: 'success',
-        duration: 5000,
-        onUndo: async () => {
-          // Restore markers
-          setRouteMarkers(routeMarkers);
-          setToast(null);
-
-          try {
-            setSaving(true);
-            // Re-create markers on backend
-            const restoredMarkers = await Promise.all(markersToDelete.map(marker => routeMarkersApi.create(currentLayoutId!, {
-              marker_type: marker.marker_type,
-              label: marker.label,
-              x_coordinate: marker.x_coordinate,
-              y_coordinate: marker.y_coordinate,
-              sequence_order: marker.sequence_order,
-            })));
-
-            setRouteMarkers(prev => [...prev, ...restoredMarkers]);
-            setSelectedMarkerIds(restoredMarkers.map(m => m.id));
-          } catch (err) {
-            console.error('Undo failed:', err);
-            setError('Failed to restore markers. Please try again.');
-            loadData(); // Fallback to ensure consistency
-          } finally {
-            setSaving(false);
-          }
-        }
+        duration: 2000,
       });
     } catch (err) {
       console.error('Delete error:', err);
@@ -1063,18 +1055,33 @@ export default function Home() {
         layoutName={layout?.name || 'Untitled Layout'}
         onAction={handleMenuAction}
         headerContent={
-          <LayoutManager
-            layouts={layouts}
-            currentLayoutId={currentLayoutId}
-            onLayoutSelect={setCurrentLayoutId}
-            onLayoutCreate={handleLayoutCreate}
-            onLayoutRename={handleLayoutRename}
-            onLayoutDelete={handleLayoutDelete}
-          />
+          <>
+            <LayoutManager
+              layouts={layouts}
+              currentLayoutId={currentLayoutId}
+              onLayoutSelect={setCurrentLayoutId}
+              onLayoutCreate={handleLayoutCreate}
+              onLayoutRename={handleLayoutRename}
+              onLayoutDelete={handleLayoutDelete}
+            />
+            <div className="h-6 w-px bg-slate-800 mx-4"></div>
+            <button
+              onClick={() => setShowDistances(!showDistances)}
+              className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showDistances
+                ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
+                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                }`}
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.806-.98l-3.253-1.626M15 10v10" />
+              </svg>
+              <span className="hidden sm:inline">{showDistances ? 'Hide Distances' : 'Show Distances'}</span>
+            </button>
+          </>
         }
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      < div className="flex-1 flex overflow-hidden" >
         <Sidebar activeTool={activeTool} onSelectTool={setActiveTool} />
 
         <main className="flex-1 relative bg-[#0a0f1e] overflow-hidden">
@@ -1124,6 +1131,8 @@ export default function Home() {
             showRouteMarkers={true}
             onMultiElementSelect={(ids) => setSelectedElementIds(ids)}
             onMultiElementUpdate={handleMultiElementUpdate}
+            showDistances={showDistances}
+            onDistancesToggle={() => setShowDistances(prev => !prev)}
           />
 
           {error && (
@@ -1165,7 +1174,7 @@ export default function Home() {
           />
           {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>
-      </div>
+      </div >
 
       <StatusBar
         zoom={zoom}
@@ -1180,61 +1189,69 @@ export default function Home() {
         userTier={userTier}
       />
 
-      {showBulkRenameModal && (
-        <BulkRenameModal
-          selectedElements={elements.filter((el) => selectedElementIds.includes(el.id))}
-          allElements={elements}
-          onApply={async (renames) => {
-            // Bulk rename logic
-            const newElements = elements.map(el => {
-              const rename = renames.find(r => r.id === el.id);
-              return rename ? { ...el, label: rename.newLabel } : el;
-            });
-            setElements(newElements);
-            setShowBulkRenameModal(false);
-            // Save
-            for (const { id, newLabel } of renames) {
-              await elementsApi.update(id, { label: newLabel });
-            }
-          }}
-          onCancel={() => setShowBulkRenameModal(false)}
-        />
-      )}
+      {
+        showBulkRenameModal && (
+          <BulkRenameModal
+            selectedElements={elements.filter((el) => selectedElementIds.includes(el.id))}
+            allElements={elements}
+            onApply={async (renames) => {
+              // Bulk rename logic
+              const newElements = elements.map(el => {
+                const rename = renames.find(r => r.id === el.id);
+                return rename ? { ...el, label: rename.newLabel } : el;
+              });
+              setElements(newElements);
+              setShowBulkRenameModal(false);
+              // Save
+              for (const { id, newLabel } of renames) {
+                await elementsApi.update(id, { label: newLabel });
+              }
+            }}
+            onCancel={() => setShowBulkRenameModal(false)}
+          />
+        )
+      }
 
-      {showPatternModal && selectedElementIds.length >= 1 && (
-        <PatternGeneratorModal
-          templateElement={elements.find(el => el.id === selectedElementIds[0])!}
-          existingLabels={elements.map(el => el.label)}
-          elementLimit={elementLimit}
-          currentElementCount={elements.length}
-          onGenerate={handlePatternGenerate}
-          onCancel={() => setShowPatternModal(false)}
-        />
-      )}
+      {
+        showPatternModal && selectedElementIds.length >= 1 && (
+          <PatternGeneratorModal
+            templateElement={elements.find(el => el.id === selectedElementIds[0])!}
+            existingLabels={elements.map(el => el.label)}
+            elementLimit={elementLimit}
+            currentElementCount={elements.length}
+            onGenerate={handlePatternGenerate}
+            onCancel={() => setShowPatternModal(false)}
+          />
+        )
+      }
 
-      {showResequenceModal && selectedElementIds.length >= 2 && (
-        <ResequenceModal
-          selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
-          allElements={elements}
-          onApply={handleResequenceApply}
-          onCancel={() => setShowResequenceModal(false)}
-        />
-      )}
+      {
+        showResequenceModal && selectedElementIds.length >= 2 && (
+          <ResequenceModal
+            selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
+            allElements={elements}
+            onApply={handleResequenceApply}
+            onCancel={() => setShowResequenceModal(false)}
+          />
+        )
+      }
 
       <KeyboardShortcutsModal isOpen={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
 
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          duration={toast.duration}
-          onUndo={toast.onUndo}
-          onClose={() => {
-            if (toast.onClose) toast.onClose();
-            setToast(null);
-          }}
-        />
-      )}
-    </div>
+      {
+        toast && (
+          <Toast
+            message={toast.message}
+            type={toast.type}
+            duration={toast.duration}
+            onUndo={toast.onUndo}
+            onClose={() => {
+              if (toast.onClose) toast.onClose();
+              setToast(null);
+            }}
+          />
+        )
+      }
+    </div >
   );
 }

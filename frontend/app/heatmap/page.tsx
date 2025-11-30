@@ -41,6 +41,7 @@ export default function Heatmap() {
   // Route markers state
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
   const [showRouteMarkers, setShowRouteMarkers] = useState(false);
+  const [showDistances, setShowDistances] = useState(false);
 
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
@@ -247,6 +248,18 @@ export default function Heatmap() {
             </svg>
             <span className="hidden sm:inline">UPLOAD PICKS</span>
           </button>
+          <button
+            onClick={() => setShowDistances(!showDistances)}
+            className={`px-4 py-2 font-mono text-sm rounded transition-colors flex items-center gap-2 border ${showDistances
+              ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
+              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+              }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.806-.98l-3.253-1.626M15 10v10" />
+            </svg>
+            <span className="hidden sm:inline">{showDistances ? 'HIDE DISTANCES' : 'SHOW DISTANCES'}</span>
+          </button>
         </div>
       </Header>
 
@@ -327,7 +340,9 @@ export default function Heatmap() {
             routeMarkers={routeMarkers}
             showRouteMarkers={showRouteMarkers}
             onRouteMarkersToggle={() => setShowRouteMarkers(prev => !prev)}
-            onSnappingToggle={() => {}} // No-op for heatmap page
+            showDistances={showDistances}
+            onDistancesToggle={() => setShowDistances(prev => !prev)}
+            onSnappingToggle={() => { }} // No-op for heatmap page
           />
         </div>
 

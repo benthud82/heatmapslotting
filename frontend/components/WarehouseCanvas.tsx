@@ -272,6 +272,9 @@ interface WarehouseCanvasProps {
   onRouteMarkersToggle?: () => void;
   onMultiElementSelect?: (ids: string[]) => void;
   onMultiElementUpdate?: (updates: Array<{ id: string; changes: { x_coordinate?: number; y_coordinate?: number } }>) => void;
+  // Distance visualization
+  showDistances?: boolean;
+  onDistancesToggle?: () => void;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -301,6 +304,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onRouteMarkersToggle,
   onMultiElementSelect,
   onMultiElementUpdate,
+  showDistances = false,
+  onDistancesToggle,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -410,6 +415,107 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setStageScale(newScale);
     setStagePosition(newPosition);
   }, [elements, containerSize]);
+
+  // Distance Calculation Logic
+  const distanceLines = useMemo(() => {
+    if (!showDistances || !routeMarkers.length) return [];
+
+    const startPoint = routeMarkers.find(m => m.marker_type === 'start_point');
+    const stopPoint = routeMarkers.find(m => m.marker_type === 'stop_point');
+    const carts = routeMarkers.filter(m => m.marker_type === 'cart_parking');
+
+    if (!startPoint || !stopPoint) return [];
+
+    // Sort carts: use sequence_order if available, otherwise sort by distance from start
+    const sortedCarts = [...carts].sort((a, b) => {
+      if (a.sequence_order !== undefined && b.sequence_order !== undefined) {
+        return a.sequence_order - b.sequence_order;
+      }
+      // Fallback: simple proximity sort (greedy)
+      // This is a simplification; for a true TSP we'd need more complex logic,
+      // but for visualization this is a reasonable default if sequence is missing.
+      return 0;
+    });
+
+    // If no sequence, do a greedy sort starting from start point
+    if (carts.length > 0 && carts.some(c => c.sequence_order === undefined)) {
+      let currentPos = { x: startPoint.x_coordinate, y: startPoint.y_coordinate };
+      const remainingCarts = [...carts];
+      const newSorted: RouteMarker[] = [];
+
+      while (remainingCarts.length > 0) {
+        let nearestIdx = -1;
+        let minDist = Infinity;
+
+        remainingCarts.forEach((cart, idx) => {
+          const dist = Math.sqrt(
+            Math.pow(cart.x_coordinate - currentPos.x, 2) +
+            Math.pow(cart.y_coordinate - currentPos.y, 2)
+          );
+          if (dist < minDist) {
+            minDist = dist;
+            nearestIdx = idx;
+          }
+        });
+
+        if (nearestIdx !== -1) {
+          const nearest = remainingCarts[nearestIdx];
+          newSorted.push(nearest);
+          currentPos = { x: nearest.x_coordinate, y: nearest.y_coordinate };
+          remainingCarts.splice(nearestIdx, 1);
+        }
+      }
+      // Replace sortedCarts with the spatially sorted ones
+      sortedCarts.length = 0;
+      sortedCarts.push(...newSorted);
+    }
+
+    const points = [startPoint, ...sortedCarts, stopPoint];
+    const lines: Array<{
+      start: { x: number; y: number };
+      end: { x: number; y: number };
+      distancePx: number;
+      distanceFeet: number;
+      midpoint: { x: number; y: number };
+      segmentName: string;
+    }> = [];
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p1 = points[i];
+      const p2 = points[i + 1];
+
+      // Center points based on marker dimensions
+      const config1 = ROUTE_MARKER_CONFIGS[p1.marker_type];
+      const config2 = ROUTE_MARKER_CONFIGS[p2.marker_type];
+
+      const x1 = Number(p1.x_coordinate) + config1.width / 2;
+      const y1 = Number(p1.y_coordinate) + config1.height / 2;
+      const x2 = Number(p2.x_coordinate) + config2.width / 2;
+      const y2 = Number(p2.y_coordinate) + config2.height / 2;
+
+      const distPx = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
+      const distFeet = distPx / 12; // 1 px = 1 inch
+
+      // Determine segment name
+      let segmentName = '';
+      if (p1.marker_type === 'start_point') segmentName = 'Start → ';
+      else if (p1.marker_type === 'cart_parking') segmentName = `Cart ${p1.sequence_order || '?'} → `;
+
+      if (p2.marker_type === 'stop_point') segmentName += 'Stop';
+      else if (p2.marker_type === 'cart_parking') segmentName += `Cart ${p2.sequence_order || '?'}`;
+
+      lines.push({
+        start: { x: x1, y: y1 },
+        end: { x: x2, y: y2 },
+        distancePx: distPx,
+        distanceFeet: distFeet,
+        midpoint: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+        segmentName,
+      });
+    }
+
+    return lines;
+  }, [showDistances, routeMarkers]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -1332,6 +1438,56 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               );
             })}
 
+            {/* Distance Visualization Layer */}
+            {showDistances && distanceLines.map((line, i) => (
+              <Group key={`dist-${i}`}>
+                {/* Dashed Line */}
+                <Line
+                  points={[line.start.x, line.start.y, line.end.x, line.end.y]}
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  dash={[10, 10]}
+                  opacity={0.8}
+                  listening={false}
+                />
+                {/* Distance Label */}
+                {/* Distance Label */}
+                <Group x={line.midpoint.x} y={line.midpoint.y}>
+                  <Text
+                    x={-50}
+                    y={-12}
+                    width={100}
+                    text={`${line.distanceFeet.toFixed(1)}'`}
+                    fontSize={12}
+                    fontFamily="monospace"
+                    fontStyle="bold"
+                    fill="#e2e8f0"
+                    align="center"
+                    verticalAlign="middle"
+                    shadowColor="black"
+                    shadowBlur={2}
+                    shadowOpacity={0.8}
+                    shadowOffset={{ x: 1, y: 1 }}
+                  />
+                  <Text
+                    x={-50}
+                    y={2}
+                    width={100}
+                    text={line.segmentName}
+                    fontSize={9}
+                    fontFamily="monospace"
+                    fill="#94a3b8"
+                    align="center"
+                    verticalAlign="middle"
+                    shadowColor="black"
+                    shadowBlur={2}
+                    shadowOpacity={0.8}
+                    shadowOffset={{ x: 1, y: 1 }}
+                  />
+                </Group>
+              </Group>
+            ))}
+
             {/* Route Markers */}
             {showRouteMarkers && routeMarkers.map((marker) => {
               const config = ROUTE_MARKER_CONFIGS[marker.marker_type];
@@ -1495,6 +1651,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                     fontFamily="monospace"
                     fill="#94a3b8"
                     align="center"
+                    verticalAlign="middle"
                   />
                 </Group>
               );
@@ -1543,6 +1700,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                 />
               );
             })()}
+
+
 
             {/* Ghost/Preview element when drawing */}
             {selectedType && !isReadOnly && cursorCanvasPos && (() => {
@@ -1653,7 +1812,33 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               );
             })()}
           </Layer>
+
+
+          {/* HUD Layer - Fixed to screen, not affected by zoom/pan */}
+
         </Stage>
+
+        {/* Floating HUD - Total Distance */}
+        {showDistances && (
+          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border-2 border-blue-500 rounded-xl shadow-2xl p-4 min-w-[220px] backdrop-blur-sm">
+            <div className="flex flex-col gap-1">
+              <div className="text-[10px] font-mono font-bold text-slate-400 tracking-wider uppercase">
+                Total Walk Path
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-3xl font-mono font-bold text-white">
+                  {distanceLines.reduce((sum, line) => sum + line.distanceFeet, 0).toFixed(1)}
+                </span>
+                <span className="text-sm font-mono font-bold text-blue-400">FT</span>
+              </div>
+              <div className="absolute top-4 right-4">
+                <div className="px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-slate-300 border border-slate-700">
+                  {distanceLines.length} Segs
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Inline Label Editing Overlay */}
         {editingLabel && editingPosition && (
