@@ -2244,3 +2244,4 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
 ElementShape.displayName = 'ElementShape';
 
 export default WarehouseCanvas;
+

@@ -28,3 +28,4 @@ COMMENT ON COLUMN route_markers.marker_type IS 'Type of marker: start_point, sto
 COMMENT ON COLUMN route_markers.sequence_order IS 'Order of cart parking spots in the pick path (1, 2, 3...)';
 
 
+

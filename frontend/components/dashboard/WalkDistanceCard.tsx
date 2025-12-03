@@ -161,11 +161,11 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
       <div className="mb-6">
         <div className="flex items-baseline gap-2">
           <span className="text-4xl font-bold text-white font-mono">
-            {formatDistance(data.totalDistanceFeet)}
+            {formatDistance(data.totalDistanceFeet ?? 0)}
           </span>
         </div>
         <p className="text-slate-500 text-sm mt-1">
-          {data.totalPicks.toLocaleString()} picks • ~{formatTime(data.estimatedMinutes)} walking
+          {(data.totalPicks ?? 0).toLocaleString()} picks • ~{formatTime(data.estimatedMinutes ?? 0)} walking
         </p>
       </div>
 
@@ -174,13 +174,13 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
         <div className="bg-slate-800/50 rounded-xl p-3">
           <p className="text-slate-400 text-xs mb-1">Avg per Pick</p>
           <p className="text-white font-mono font-bold">
-            {data.avgDistancePerPickFeet.toFixed(1)} ft
+            {(data.avgDistancePerPickFeet ?? 0).toFixed(1)} ft
           </p>
         </div>
         <div className="bg-slate-800/50 rounded-xl p-3">
           <p className="text-slate-400 text-xs mb-1">Cart Stops</p>
           <p className="text-white font-mono font-bold">
-            {data.markers.cartParkingCount}
+            {data.markers?.cartParkingCount ?? 0}
           </p>
         </div>
       </div>
@@ -192,15 +192,15 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-slate-400">Start → First Cart</span>
-              <span className="text-white font-mono">{Math.round(data.routeSummary.startToFirstCart / 12)} ft</span>
+              <span className="text-white font-mono">{Math.round((data.routeSummary.startToFirstCart ?? 0) / 12)} ft</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Picking Travel</span>
-              <span className="text-white font-mono">{Math.round(data.routeSummary.pickingDistance / 12)} ft</span>
+              <span className="text-white font-mono">{Math.round((data.routeSummary.pickingDistance ?? 0) / 12)} ft</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Last Cart → Stop</span>
-              <span className="text-white font-mono">{Math.round(data.routeSummary.lastCartToStop / 12)} ft</span>
+              <span className="text-white font-mono">{Math.round((data.routeSummary.lastCartToStop ?? 0) / 12)} ft</span>
             </div>
           </div>
         </div>
@@ -217,10 +217,10 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
                   <span className="w-5 h-5 bg-blue-500/20 text-blue-400 rounded flex items-center justify-center text-xs font-mono">
                     {index + 1}
                   </span>
-                  <span className="text-slate-300 truncate max-w-[100px]">{cart.label}</span>
+                  <span className="text-slate-300 truncate max-w-[100px]">{cart.label ?? `Cart ${index + 1}`}</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-white font-mono">{cart.picksServed}</span>
+                  <span className="text-white font-mono">{cart.picksServed ?? 0}</span>
                   <span className="text-slate-500 text-xs ml-1">picks</span>
                 </div>
               </div>
@@ -231,5 +231,6 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
     </div>
   );
 }
+
 
 
