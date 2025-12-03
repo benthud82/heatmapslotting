@@ -15,8 +15,8 @@ router.post('/create-checkout-session', authMiddleware, async (req, res, next) =
             return res.status(400).json({ error: 'priceId is required' });
         }
 
-        // MOCK MODE: If using mock keys, bypass Stripe
-        if (process.env.STRIPE_SECRET_KEY?.startsWith('mock_')) {
+        // MOCK MODE: Only allow in development
+        if (process.env.NODE_ENV !== 'production' && process.env.STRIPE_SECRET_KEY?.startsWith('mock_')) {
             console.log('⚠️ Using Mock Stripe Mode');
             const mockSessionUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/designer?upgrade=success`;
 
@@ -79,6 +79,11 @@ router.post('/create-checkout-session', authMiddleware, async (req, res, next) =
 
 // GET /api/stripe/mock-payment (For testing without Stripe)
 router.get('/mock-payment', async (req, res) => {
+    // SECURITY: Disable in production
+    if (process.env.NODE_ENV === 'production') {
+        return res.status(404).json({ error: 'Not found' });
+    }
+
     const { userId } = req.query;
     if (!userId) return res.status(400).send('Missing userId');
 

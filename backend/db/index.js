@@ -4,12 +4,12 @@ require('dotenv').config();
 // Supabase requires SSL for all connections (development and production)
 // Try to detect if this is a Supabase connection
 const isSupabase = process.env.DATABASE_URL && (
-  process.env.DATABASE_URL.includes('supabase.co') || 
+  process.env.DATABASE_URL.includes('supabase.co') ||
   process.env.DATABASE_URL.includes('pooler.supabase.com')
 );
 
 // Use SSL for Supabase, or if explicitly set in production
-const sslConfig = isSupabase 
+const sslConfig = isSupabase
   ? { rejectUnauthorized: false }  // Supabase requires SSL
   : (process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false);
 
@@ -33,10 +33,24 @@ const query = async (text, params) => {
   try {
     const res = await pool.query(text, params);
     const duration = Date.now() - start;
-    console.log('Executed query', { text, duration, rows: res.rowCount });
+
+    // Only log in development, truncate query text
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('Executed query', {
+        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        duration,
+        rows: res.rowCount
+      });
+    }
+
     return res;
   } catch (error) {
-    console.error('Query error', { text, error: error.message });
+    // Log errors but redact query details in production
+    if (process.env.NODE_ENV === 'production') {
+      console.error('Query error', { error: error.message });
+    } else {
+      console.error('Query error', { text, error: error.message });
+    }
     throw error;
   }
 };
