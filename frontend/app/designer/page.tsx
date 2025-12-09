@@ -814,7 +814,7 @@ export default function Home() {
         break;
       case 'help_about':
         setToast({
-          message: 'SlottingPRO v1.0 - Warehouse Heatmap Designer',
+          message: 'HeatmapSlotting v1.0 - Warehouse Heatmap Designer',
           type: 'info',
           duration: 3000
         });

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document provides a complete implementation guide for adding AI-powered predictive element placement to the SlottingPRO heatmap designer. The feature analyzes existing layout patterns and pick data to suggest optimal positions for new elements, reducing design time and improving layout efficiency.
+This document provides a complete implementation guide for adding AI-powered predictive element placement to the HeatmapSlotting heatmap designer. The feature analyzes existing layout patterns and pick data to suggest optimal positions for new elements, reducing design time and improving layout efficiency.
 
 **Core Value Proposition**: Instead of manually determining where to place the next bay or flow rack, the system predicts likely placement locations based on spatial patterns, pick density hotspots, and learned layout conventions—offering clickable suggestions directly on the canvas.
 

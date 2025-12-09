@@ -59,6 +59,10 @@ app.get('/api/health', (req, res) => {
 // Routes
 const authMiddleware = require('./middleware/auth');
 
+// Public routes (no auth required)
+app.use('/api/waitlist', require('./routes/waitlist'));
+
+// Protected routes (auth required)
 app.use('/api/stripe', require('./routes/stripe'));
 app.use('/api/layouts', authMiddleware, require('./routes/layouts'));
 app.use('/api/elements', authMiddleware, require('./routes/bays'));
