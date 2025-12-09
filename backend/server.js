@@ -97,8 +97,9 @@ app.use((req, res) => {
 const startServer = async () => {
   try {
     await testConnection();
-    app.listen(PORT, () => {
-      console.log(`🚀 Server running on http://localhost:${PORT}`);
+    const HOST = process.env.HOST || '0.0.0.0'; // Bind to all interfaces for production
+    app.listen(PORT, HOST, () => {
+      console.log(`🚀 Server running on http://${HOST}:${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
   } catch (error) {
