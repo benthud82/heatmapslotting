@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   HeroSection,
+  ProblemStatement,
+  HowItWorks,
   ValueProposition,
-  SocialProof,
   FAQSection,
   FinalCTA,
 } from '@/components/waitlist';
@@ -64,16 +65,16 @@ export default function LandingPage() {
 
           <nav className="hidden md:flex items-center gap-6">
             <a
+              href="#how-it-works"
+              className="text-sm text-slate-300 hover:text-white transition-colors"
+            >
+              How It Works
+            </a>
+            <a
               href="#features"
               className="text-sm text-slate-300 hover:text-white transition-colors"
             >
               Features
-            </a>
-            <a
-              href="#testimonials"
-              className="text-sm text-slate-300 hover:text-white transition-colors"
-            >
-              Testimonials
             </a>
             <a
               href="#faq"
@@ -95,14 +96,17 @@ export default function LandingPage() {
       {/* Hero Section */}
       <HeroSection totalSignups={totalSignups} />
 
-      {/* Value Proposition */}
-      <div id="features">
-        <ValueProposition />
+      {/* Problem Statement */}
+      <ProblemStatement />
+
+      {/* How It Works */}
+      <div id="how-it-works">
+        <HowItWorks />
       </div>
 
-      {/* Social Proof */}
-      <div id="testimonials">
-        <SocialProof totalSignups={totalSignups} />
+      {/* Value Proposition / Features */}
+      <div id="features">
+        <ValueProposition />
       </div>
 
       {/* FAQ */}

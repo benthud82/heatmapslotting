@@ -27,4 +27,6 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Windows reserved names (prevents "nul" file issue)
+nul
 

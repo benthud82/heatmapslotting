@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { CheckIcon } from './icons';
 import WaitlistFormInline from './WaitlistFormInline';
 
@@ -90,23 +91,18 @@ export default function HeroSection({ totalSignups }: HeroSectionProps) {
                   <span className="text-xs text-slate-400">slottingpro.com/dashboard</span>
                 </div>
               </div>
-              {/* Placeholder product preview */}
-              <div className="bg-slate-900 p-8 min-h-[400px] flex items-center justify-center">
-                <div className="text-center">
-                  <div className="grid grid-cols-6 gap-1 mb-4">
-                    {/* Heatmap visualization preview */}
-                    {Array.from({ length: 24 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-8 h-8 rounded"
-                        style={{
-                          backgroundColor: `hsl(${220 - (i * 8)}, 70%, ${30 + (i * 2)}%)`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <p className="text-slate-400 text-sm">Interactive Warehouse Heatmap</p>
-                </div>
+              {/* Product screenshot */}
+              <div className="bg-slate-900 relative">
+                <Image
+                  src="/images/img_hero.png"
+                  alt="Warehouse heatmap visualization showing pick intensity by location - hot zones in red/orange, cold zones in blue"
+                  width={600}
+                  height={580}
+                  className="w-full h-auto"
+                  priority
+                />
+                {/* Subtle overlay gradient for depth */}
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/20 to-transparent pointer-events-none" />
               </div>
             </div>
 
