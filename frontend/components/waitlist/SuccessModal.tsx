@@ -34,7 +34,7 @@ export default function SuccessModal({ data, onClose, inline = false }: SuccessM
 
   const shareOnTwitter = () => {
     const text = encodeURIComponent(
-      `Just joined the @HeatmapSlotting waitlist! Optimize your warehouse with AI-powered heatmaps. Join me:`
+      `Just joined the @HeatmapSlotting waitlist! Optimize your warehouse with visual heatmaps. Join me:`
     );
     window.open(`https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(shareUrl)}`, '_blank');
   };

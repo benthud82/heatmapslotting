@@ -51,7 +51,7 @@ export default function HeroSection({ totalSignups }: HeroSectionProps) {
 
             {/* Subheadline */}
             <p className="text-lg md:text-xl text-white/80 mb-8 max-w-xl mx-auto lg:mx-0">
-              AI-powered heatmap technology that reduces pick times by up to 40%.
+              Visual heatmap technology that helps reduce pick times by up to 40%.
               {totalSignups > 0 && (
                 <> Join {totalSignups.toLocaleString()}+ operations leaders already on the waitlist.</>
               )}

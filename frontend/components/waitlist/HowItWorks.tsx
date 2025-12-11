@@ -122,7 +122,7 @@ export default function HowItWorks() {
                 Optimize & Save
               </h3>
               <p className="text-lg text-slate-400 leading-relaxed mb-6">
-                Get AI-powered slotting recommendations. Move high-velocity SKUs to prime locations. Reduce travel time dramatically with optimized pick paths.
+                Get data-driven slotting insights. Move high-velocity SKUs to prime locations. Reduce travel time dramatically with optimized pick paths.
               </p>
 
               {/* Feature highlights */}

@@ -13,7 +13,7 @@ const VALUE_PROPS = [
   {
     icon: RouteIcon,
     title: 'Smart Slotting',
-    description: 'AI-powered recommendations that optimize product placement based on real pick patterns.',
+    description: 'Data-driven recommendations that optimize product placement based on real pick patterns.',
     stat: '40%',
     statLabel: 'reduced walk time',
   },

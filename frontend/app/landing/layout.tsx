@@ -14,9 +14,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Join the Waitlist | HeatmapSlotting - AI-Powered Warehouse Optimization',
+  title: 'Join the Waitlist | HeatmapSlotting - Visual Warehouse Optimization',
   description:
-    "Be first to access HeatmapSlotting's revolutionary heatmap technology. Reduce pick times by 40%, optimize warehouse layouts with AI. Join operations leaders on our waitlist.",
+    "Be first to access HeatmapSlotting's heatmap technology. Reduce pick times by up to 40% with visual warehouse optimization. Join operations leaders on our waitlist.",
   keywords: [
     'warehouse optimization',
     'slotting software',
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'HeatmapSlotting - Transform Your Warehouse Operations',
     description:
-      'AI-powered heatmaps that reduce pick times by 40%. Join the waitlist for early access.',
+      'Visual heatmaps that help reduce pick times by up to 40%. Join the waitlist for early access.',
     url: 'https://heatmapslotting.com/landing',
     siteName: 'HeatmapSlotting',
     images: [
@@ -45,7 +45,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
     title: 'HeatmapSlotting - Join the Waitlist',
-    description: 'AI-powered warehouse optimization. Be first in line.',
+    description: 'Visual warehouse optimization with heatmaps. Be first in line.',
     images: ['/og-waitlist.png'],
   },
   robots: {

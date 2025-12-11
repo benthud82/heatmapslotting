@@ -173,7 +173,7 @@ export default function LandingPage() {
             applicationCategory: 'BusinessApplication',
             operatingSystem: 'Web',
             description:
-              'AI-powered warehouse slotting and optimization software',
+              'Visual warehouse slotting and heatmap optimization software',
             offers: {
               '@type': 'Offer',
               availability: 'https://schema.org/PreOrder',
