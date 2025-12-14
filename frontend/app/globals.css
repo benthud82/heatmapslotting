@@ -69,3 +69,91 @@ body {
     transform: translateY(0);
   }
 }
+
+/* Command Center Grid Background */
+.command-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Subtle scan-line effect */
+.scan-lines {
+  position: relative;
+}
+
+.scan-lines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.02) 2px,
+    rgba(0, 0, 0, 0.02) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Staggered entrance animations */
+@keyframes fade-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-slide-left {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+  }
+  50% {
+    box-shadow: 0 0 20px 5px rgba(34, 211, 238, 0.15);
+  }
+}
+
+@layer utilities {
+  .animate-fade-slide-up {
+    animation: fade-slide-up 0.4s ease-out forwards;
+  }
+
+  .animate-fade-slide-left {
+    animation: fade-slide-left 0.3s ease-out forwards;
+  }
+
+  .animate-glow-pulse {
+    animation: glow-pulse 2s ease-in-out infinite;
+  }
+
+  /* Stagger delays */
+  .stagger-1 { animation-delay: 50ms; }
+  .stagger-2 { animation-delay: 100ms; }
+  .stagger-3 { animation-delay: 150ms; }
+  .stagger-4 { animation-delay: 200ms; }
+  .stagger-5 { animation-delay: 250ms; }
+  .stagger-6 { animation-delay: 300ms; }
+}
+
+/* Cyan glow border on hover */
+.hover-glow:hover {
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3),
+              0 0 20px -5px rgba(34, 211, 238, 0.2);
+}

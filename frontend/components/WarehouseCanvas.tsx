@@ -1295,7 +1295,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           y={stagePosition.y}
           // Enable panning by default (unless placing an element, though Konva handles click vs drag well)
           // We allow panning even in read-only mode
-          draggable={!isReadOnly && !isShiftPressed}
+          draggable={!isShiftPressed}
           onMouseDown={handleStageMouseDown}
           onMouseUp={handleStageMouseUp}
           onDragStart={(e) => {
