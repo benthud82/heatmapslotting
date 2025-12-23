@@ -183,8 +183,9 @@ export default function ZoneEfficiency({ zones, loading, onZoneClick }: ZoneEffi
 
       {/* Single Action Button */}
       <div className="mt-3 pt-3 border-t border-slate-800">
-        <Link 
+        <Link
           href="/heatmap"
+          target="_blank"
           className="w-full px-3 py-2 bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 text-xs font-mono rounded-lg transition-colors flex items-center justify-center gap-1.5"
         >
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

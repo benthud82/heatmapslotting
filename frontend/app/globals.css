@@ -157,3 +157,129 @@ body {
   box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.3),
               0 0 20px -5px rgba(34, 211, 238, 0.2);
 }
+
+/* ============================================================================
+   OPERATIONAL PULSE DASHBOARD STYLES
+   ============================================================================ */
+
+/* Status pulse indicators */
+@keyframes status-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.2); opacity: 0.7; }
+}
+
+.pulse-healthy {
+  animation: status-pulse 2s ease-in-out infinite;
+  background: #10b981; /* emerald-500 */
+}
+
+.pulse-warning {
+  animation: status-pulse 1.5s ease-in-out infinite;
+  background: #f59e0b; /* amber-500 */
+}
+
+.pulse-critical {
+  animation: status-pulse 1s ease-in-out infinite;
+  background: #ef4444; /* red-500 */
+}
+
+/* Health score gauge glow */
+.health-gauge-glow {
+  box-shadow: 0 0 30px -5px currentColor;
+}
+
+/* Card hierarchy for dashboard */
+.card-primary {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.9));
+  border: 1px solid rgba(34, 211, 238, 0.2);
+}
+
+.card-secondary {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+/* Data counter animation */
+@keyframes count-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-count-up {
+  animation: count-up 0.6s ease-out forwards;
+}
+
+/* Chart draw-in animation */
+@keyframes draw-in {
+  from {
+    stroke-dashoffset: 1000;
+    opacity: 0;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+.animate-draw-in {
+  animation: draw-in 1.5s ease-out forwards;
+}
+
+/* Action item slide-in */
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.4s ease-out forwards;
+}
+
+/* Breathing glow for status indicators */
+@keyframes breathe {
+  0%, 100% {
+    box-shadow: 0 0 0 0 currentColor;
+    opacity: 0.8;
+  }
+  50% {
+    box-shadow: 0 0 20px 5px currentColor;
+    opacity: 1;
+  }
+}
+
+.animate-breathe {
+  animation: breathe 3s ease-in-out infinite;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-healthy,
+  .pulse-warning,
+  .pulse-critical,
+  .animate-glow-pulse,
+  .animate-breathe {
+    animation: none;
+  }
+
+  .animate-count-up,
+  .animate-draw-in,
+  .animate-slide-in-left,
+  .animate-fade-slide-up,
+  .animate-fade-slide-left {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -5,26 +5,37 @@ import Link from 'next/link';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData } from '@/lib/types';
+import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData, RouteMarker } from '@/lib/types';
 import {
     analyzeVelocity,
     getZoneBreakdown,
     calculateKPIs,
     comparePeriods,
-    generateSparklineData,
     getDateRangeForPeriod,
+    calculateEfficiencyMetrics,
+    getTopMoveRecommendations,
+    getParetoDistribution,
+    identifyCongestionZones,
     VelocityAnalysis,
     KPIData,
     ZoneBreakdown,
     PeriodComparison,
+    EfficiencyMetrics,
+    ParetoDataPoint,
+    CongestionZone,
 } from '@/lib/dashboardUtils';
 
-// Import new dashboard components
+// Import dashboard components
 import HeroKPIs from '@/components/dashboard/HeroKPIs';
 import ZoneEfficiency from '@/components/dashboard/ZoneEfficiency';
 import VelocityTable from '@/components/dashboard/VelocityTable';
 import TimeComparison from '@/components/dashboard/TimeComparison';
 import WalkDistanceCard from '@/components/dashboard/WalkDistanceCard';
+import ActionBoard from '@/components/dashboard/ActionBoard';
+import ParetoChart from '@/components/dashboard/ParetoChart';
+import CongestionMap from '@/components/dashboard/CongestionMap';
+import TrendWatch from '@/components/dashboard/TrendWatch';
+import ElementDetailModal from '@/components/dashboard/ElementDetailModal';
 
 type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
@@ -52,10 +63,32 @@ export default function Dashboard() {
     const [walkDistanceData, setWalkDistanceData] = useState<WalkDistanceData | null>(null);
     const [previousWalkDistanceData, setPreviousWalkDistanceData] = useState<WalkDistanceData | null>(null);
 
+    // Route Markers State (for distance calculations)
+    const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
+
+    // Modal State
+    const [selectedElement, setSelectedElement] = useState<VelocityAnalysis | null>(null);
+
+    // Derived: Cart Parking Spots for distance calculations
+    const cartParkingSpots = useMemo(() => {
+        return routeMarkers
+            .filter(m => m.marker_type === 'cart_parking')
+            .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    }, [routeMarkers]);
+
+    // Derived: Element positions for distance calculations
+    const elementPositions = useMemo(() => {
+        return elements.map(el => ({
+            id: el.id,
+            x: Number(el.x_coordinate),
+            y: Number(el.y_coordinate)
+        }));
+    }, [elements]);
+
     // Derived analytics data
     const velocityAnalysis = useMemo<VelocityAnalysis[]>(() => {
-        return analyzeVelocity(aggregatedData, previousPeriodData);
-    }, [aggregatedData, previousPeriodData]);
+        return analyzeVelocity(aggregatedData, previousPeriodData, elementPositions, cartParkingSpots);
+    }, [aggregatedData, previousPeriodData, elementPositions, cartParkingSpots]);
 
     const zoneBreakdown = useMemo<ZoneBreakdown[]>(() => {
         return getZoneBreakdown(velocityAnalysis);
@@ -69,6 +102,34 @@ export default function Dashboard() {
         return comparePeriods(aggregatedData, previousPeriodData);
     }, [aggregatedData, previousPeriodData]);
 
+    const efficiencyMetrics = useMemo<EfficiencyMetrics>(() => {
+        return calculateEfficiencyMetrics(velocityAnalysis, elements.length);
+    }, [velocityAnalysis, elements.length]);
+
+    const moveRecommendations = useMemo(() => {
+        return getTopMoveRecommendations(velocityAnalysis, 3);
+    }, [velocityAnalysis]);
+
+    const paretoData = useMemo<ParetoDataPoint[]>(() => {
+        return getParetoDistribution(velocityAnalysis);
+    }, [velocityAnalysis]);
+
+    const congestionZones = useMemo<CongestionZone[]>(() => {
+        if (elements.length === 0) return [];
+        return identifyCongestionZones(
+            elements.map(el => ({
+                id: el.id,
+                label: el.label || '',
+                x_coordinate: Number(el.x_coordinate),
+                y_coordinate: Number(el.y_coordinate),
+            })),
+            aggregatedData,
+            layout?.canvas_width || 1200,
+            layout?.canvas_height || 800,
+            10 // 10x10 grid
+        );
+    }, [elements, aggregatedData, layout]);
+
     // Load initial data
     useEffect(() => {
         loadData();
@@ -81,10 +142,10 @@ export default function Dashboard() {
         }
     }, [currentLayoutId]);
 
-    // Reload when period changes
+    // Reload when period changes or available dates change
     useEffect(() => {
         if (currentLayoutId && availableDates.length > 0) {
-            loadPeriodData(currentLayoutId, selectedPeriod);
+            loadPeriodData(currentLayoutId, selectedPeriod, availableDates);
         }
     }, [selectedPeriod, currentLayoutId, availableDates]);
 
@@ -127,9 +188,13 @@ export default function Dashboard() {
             const rawTransactions = await picksApi.getTransactions(layoutId);
             setTransactions(rawTransactions);
 
-            if (dates.length > 0) {
-                await loadPeriodData(layoutId, selectedPeriod);
-            } else {
+            // Fetch route markers for distance calculations
+            const markers = await routeMarkersApi.getMarkers(layoutId);
+            setRouteMarkers(markers);
+
+            // Period data loading is handled by the useEffect that watches availableDates
+            // Clear previous data if no dates available
+            if (dates.length === 0) {
                 setAggregatedData([]);
                 setPreviousPeriodData([]);
                 setCurrentPeriodDates(null);
@@ -143,11 +208,40 @@ export default function Dashboard() {
         }
     };
 
-    const loadPeriodData = async (layoutId: string, period: ComparisonPeriod) => {
+    const loadPeriodData = async (layoutId: string, period: ComparisonPeriod, dates?: string[]) => {
         try {
-            // Get current and previous period date ranges
-            const currentRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 0);
-            const previousRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 1);
+            // Get current and previous period date ranges based on calendar
+            const calendarCurrentRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 0);
+            const calendarPreviousRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 1);
+
+            // Check if available dates overlap with calendar ranges
+            // If not, use the actual available dates instead
+            let currentRange = calendarCurrentRange;
+            let previousRange = calendarPreviousRange;
+
+            // Use passed dates or fall back to state
+            const datesToUse = dates || availableDates;
+
+            if (datesToUse.length > 0) {
+                const sortedDates = [...datesToUse].sort();
+                const oldestDate = sortedDates[0];
+                const newestDate = sortedDates[sortedDates.length - 1];
+
+                // If the newest available date is before today's period, use available dates
+                if (newestDate < calendarCurrentRange.start) {
+                    // Use the most recent available dates as "current period"
+                    currentRange = { start: oldestDate, end: newestDate };
+
+                    // Calculate a "previous period" as the first half of available data
+                    const midIndex = Math.floor(sortedDates.length / 2);
+                    if (midIndex > 0) {
+                        previousRange = { start: sortedDates[0], end: sortedDates[midIndex - 1] };
+                        currentRange = { start: sortedDates[midIndex], end: newestDate };
+                    } else {
+                        previousRange = { start: oldestDate, end: oldestDate };
+                    }
+                }
+            }
 
             setCurrentPeriodDates(currentRange);
             setPreviousPeriodDates(previousRange);
@@ -268,6 +362,7 @@ export default function Dashboard() {
                         <div className="flex gap-4">
                             <Link
                                 href="/upload"
+                                target="_blank"
                                 className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-cyan-900/30"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -277,6 +372,7 @@ export default function Dashboard() {
                             </Link>
                             <Link
                                 href="/designer"
+                                target="_blank"
                                 className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-mono rounded-xl transition-colors flex items-center gap-2"
                             >
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -289,31 +385,57 @@ export default function Dashboard() {
                 ) : (
                     /* Dashboard Content */
                     <div className="space-y-6">
-                        {/* Row 1: Hero KPIs + Zone Efficiency */}
-                        <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-                            <div className="xl:col-span-3">
-                                <HeroKPIs data={kpiData} loading={loading} />
+                        {/* Row 1: Hero KPIs (including Health Score) */}
+                        <HeroKPIs data={kpiData} efficiency={efficiencyMetrics} loading={loading} />
+
+                        {/* Row 2: Action Board + Zone Efficiency + Trend Watch */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 xl:col-span-1">
+                                <ActionBoard
+                                    moveCloser={moveRecommendations.moveCloser}
+                                    moveFurther={moveRecommendations.moveFurther}
+                                    layoutId={currentLayoutId || undefined}
+                                    loading={loading}
+                                />
                             </div>
-                            <div className="xl:col-span-1">
+                            <div>
                                 <ZoneEfficiency zones={zoneBreakdown} loading={loading} />
+                            </div>
+                            <div>
+                                <TrendWatch
+                                    velocityAnalysis={velocityAnalysis}
+                                    loading={loading}
+                                    limit={5}
+                                    onItemClick={(item) => setSelectedElement(item)}
+                                />
                             </div>
                         </div>
 
-                        {/* Row 2: Velocity Table + Walk Distance */}
+                        {/* Row 3: Pareto Chart + Congestion Map */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <ParetoChart data={paretoData} loading={loading} />
+                            <CongestionMap zones={congestionZones} loading={loading} />
+                        </div>
+
+                        {/* Row 4: Velocity Table + Walk Distance */}
                         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
                             <div className="xl:col-span-2">
-                                <VelocityTable data={velocityAnalysis} loading={loading} />
+                                <VelocityTable
+                                    data={velocityAnalysis}
+                                    loading={loading}
+                                    onRowClick={(item) => setSelectedElement(item)}
+                                />
                             </div>
                             <div className="xl:col-span-1">
-                                <WalkDistanceCard 
-                                    data={walkDistanceData} 
+                                <WalkDistanceCard
+                                    data={walkDistanceData}
                                     loading={loading}
                                     previousPeriodData={previousWalkDistanceData}
                                 />
                             </div>
                         </div>
 
-                        {/* Row 3: Time Comparison */}
+                        {/* Row 5: Time Comparison */}
                         <TimeComparison
                             comparison={periodComparison}
                             currentPeriodLabel={periodLabels.current}
@@ -338,6 +460,7 @@ export default function Dashboard() {
                             <div className="flex gap-3">
                                 <Link
                                     href="/heatmap"
+                                    target="_blank"
                                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -347,6 +470,7 @@ export default function Dashboard() {
                                 </Link>
                                 <Link
                                     href="/upload"
+                                    target="_blank"
                                     className="px-4 py-2 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -359,6 +483,13 @@ export default function Dashboard() {
                     </div>
                 )}
             </main>
+
+            {/* Element Detail Modal */}
+            <ElementDetailModal
+                element={selectedElement}
+                layoutId={currentLayoutId}
+                onClose={() => setSelectedElement(null)}
+            />
         </div>
     );
 }

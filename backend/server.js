@@ -15,10 +15,18 @@ app.use('/api/stripe/webhook', require('./routes/stripe'));
 // Security headers
 app.use(helmet());
 
-// Rate limiting - general API
+// CORS - MUST be before rate limiting to handle preflight OPTIONS requests
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Rate limiting - general API (higher limit in development)
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window per IP
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 in dev, 100 in prod
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -35,14 +43,6 @@ const authLimiter = rateLimit({
 
 // Apply rate limiting
 app.use('/api/', generalLimiter);
-
-// CORS - restrict to your domain in production
-app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

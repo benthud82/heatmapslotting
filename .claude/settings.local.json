@@ -20,7 +20,9 @@
       "Bash(netstat:*)",
       "Bash(taskkill //F //PID 9060)",
       "Bash(taskkill //F //PID 14444)",
-      "Bash(taskkill //F //PID 11704)"
+      "Bash(taskkill //F //PID 11704)",
+      "Bash(npx tsc:*)",
+      "Bash(npx next lint:*)"
     ],
     "deny": [],
     "ask": []

@@ -90,14 +90,12 @@ function ComparisonRow({
 }
 
 // Period selector button
-function PeriodButton({ 
-  label, 
-  value, 
-  selected, 
-  onClick 
-}: { 
+function PeriodButton({
+  label,
+  selected,
+  onClick
+}: {
   label: string;
-  value: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -176,23 +174,20 @@ export default function TimeComparison({
         {/* Period Selector */}
         {onPeriodChange && (
           <div className="flex flex-wrap gap-2">
-            <PeriodButton 
-              label="This Week" 
-              value="week" 
-              selected={selectedPeriod === 'week'} 
-              onClick={() => onPeriodChange('week')} 
+            <PeriodButton
+              label="This Week"
+              selected={selectedPeriod === 'week'}
+              onClick={() => onPeriodChange('week')}
             />
-            <PeriodButton 
-              label="This Month" 
-              value="month" 
-              selected={selectedPeriod === 'month'} 
-              onClick={() => onPeriodChange('month')} 
+            <PeriodButton
+              label="This Month"
+              selected={selectedPeriod === 'month'}
+              onClick={() => onPeriodChange('month')}
             />
-            <PeriodButton 
-              label="This Quarter" 
-              value="quarter" 
-              selected={selectedPeriod === 'quarter'} 
-              onClick={() => onPeriodChange('quarter')} 
+            <PeriodButton
+              label="This Quarter"
+              selected={selectedPeriod === 'quarter'}
+              onClick={() => onPeriodChange('quarter')}
             />
           </div>
         )}
@@ -329,6 +324,9 @@ export default function TimeComparison({
     </div>
   );
 }
+
+
+
 
 
 

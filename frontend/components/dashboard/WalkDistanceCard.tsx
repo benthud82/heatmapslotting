@@ -124,6 +124,7 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
 
           <Link
             href="/designer"
+            target="_blank"
             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-400 text-sm font-mono rounded-lg transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
