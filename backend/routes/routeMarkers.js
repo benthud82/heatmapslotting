@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { query } = require('../db');
+const WalkDistanceService = require('../services/walkDistance');
 
 // GET /api/layouts/:layoutId/route-markers - Get all route markers for a layout
 router.get('/layouts/:layoutId/route-markers', async (req, res, next) => {
@@ -42,8 +43,8 @@ router.post('/layouts/:layoutId/route-markers', async (req, res, next) => {
     // Validate marker type
     const validTypes = ['start_point', 'stop_point', 'cart_parking'];
     if (!validTypes.includes(marker_type)) {
-      return res.status(400).json({ 
-        error: 'Invalid marker_type. Must be: start_point, stop_point, or cart_parking' 
+      return res.status(400).json({
+        error: 'Invalid marker_type. Must be: start_point, stop_point, or cart_parking'
       });
     }
 
@@ -65,8 +66,8 @@ router.post('/layouts/:layoutId/route-markers', async (req, res, next) => {
       );
 
       if (existingResult.rows.length > 0) {
-        return res.status(400).json({ 
-          error: `A ${marker_type.replace('_', ' ')} already exists for this layout. Delete it first or update it.` 
+        return res.status(400).json({
+          error: `A ${marker_type.replace('_', ' ')} already exists for this layout. Delete it first or update it.`
         });
       }
     }
@@ -196,29 +197,39 @@ router.get('/layouts/:layoutId/walk-distance', async (req, res, next) => {
     }
 
     // Build date filter for picks query
-    let dateFilter = '';
     const queryParams = [layoutId];
-    
+    let pickDateFilter = '';
+
     if (start_date) {
       queryParams.push(start_date);
-      dateFilter += ` AND pt.pick_date >= $${queryParams.length}`;
+      pickDateFilter += ` AND pick_date >= $${queryParams.length}`;
     }
     if (end_date) {
       queryParams.push(end_date);
-      dateFilter += ` AND pt.pick_date <= $${queryParams.length}`;
+      pickDateFilter += ` AND pick_date <= $${queryParams.length}`;
     }
 
-    // Get pick transactions with element positions
+    // Get pick transactions with element positions (combining    // Get pick transactions with element positions (combining both legacy and item-level picks)
     const picksResult = await query(
-      `SELECT 
-        pt.element_id,
-        pt.pick_count,
+      `WITH all_picks AS (
+        SELECT element_id, pick_date, pick_count
+        FROM pick_transactions
+        WHERE layout_id = $1 ${pickDateFilter}
+        UNION ALL
+        SELECT element_id, pick_date, pick_count
+        FROM item_pick_transactions
+        WHERE layout_id = $1 ${pickDateFilter}
+       )
+       SELECT 
+        ap.element_id,
+        ap.pick_date,
+        ap.pick_count,
         we.x_coordinate,
         we.y_coordinate,
         we.label as element_label
-       FROM pick_transactions pt
-       JOIN warehouse_elements we ON pt.element_id = we.id
-       WHERE we.layout_id = $1 ${dateFilter}`,
+       FROM all_picks ap
+       JOIN warehouse_elements we ON ap.element_id = we.id
+       WHERE we.layout_id = $1`,
       queryParams
     );
 
@@ -228,100 +239,51 @@ router.get('/layouts/:layoutId/walk-distance', async (req, res, next) => {
       return res.json({
         totalDistance: 0,
         totalDistanceFeet: 0,
+        cartTravelDistFeet: 0,
+        pedestrianTravelDistFeet: 0,
         totalPicks: 0,
-        avgDistancePerPick: 0,
+        visitCount: 0,
+        avgDistancePerPickFeet: 0,
         message: 'No pick data found for the selected date range.'
       });
     }
 
-    // Calculate distances
-    const calculateManhattanDistance = (p1, p2) => {
-      return Math.abs(Number(p2.x) - Number(p1.x)) + Math.abs(Number(p2.y) - Number(p1.y));
-    };
+    // Calculate using the service
+    const metrics = WalkDistanceService.calculate(picks, markers);
 
-    const findNearestCartParking = (element) => {
-      let nearest = cartParking[0];
-      let minDistance = Infinity;
+    // Convert pixels to feet (assuming 1 px = 1 inch, so / 12)
+    const pxToFeet = (px) => Math.round(px / 12);
 
-      for (const cart of cartParking) {
-        const dist = calculateManhattanDistance(
-          { x: element.x_coordinate, y: element.y_coordinate },
-          { x: cart.x_coordinate, y: cart.y_coordinate }
-        );
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearest = cart;
-        }
-      }
-      return { cart: nearest, distance: minDistance };
-    };
-
-    let totalDistance = 0;
-    let totalPicks = 0;
-    const cartUtilization = {};
-
-    // Initialize cart utilization
-    cartParking.forEach(cart => {
-      cartUtilization[cart.id] = {
-        label: cart.label,
-        picksServed: 0,
-        totalWalkDistance: 0
-      };
-    });
-
-    // Start to first cart
-    const startToFirstCart = calculateManhattanDistance(
-      { x: startPoint.x_coordinate, y: startPoint.y_coordinate },
-      { x: cartParking[0].x_coordinate, y: cartParking[0].y_coordinate }
-    );
-    totalDistance += startToFirstCart;
-
-    // Calculate walk distance for each pick (round trip from nearest cart)
-    for (const pick of picks) {
-      const { cart, distance } = findNearestCartParking(pick);
-      const roundTripDistance = distance * 2 * Number(pick.pick_count);
-      totalDistance += roundTripDistance;
-      totalPicks += Number(pick.pick_count);
-
-      // Track cart utilization
-      if (cartUtilization[cart.id]) {
-        cartUtilization[cart.id].picksServed += Number(pick.pick_count);
-        cartUtilization[cart.id].totalWalkDistance += roundTripDistance;
-      }
-    }
-
-    // Last cart to stop
-    const lastCart = cartParking[cartParking.length - 1];
-    const lastCartToStop = calculateManhattanDistance(
-      { x: lastCart.x_coordinate, y: lastCart.y_coordinate },
-      { x: stopPoint.x_coordinate, y: stopPoint.y_coordinate }
-    );
-    totalDistance += lastCartToStop;
-
-    // Convert to feet (assuming layout units are inches - 1 inch = 1 unit)
-    const totalDistanceFeet = Math.round(totalDistance / 12);
+    const totalDistanceFeet = pxToFeet(metrics.totalDistance);
+    const cartTravelDistFeet = pxToFeet(metrics.cartTravelDist);
+    const pedestrianTravelDistFeet = pxToFeet(metrics.pedestrianTravelDist);
 
     // Calculate estimated time (assuming walking speed of 3 mph = 264 feet/min)
     const walkingSpeedFeetPerMin = 264;
     const estimatedMinutes = Math.round(totalDistanceFeet / walkingSpeedFeetPerMin);
 
     res.json({
-      totalDistance: Math.round(totalDistance),
+      totalDistance: Math.round(metrics.totalDistance),
       totalDistanceFeet,
-      totalPicks,
-      avgDistancePerPick: totalPicks > 0 ? Math.round((totalDistance / totalPicks) * 10) / 10 : 0,
-      avgDistancePerPickFeet: totalPicks > 0 ? Math.round((totalDistanceFeet / totalPicks) * 10) / 10 : 0,
+      cartTravelDistFeet,
+      pedestrianTravelDistFeet,
+
+      totalPicks: picks.reduce((sum, p) => sum + Number(p.pick_count), 0),
+      visitCount: metrics.visitCount,
+
+      avgDistancePerPickFeet: metrics.visitCount > 0 ? Math.round((totalDistanceFeet / metrics.visitCount) * 10) / 10 : 0,
+      avgDistancePerPickLabel: 'Avg per Visit', // Context hint for frontend
+
       estimatedMinutes,
-      routeSummary: {
-        startToFirstCart: Math.round(startToFirstCart),
-        lastCartToStop: Math.round(lastCartToStop),
-        pickingDistance: Math.round(totalDistance - startToFirstCart - lastCartToStop)
-      },
-      cartUtilization: Object.values(cartUtilization).map(cart => ({
-        ...cart,
-        totalWalkDistance: Math.round(cart.totalWalkDistance),
-        totalWalkDistanceFeet: Math.round(cart.totalWalkDistance / 12)
+
+      dailyBreakdown: metrics.dailyBreakdown.map(d => ({
+        date: d.date,
+        totalFeet: pxToFeet(d.cartDist + d.pedestrianDist),
+        cartFeet: pxToFeet(d.cartDist),
+        pedestrianFeet: pxToFeet(d.pedestrianDist),
+        visits: d.visitCount
       })),
+
       markers: {
         startPoint: { label: startPoint.label, x: startPoint.x_coordinate, y: startPoint.y_coordinate },
         stopPoint: { label: stopPoint.label, x: stopPoint.x_coordinate, y: stopPoint.y_coordinate },

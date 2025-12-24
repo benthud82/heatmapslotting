@@ -1,19 +1,71 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import Link from 'next/link';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
-import { useRouter } from 'next/navigation';
+import HeatmapElementModal from '@/components/heatmap/HeatmapElementModal';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
 import { WarehouseElement, Layout, AggregatedPickData, RouteMarker } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
+import { analyzeVelocity } from '@/lib/dashboardUtils';
+import { useRef } from 'react';
 
 export default function Heatmap() {
+  const canvasRef = useRef<any>(null);
+  // ... (existing state)
+
+  // Helper to calculate and add round trip distance to data
+  const enrichDataWithDistance = (data: AggregatedPickData[], markers: RouteMarker[], elementsList: WarehouseElement[]): AggregatedPickData[] => {
+    if (!data.length || !markers.length) return data;
+
+    // Extract parking spots (prioritize cart_parking, fallback to start_point)
+    let parkingSpots = markers
+      .filter(m => m.marker_type === 'cart_parking')
+      .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+
+    // Fallback to start point if no cart parking
+    if (parkingSpots.length === 0) {
+      parkingSpots = markers
+        .filter(m => m.marker_type === 'start_point')
+        .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    }
+
+    if (parkingSpots.length === 0) return data;
+
+    // Map elements for analysis
+    const elementsForAnalysis = elementsList.map(el => ({
+      id: el.id,
+      x: Number(el.x_coordinate),
+      y: Number(el.y_coordinate)
+    }));
+
+    // Run analysis to get distances
+    const analysis = analyzeVelocity(data, undefined, elementsForAnalysis, parkingSpots);
+
+    // Merge back
+    return data.map(item => {
+      const analyzed = analysis.find(a => a.elementId === item.element_id);
+      if (analyzed) {
+        // currentDistance is in pixels. Round trip = dist * 2. Feet = pixels / 12.
+        // Even if distance is 0, we can define it
+        const distPx = analyzed.currentDistance || 0;
+        return {
+          ...item,
+          roundTripDistanceFeet: Math.round((distPx * 2) / 12)
+        };
+      }
+      return item;
+    });
+  };
+
+  // ... (loadLayoutDetails and loadPickData updates will be in next steps or follow)
+
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const handleUploadClick = () => {
     router.push('/upload');
@@ -21,6 +73,9 @@ export default function Heatmap() {
 
   const [layouts, setLayouts] = useState<Layout[]>([]);
   const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
+
+  // Selected element state (from URL param or canvas click)
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const layout = useMemo(() => layouts.find(l => l.id === currentLayoutId) || null, [layouts, currentLayoutId]);
   const [elements, setElements] = useState<WarehouseElement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,8 +95,11 @@ export default function Heatmap() {
 
   // Route markers state
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
-  const [showRouteMarkers, setShowRouteMarkers] = useState(false);
+  const [showRouteMarkers, setShowRouteMarkers] = useState(true);
   const [showDistances, setShowDistances] = useState(false);
+
+  // Detail modal state
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
@@ -75,7 +133,22 @@ export default function Heatmap() {
     if (hasPickData && currentLayoutId) {
       loadPickData(currentLayoutId);
     }
-  }, [startDate, endDate]);
+  }, [startDate, endDate, routeMarkers]);
+
+  // Handle element selection from URL param
+  useEffect(() => {
+    const selectId = searchParams.get('select');
+    if (selectId && elements.some(el => el.id === selectId)) {
+      setSelectedElementId(selectId);
+    }
+
+    // Fit all elements when layout is loaded
+    if (elements.length > 0) {
+      setTimeout(() => {
+        canvasRef.current?.fitToElements();
+      }, 100);
+    }
+  }, [elements, searchParams]);
 
   const loadLayouts = async () => {
     try {
@@ -83,7 +156,14 @@ export default function Heatmap() {
       const layoutsData = await layoutApi.getLayouts();
       setLayouts(layoutsData);
 
-      if (layoutsData.length > 0 && !currentLayoutId) {
+      // Check for layout ID from URL parameter first
+      const urlLayoutId = searchParams.get('layout');
+
+      if (urlLayoutId && layoutsData.some(l => l.id === urlLayoutId)) {
+        // Use layout from URL param
+        setCurrentLayoutId(urlLayoutId);
+      } else if (layoutsData.length > 0 && !currentLayoutId) {
+        // Fall back to first layout
         setCurrentLayoutId(layoutsData[0].id);
       } else if (layoutsData.length === 0) {
         setLoading(false);
@@ -103,8 +183,9 @@ export default function Heatmap() {
       setElements(elementsData);
 
       // Fetch route markers for the layout
+      let markersData: RouteMarker[] = [];
       try {
-        const markersData = await routeMarkersApi.getMarkers(layoutId);
+        markersData = await routeMarkersApi.getMarkers(layoutId);
         setRouteMarkers(markersData);
       } catch (markerErr) {
         console.error('Failed to load route markers:', markerErr);
@@ -146,7 +227,7 @@ export default function Heatmap() {
           pickMap.set(item.element_id, item.total_picks);
         });
         setPickData(pickMap);
-        setAggregatedData(recentDayData);
+        setAggregatedData(enrichDataWithDistance(recentDayData, markersData, elementsData));
         setHasPickData(recentDayData.length > 0);
       } else {
         setPickData(new Map());
@@ -179,18 +260,40 @@ export default function Heatmap() {
       });
 
       setPickData(pickMap);
-      setAggregatedData(data);
+      setAggregatedData(enrichDataWithDistance(data, routeMarkers, elements));
       setHasPickData(data.length > 0);
     } catch (err) {
       console.error('Failed to load pick data:', err);
     }
   };
 
-  // No-op handlers
-  const handleElementClick = () => { };
+  // Handlers
+  const handleElementClick = (elementId: string) => {
+    setSelectedElementId(elementId);
+  };
   const handleElementCreate = () => { };
   const handleElementUpdate = () => { };
-  const handleCanvasClick = () => { };
+  const handleCanvasClick = () => {
+    // Clear selection when clicking on canvas background
+    setSelectedElementId(null);
+  };
+
+  // Clear element selection
+  const handleClearSelection = () => {
+    setSelectedElementId(null);
+    setShowDetailModal(false);
+  };
+
+  // View element details in modal
+  const handleViewDetails = () => {
+    setShowDetailModal(true);
+  };
+
+  // Get selected element data for modal
+  const selectedElementData = useMemo(() => {
+    if (!selectedElementId) return null;
+    return aggregatedData.find(d => d.element_id === selectedElementId) || null;
+  }, [selectedElementId, aggregatedData]);
 
   // Calculate min/max picks
   const { minPicks, maxPicks, totalPicks } = useMemo(() => {
@@ -247,6 +350,19 @@ export default function Heatmap() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
             <span className="hidden sm:inline">UPLOAD PICKS</span>
+          </button>
+          <button
+            onClick={() => setShowRouteMarkers(!showRouteMarkers)}
+            className={`px-4 py-2 font-mono text-sm rounded transition-colors flex items-center gap-2 border ${showRouteMarkers
+              ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/20'
+              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+              }`}
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span className="hidden sm:inline">{showRouteMarkers ? 'HIDE MARKERS' : 'SHOW MARKERS'}</span>
           </button>
           <button
             onClick={() => setShowDistances(!showDistances)}
@@ -324,9 +440,10 @@ export default function Heatmap() {
         {/* Canvas Area - Takes remaining space */}
         <div className="flex-1 bg-slate-950 relative overflow-hidden">
           <WarehouseCanvas
+            ref={canvasRef}
             elements={elements}
             selectedType={null}
-            selectedElementIds={[]}
+            selectedElementIds={selectedElementId ? [selectedElementId] : []}
             labelDisplayMode="all"
             onElementClick={handleElementClick}
             onElementCreate={handleElementCreate}
@@ -342,7 +459,6 @@ export default function Heatmap() {
             onRouteMarkersToggle={() => setShowRouteMarkers(prev => !prev)}
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
-            onSnappingToggle={() => { }} // No-op for heatmap page
           />
         </div>
 
@@ -353,6 +469,11 @@ export default function Heatmap() {
             maxPicks={maxPicks}
             aggregatedData={aggregatedData}
             totalPicks={totalPicks}
+            selectedElementId={selectedElementId}
+            layoutId={currentLayoutId}
+            onClearSelection={handleClearSelection}
+            startDate={startDate}
+            endDate={endDate}
           />
         ) : (
           <div className="h-full border-l border-slate-800 bg-slate-900/50 backdrop-blur-sm p-6 min-w-[280px] w-[320px]">

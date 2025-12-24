@@ -125,7 +125,16 @@ router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('fil
     await new Promise((resolve, reject) => {
       bufferStream
         .pipe(csv({
-          mapHeaders: ({ header }) => header.trim().toLowerCase(),
+          mapHeaders: ({ header }) => {
+            const h = header.trim().toLowerCase();
+            // Normalize headers to match expected database/logic keys
+            if (h === 'item id') return 'item_id';
+            if (h === 'location id') return 'location_id';
+            if (h === 'element') return 'element_name';
+            if (h === 'picks' || h === 'count') return 'pick_count';
+            if (h === 'date') return 'date'; // Explicitly keep 'date'
+            return h.replace(/\s+/g, '_'); // Fallback for others
+          },
           skipLines: 0,
         }))
         .on('data', (row) => {
@@ -250,25 +259,96 @@ router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('fil
     let processedCount = 0;
 
     if (isItemLevel) {
-      // Item-level processing: create locations, items, and item_pick_transactions
-      for (const row of filteredRows) {
-        // Get or create location
-        const internalLocationId = await getOrCreateLocation(layoutId, row.element_id, row.location_id);
+      // Item-level processing: use bulk inserts for performance
+      // Step 1: Bulk upsert all unique locations
+      const uniqueLocations = [...new Map(filteredRows.map(row => [
+        row.location_id,
+        { location_id: row.location_id, element_id: row.element_id }
+      ])).values()];
 
-        // Get or create item and update its location
-        const internalItemId = await getOrCreateItem(layoutId, row.item_id, internalLocationId);
+      if (uniqueLocations.length > 0) {
+        const locationValues = uniqueLocations.map((loc, i) =>
+          `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`
+        ).join(', ');
 
-        // Insert item pick transaction
+        const locationParams = uniqueLocations.flatMap(loc => [
+          layoutId, loc.element_id, loc.location_id, loc.location_id
+        ]);
+
+        await query(
+          `INSERT INTO locations (layout_id, element_id, location_id, label)
+           VALUES ${locationValues}
+           ON CONFLICT (layout_id, location_id) DO UPDATE SET element_id = EXCLUDED.element_id`,
+          locationParams
+        );
+      }
+
+      // Step 2: Get all location IDs we just created/updated
+      const locationResult = await query(
+        `SELECT id, location_id FROM locations WHERE layout_id = $1`,
+        [layoutId]
+      );
+      const locationIdMap = new Map(locationResult.rows.map(r => [r.location_id, r.id]));
+
+      // Step 3: Bulk upsert all unique items
+      const uniqueItems = [...new Map(filteredRows.map(row => [
+        row.item_id,
+        { item_id: row.item_id, location_id: locationIdMap.get(row.location_id) }
+      ])).values()];
+
+      if (uniqueItems.length > 0) {
+        const itemValues = uniqueItems.map((item, i) =>
+          `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`
+        ).join(', ');
+
+        const itemParams = uniqueItems.flatMap(item => [
+          layoutId, item.item_id, item.location_id
+        ]);
+
+        await query(
+          `INSERT INTO items (layout_id, item_id, current_location_id)
+           VALUES ${itemValues}
+           ON CONFLICT (layout_id, item_id) DO UPDATE SET current_location_id = EXCLUDED.current_location_id`,
+          itemParams
+        );
+      }
+
+      // Step 4: Get all item IDs we just created/updated
+      const itemResult = await query(
+        `SELECT id, item_id FROM items WHERE layout_id = $1`,
+        [layoutId]
+      );
+      const itemIdMap = new Map(itemResult.rows.map(r => [r.item_id, r.id]));
+
+      // Step 5: Bulk insert all pick transactions
+      // Process in batches of 1000 to avoid parameter limits
+      const BATCH_SIZE = 1000;
+      for (let i = 0; i < filteredRows.length; i += BATCH_SIZE) {
+        const batch = filteredRows.slice(i, i + BATCH_SIZE);
+
+        const txnValues = batch.map((row, idx) =>
+          `($${idx * 6 + 1}, $${idx * 6 + 2}, $${idx * 6 + 3}, $${idx * 6 + 4}, $${idx * 6 + 5}, $${idx * 6 + 6})`
+        ).join(', ');
+
+        const txnParams = batch.flatMap(row => [
+          layoutId,
+          itemIdMap.get(row.item_id),
+          locationIdMap.get(row.location_id),
+          row.element_id,
+          row.pick_date,
+          row.pick_count
+        ]);
+
         await query(
           `INSERT INTO item_pick_transactions (layout_id, item_id, location_id, element_id, pick_date, pick_count)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           VALUES ${txnValues}
            ON CONFLICT (item_id, location_id, pick_date)
            DO UPDATE SET pick_count = EXCLUDED.pick_count, created_at = NOW()`,
-          [layoutId, internalItemId, internalLocationId, row.element_id, row.pick_date, row.pick_count]
+          txnParams
         );
-
-        processedCount++;
       }
+
+      processedCount = filteredRows.length;
     } else {
       // Legacy element-level processing
       const insertPromises = filteredRows.map(row =>
@@ -376,7 +456,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
   }
 });
 
-// GET /api/picks/aggregated - Get aggregated pick counts per element
+// GET /api/picks/aggregated - Get aggregated pick counts per element (combines both data sources)
 router.get('/aggregated', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -396,32 +476,48 @@ router.get('/aggregated', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
-    // Build query with optional date filters and aggregation
-    let queryText = `
-      SELECT
-        pt.element_id,
-        we.label as element_name,
-        SUM(pt.pick_count) as total_picks,
-        COUNT(*) as days_count,
-        to_char(MIN(pt.pick_date), 'YYYY-MM-DD') as first_date,
-        to_char(MAX(pt.pick_date), 'YYYY-MM-DD') as last_date
-      FROM pick_transactions pt
-      JOIN warehouse_elements we ON pt.element_id = we.id
-      WHERE pt.layout_id = $1
-    `;
+    // Build date filter conditions
+    let dateFilter = '';
     const queryParams = [layout_id];
 
     if (start_date) {
       queryParams.push(start_date);
-      queryText += ` AND pt.pick_date >= $${queryParams.length}`;
+      dateFilter += ` AND pick_date >= $${queryParams.length}`;
     }
 
     if (end_date) {
       queryParams.push(end_date);
-      queryText += ` AND pt.pick_date <= $${queryParams.length}`;
+      dateFilter += ` AND pick_date <= $${queryParams.length}`;
     }
 
-    queryText += ' GROUP BY pt.element_id, we.label ORDER BY total_picks DESC';
+    // Query that combines BOTH legacy pick_transactions AND item_pick_transactions
+    // Uses a UNION to get all picks, then aggregates by element
+    const queryText = `
+      WITH all_picks AS (
+        -- Legacy element-level pick data
+        SELECT element_id, pick_date, pick_count
+        FROM pick_transactions
+        WHERE layout_id = $1 ${dateFilter}
+        
+        UNION ALL
+        
+        -- Item-level pick data (aggregated to element level)
+        SELECT element_id, pick_date, pick_count
+        FROM item_pick_transactions
+        WHERE layout_id = $1 ${dateFilter}
+      )
+      SELECT
+        ap.element_id,
+        we.label as element_name,
+        SUM(ap.pick_count)::integer as total_picks,
+        COUNT(DISTINCT ap.pick_date) as days_count,
+        to_char(MIN(ap.pick_date), 'YYYY-MM-DD') as first_date,
+        to_char(MAX(ap.pick_date), 'YYYY-MM-DD') as last_date
+      FROM all_picks ap
+      JOIN warehouse_elements we ON ap.element_id = we.id
+      GROUP BY ap.element_id, we.label
+      ORDER BY total_picks DESC
+    `;
 
     const result = await query(queryText, queryParams);
 
@@ -464,7 +560,7 @@ router.get('/items/aggregated', authMiddleware, async (req, res, next) => {
         we.x_coordinate,
         we.y_coordinate,
         SUM(ipt.pick_count) as total_picks,
-        COUNT(*) as days_count,
+        COUNT(DISTINCT ipt.pick_date) as days_count,
         to_char(MIN(ipt.pick_date), 'YYYY-MM-DD') as first_date,
         to_char(MAX(ipt.pick_date), 'YYYY-MM-DD') as last_date
       FROM item_pick_transactions ipt
@@ -551,10 +647,13 @@ router.get('/dates', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
+    // Query dates from BOTH legacy and item-level tables
     const result = await query(
-      `SELECT DISTINCT to_char(pick_date, 'YYYY-MM-DD') as pick_date 
-       FROM pick_transactions 
-       WHERE layout_id = $1 
+      `SELECT DISTINCT pick_date_str as pick_date FROM (
+         SELECT to_char(pick_date, 'YYYY-MM-DD') as pick_date_str FROM pick_transactions WHERE layout_id = $1
+         UNION
+         SELECT to_char(pick_date, 'YYYY-MM-DD') as pick_date_str FROM item_pick_transactions WHERE layout_id = $1
+       ) combined
        ORDER BY pick_date DESC`,
       [layout_id]
     );
@@ -586,14 +685,27 @@ router.delete('/', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
-    const result = await query(
+    // Delete item-level data first (due to foreign key constraints if any, though usually items depend on these)
+    // Actually items depend on locations, txns depend on items/locations.
+    // So delete transactions first.
+    const resultItemPicks = await query(
+      'DELETE FROM item_pick_transactions WHERE layout_id = $1',
+      [layout_id]
+    );
+
+    const resultLegacyPicks = await query(
       'DELETE FROM pick_transactions WHERE layout_id = $1',
       [layout_id]
     );
 
+    // Also clear items and locations since they are part of the "uploaded data" for item-level picks
+    // If we don't clear them, re-uploading might cause issues or stale data
+    await query('DELETE FROM items WHERE layout_id = $1', [layout_id]);
+    await query('DELETE FROM locations WHERE layout_id = $1', [layout_id]);
+
     res.json({
-      message: 'Pick data cleared successfully',
-      rowsDeleted: result.rowCount,
+      message: 'All pick data cleared successfully',
+      rowsDeleted: resultItemPicks.rowCount + resultLegacyPicks.rowCount,
     });
   } catch (error) {
     next(error);

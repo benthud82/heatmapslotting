@@ -68,6 +68,20 @@ function ActionItem({
             </span>
           )}
         </div>
+
+        {/* Walk savings */}
+        {isCloser && item.dailyWalkSavingsFeet && item.dailyWalkSavingsFeet > 0 && (
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-xs text-emerald-400 font-medium">
+              Save {item.dailyWalkSavingsFeet.toLocaleString()} ft/day
+            </span>
+            {item.dailyTimeSavingsMinutes && item.dailyTimeSavingsMinutes > 0 && (
+              <span className="text-xs text-emerald-400/70">
+                ({item.dailyTimeSavingsMinutes} min)
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Action link */}

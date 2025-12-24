@@ -64,6 +64,7 @@ export interface AggregatedPickData {
   days_count: number;
   first_date: string;
   last_date: string;
+  roundTripDistanceFeet?: number;
 }
 
 // =============================================================================
@@ -85,7 +86,6 @@ export interface Location {
   current_item_internal_id?: string;
   current_item_id?: string;
   current_item_description?: string;
-  created_at: string;
   updated_at: string;
 }
 
@@ -134,6 +134,7 @@ export interface AggregatedItemPickData {
   days_count: number;
   first_date: string;
   last_date: string;
+  roundTripDistanceFeet?: number;
 }
 
 // Velocity tier for items
@@ -227,16 +228,27 @@ export interface CreateRouteMarkerRequest {
 export interface WalkDistanceData {
   totalDistance: number;
   totalDistanceFeet: number;
+  cartTravelDistFeet: number;
+  pedestrianTravelDistFeet: number;
   totalPicks: number;
+  visitCount: number;
   avgDistancePerPick: number;
   avgDistancePerPickFeet: number;
+  avgDistancePerPickLabel?: string;
   estimatedMinutes: number;
-  routeSummary: {
+  dailyBreakdown: Array<{
+    date: string;
+    totalFeet: number;
+    cartFeet: number;
+    pedestrianFeet: number;
+    visits: number;
+  }>;
+  routeSummary?: {
     startToFirstCart: number;
     lastCartToStop: number;
     pickingDistance: number;
   };
-  cartUtilization: Array<{
+  cartUtilization?: Array<{
     label: string;
     picksServed: number;
     totalWalkDistance: number;

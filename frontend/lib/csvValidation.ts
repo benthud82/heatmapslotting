@@ -229,81 +229,128 @@ export const validateCSV = (
     validElementNames: Set<string>
 ): Promise<ValidationResult> => {
     return new Promise((resolve, reject) => {
+        // First, peek at the headers to detect format
         Papa.parse(file, {
             header: true,
-            skipEmptyLines: true,
+            preview: 1, // Only parse first row to get headers
             transformHeader: (h) => h.trim().toLowerCase().replace(/\s/g, '_'),
-            complete: (results) => {
-                const rows = results.data as CSVRow[];
-                const validatedRows: ValidatedRow[] = [];
-                const globalErrors: string[] = [];
-                const unmatchedElements = new Set<string>();
+            complete: async (previewResults) => {
+                const headers = previewResults.meta.fields || [];
+                const format = detectCSVFormat(headers);
 
-                // Check headers
-                const headers = results.meta.fields || [];
-                const missingColumns = REQUIRED_COLUMNS.filter(col => !headers.includes(col));
-
-                if (missingColumns.length > 0) {
-                    resolve({
-                        isValid: false,
-                        rows: [],
-                        errors: [`Missing required columns: ${missingColumns.join(', ')}`],
-                        stats: { totalRows: 0, validRows: 0, invalidRows: 0, unmatchedElements: [] }
-                    });
+                // If item-level format, delegate to validateItemCSV and adapt result
+                if (format === 'item-level') {
+                    try {
+                        const itemResult = await validateItemCSV(file, validElementNames);
+                        // Adapt ItemValidationResult to ValidationResult
+                        const adaptedResult: ValidationResult = {
+                            isValid: itemResult.isValid,
+                            rows: itemResult.rows.map(row => ({
+                                original: {
+                                    element_name: row.original.element_name,
+                                    date: row.original.date,
+                                    pick_count: row.original.pick_count,
+                                },
+                                isValid: row.isValid,
+                                errors: row.errors,
+                                elementId: row.elementId,
+                            })),
+                            errors: itemResult.errors,
+                            stats: {
+                                totalRows: itemResult.stats.totalRows,
+                                validRows: itemResult.stats.validRows,
+                                invalidRows: itemResult.stats.invalidRows,
+                                unmatchedElements: itemResult.stats.unmatchedElements,
+                            }
+                        };
+                        resolve(adaptedResult);
+                    } catch (error) {
+                        reject(error);
+                    }
                     return;
                 }
 
-                let validCount = 0;
-                let invalidCount = 0;
+                // Otherwise, process as element-level format (original logic)
+                Papa.parse(file, {
+                    header: true,
+                    skipEmptyLines: true,
+                    transformHeader: (h) => h.trim().toLowerCase().replace(/\s/g, '_'),
+                    complete: (results) => {
+                        const rows = results.data as CSVRow[];
+                        const validatedRows: ValidatedRow[] = [];
+                        const globalErrors: string[] = [];
+                        const unmatchedElements = new Set<string>();
 
-                rows.forEach((row) => {
-                    const rowErrors: string[] = [];
-                    const elementName = row.element_name?.trim();
-                    const date = row.date?.trim();
-                    const pickCount = parseInt(String(row.pick_count), 10);
+                        // Check headers
+                        const fullHeaders = results.meta.fields || [];
+                        const missingColumns = REQUIRED_COLUMNS.filter(col => !fullHeaders.includes(col));
 
-                    // Validate Element Name
-                    if (!elementName) {
-                        rowErrors.push('Missing element_name');
-                    } else if (!validElementNames.has(elementName.toLowerCase())) {
-                        // Track unmatched but don't mark row as invalid
-                        unmatchedElements.add(elementName);
-                    }
+                        if (missingColumns.length > 0) {
+                            resolve({
+                                isValid: false,
+                                rows: [],
+                                errors: [`Missing required columns: ${missingColumns.join(', ')}`],
+                                stats: { totalRows: 0, validRows: 0, invalidRows: 0, unmatchedElements: [] }
+                            });
+                            return;
+                        }
 
-                    // Validate Date (YYYY-MM-DD)
-                    if (!date) {
-                        rowErrors.push('Missing date');
-                    } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-                        rowErrors.push(`Invalid date format "${date}". Expected YYYY-MM-DD`);
-                    }
+                        let validCount = 0;
+                        let invalidCount = 0;
 
-                    // Validate Pick Count
-                    if (row.pick_count === undefined || row.pick_count === '') {
-                        rowErrors.push('Missing pick_count');
-                    } else if (isNaN(pickCount) || pickCount < 0) {
-                        rowErrors.push(`Invalid pick_count "${row.pick_count}". Must be a positive integer`);
-                    }
+                        rows.forEach((row) => {
+                            const rowErrors: string[] = [];
+                            const elementName = row.element_name?.trim();
+                            const date = row.date?.trim();
+                            const pickCount = parseInt(String(row.pick_count), 10);
 
-                    const isValid = rowErrors.length === 0;
-                    if (isValid) validCount++;
-                    else invalidCount++;
+                            // Validate Element Name
+                            if (!elementName) {
+                                rowErrors.push('Missing element_name');
+                            } else if (!validElementNames.has(elementName.toLowerCase())) {
+                                // Track unmatched but don't mark row as invalid
+                                unmatchedElements.add(elementName);
+                            }
 
-                    validatedRows.push({
-                        original: row,
-                        isValid,
-                        errors: rowErrors
-                    });
-                });
+                            // Validate Date (YYYY-MM-DD)
+                            if (!date) {
+                                rowErrors.push('Missing date');
+                            } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+                                rowErrors.push(`Invalid date format "${date}". Expected YYYY-MM-DD`);
+                            }
 
-                resolve({
-                    isValid: invalidCount === 0 && rows.length > 0,
-                    rows: validatedRows,
-                    errors: globalErrors,
-                    stats: {
-                        totalRows: rows.length,
-                        validRows: validCount,
-                        invalidRows: invalidCount,
-                        unmatchedElements: Array.from(unmatchedElements).sort()
+                            // Validate Pick Count
+                            if (row.pick_count === undefined || row.pick_count === '') {
+                                rowErrors.push('Missing pick_count');
+                            } else if (isNaN(pickCount) || pickCount < 0) {
+                                rowErrors.push(`Invalid pick_count "${row.pick_count}". Must be a positive integer`);
+                            }
+
+                            const isValid = rowErrors.length === 0;
+                            if (isValid) validCount++;
+                            else invalidCount++;
+
+                            validatedRows.push({
+                                original: row,
+                                isValid,
+                                errors: rowErrors
+                            });
+                        });
+
+                        resolve({
+                            isValid: invalidCount === 0 && rows.length > 0,
+                            rows: validatedRows,
+                            errors: globalErrors,
+                            stats: {
+                                totalRows: rows.length,
+                                validRows: validCount,
+                                invalidRows: invalidCount,
+                                unmatchedElements: Array.from(unmatchedElements).sort()
+                            }
+                        });
+                    },
+                    error: (error) => {
+                        reject(error);
                     }
                 });
             },

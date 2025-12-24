@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData, RouteMarker } from '@/lib/types';
+import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData, RouteMarker, AggregatedItemPickData } from '@/lib/types';
 import {
     analyzeVelocity,
     getZoneBreakdown,
@@ -36,6 +36,7 @@ import ParetoChart from '@/components/dashboard/ParetoChart';
 import CongestionMap from '@/components/dashboard/CongestionMap';
 import TrendWatch from '@/components/dashboard/TrendWatch';
 import ElementDetailModal from '@/components/dashboard/ElementDetailModal';
+import ConfirmModal from '@/components/ConfirmModal';
 
 type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
@@ -54,6 +55,10 @@ export default function Dashboard() {
     const [elements, setElements] = useState<WarehouseElement[]>([]);
     const [availableDates, setAvailableDates] = useState<string[]>([]);
 
+    // Item-level aggregated data (for SKU analysis)
+    const [itemAggregatedData, setItemAggregatedData] = useState<AggregatedItemPickData[]>([]);
+    const [previousItemData, setPreviousItemData] = useState<AggregatedItemPickData[]>([]);
+
     // Period Selection
     const [selectedPeriod, setSelectedPeriod] = useState<ComparisonPeriod>('week');
     const [currentPeriodDates, setCurrentPeriodDates] = useState<{ start: string; end: string } | null>(null);
@@ -68,6 +73,8 @@ export default function Dashboard() {
 
     // Modal State
     const [selectedElement, setSelectedElement] = useState<VelocityAnalysis | null>(null);
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [isClearing, setIsClearing] = useState(false);
 
     // Derived: Cart Parking Spots for distance calculations
     const cartParkingSpots = useMemo(() => {
@@ -85,10 +92,10 @@ export default function Dashboard() {
         }));
     }, [elements]);
 
-    // Derived analytics data
+    // Derived analytics data - now uses ITEM-level data for SKU-centric analysis
     const velocityAnalysis = useMemo<VelocityAnalysis[]>(() => {
-        return analyzeVelocity(aggregatedData, previousPeriodData, elementPositions, cartParkingSpots);
-    }, [aggregatedData, previousPeriodData, elementPositions, cartParkingSpots]);
+        return analyzeVelocity(itemAggregatedData, previousItemData as any, elementPositions, cartParkingSpots);
+    }, [itemAggregatedData, previousItemData, elementPositions, cartParkingSpots]);
 
     const zoneBreakdown = useMemo<ZoneBreakdown[]>(() => {
         return getZoneBreakdown(velocityAnalysis);
@@ -108,6 +115,48 @@ export default function Dashboard() {
 
     const moveRecommendations = useMemo(() => {
         return getTopMoveRecommendations(velocityAnalysis, 3);
+    }, [velocityAnalysis]);
+
+    // Item-level move recommendations for SKU-centric ActionBoard
+    const itemMoveRecommendations = useMemo(() => {
+        // Map VelocityAnalysis to ItemVelocityAnalysis format
+        const toItemVelocity = (v: VelocityAnalysis) => ({
+            itemId: v.itemId || v.elementId,
+            externalItemId: v.externalItemId || v.elementName,
+            itemDescription: v.itemDescription,
+            locationId: v.locationId || '',
+            externalLocationId: v.externalLocationId || '',
+            elementId: v.elementId,
+            elementName: v.elementName,
+            totalPicks: v.totalPicks,
+            avgDailyPicks: v.avgDailyPicks,
+            daysActive: v.daysActive,
+            velocityTier: v.velocityTier,
+            percentile: v.percentile,
+            currentDistance: v.currentDistance,
+            optimalDistance: v.optimalDistance || 0,
+            walkSavingsPerPick: v.walkSavingsPerPick || 0,
+            dailyWalkSavingsFeet: v.dailyWalkSavingsFeet,
+            dailyTimeSavingsMinutes: v.dailyTimeSavingsMinutes,
+            recommendation: v.recommendation,
+            priorityScore: v.priorityScore || 0,
+            trend: v.trend,
+            trendPercent: v.trendPercent,
+        });
+
+        const moveCloser = velocityAnalysis
+            .filter(v => v.recommendation === 'move-closer')
+            .sort((a, b) => b.priorityScore - a.priorityScore)
+            .slice(0, 3)
+            .map(toItemVelocity);
+
+        const moveFurther = velocityAnalysis
+            .filter(v => v.recommendation === 'move-further')
+            .sort((a, b) => a.priorityScore - b.priorityScore)
+            .slice(0, 3)
+            .map(toItemVelocity);
+
+        return { moveCloser, moveFurther };
     }, [velocityAnalysis]);
 
     const paretoData = useMemo<ParetoDataPoint[]>(() => {
@@ -246,18 +295,22 @@ export default function Dashboard() {
             setCurrentPeriodDates(currentRange);
             setPreviousPeriodDates(previousRange);
 
-            // Fetch data for both periods (including walk distance)
-            const [currentData, prevData, walkData, prevWalkData] = await Promise.all([
+            // Fetch data for both periods (including walk distance and item-level data)
+            const [currentData, prevData, walkData, prevWalkData, itemData, prevItemData] = await Promise.all([
                 picksApi.getAggregated(layoutId, currentRange.start, currentRange.end),
                 picksApi.getAggregated(layoutId, previousRange.start, previousRange.end),
                 routeMarkersApi.getWalkDistance(layoutId, currentRange.start, currentRange.end).catch(() => null),
                 routeMarkersApi.getWalkDistance(layoutId, previousRange.start, previousRange.end).catch(() => null),
+                picksApi.getItemsAggregated(layoutId, currentRange.start, currentRange.end).catch(() => []),
+                picksApi.getItemsAggregated(layoutId, previousRange.start, previousRange.end).catch(() => []),
             ]);
 
             setAggregatedData(currentData);
             setPreviousPeriodData(prevData);
             setWalkDistanceData(walkData);
             setPreviousWalkDistanceData(prevWalkData);
+            setItemAggregatedData(itemData);
+            setPreviousItemData(prevItemData);
         } catch (err) {
             console.error('Failed to load period data:', err);
             // Fallback to all data
@@ -272,6 +325,22 @@ export default function Dashboard() {
     const handlePeriodChange = useCallback((period: ComparisonPeriod) => {
         setSelectedPeriod(period);
     }, []);
+
+    const handleClearPicks = async () => {
+        if (!currentLayoutId) return;
+        try {
+            setIsClearing(true);
+            await picksApi.clearAll(currentLayoutId);
+            // Reload data (which will be empty)
+            await loadData();
+            setShowClearConfirm(false);
+        } catch (err) {
+            console.error('Failed to clear picks:', err);
+            setError('Failed to clear pick data');
+        } finally {
+            setIsClearing(false);
+        }
+    };
 
     // Period labels
     const getPeriodLabels = () => {
@@ -394,6 +463,8 @@ export default function Dashboard() {
                                 <ActionBoard
                                     moveCloser={moveRecommendations.moveCloser}
                                     moveFurther={moveRecommendations.moveFurther}
+                                    itemMoveCloser={itemMoveRecommendations.moveCloser}
+                                    itemMoveFurther={itemMoveRecommendations.moveFurther}
                                     layoutId={currentLayoutId || undefined}
                                     loading={loading}
                                 />
@@ -458,8 +529,17 @@ export default function Dashboard() {
                                 </span>
                             </div>
                             <div className="flex gap-3">
+                                <button
+                                    onClick={() => setShowClearConfirm(true)}
+                                    className="px-4 py-2 border border-red-900/30 hover:bg-red-900/20 text-red-500 hover:text-red-400 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
+                                >
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                    Reset Data
+                                </button>
                                 <Link
-                                    href="/heatmap"
+                                    href={currentLayoutId ? `/heatmap?layout=${currentLayoutId}` : "/heatmap"}
                                     target="_blank"
                                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
@@ -483,6 +563,18 @@ export default function Dashboard() {
                     </div>
                 )}
             </main>
+
+            {/* Confirm Data Reset Modal */}
+            <ConfirmModal
+                isOpen={showClearConfirm}
+                title="Reset All Uploaded Data?"
+                message="This will permanently delete ALL pick history, items, and location data associated with this layout. This action cannot be undone. Are you sure you want to start over?"
+                confirmText={isClearing ? "Resetting..." : "Yes, Reset Everything"}
+                cancelText="Cancel"
+                onConfirm={handleClearPicks}
+                onCancel={() => setShowClearConfirm(false)}
+                isDestructive={true}
+            />
 
             {/* Element Detail Modal */}
             <ElementDetailModal

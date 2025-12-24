@@ -30,10 +30,11 @@ function CustomTooltip({ active, payload }: CustomTooltipProps) {
 
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 shadow-xl">
-      <p className="text-sm font-medium text-white">{data.elementName}</p>
+      <p className="text-sm font-medium text-white">{data.externalItemId}</p>
+      <p className="text-xs text-slate-500">in {data.elementName}</p>
       <div className="mt-1 space-y-0.5">
         <p className="text-xs text-slate-400">
-          Top <span className="text-cyan-400 font-mono">{data.skuPercentile}%</span> of locations
+          Top <span className="text-cyan-400 font-mono">{data.skuPercentile}%</span> of items
         </p>
         <p className="text-xs text-slate-400">
           = <span className="text-emerald-400 font-mono">{data.cumulativePicks}%</span> of picks
@@ -119,7 +120,7 @@ export default function ParetoChart({ data, loading }: ParetoChartProps) {
         {/* Pareto insight */}
         {paretoPoint && (
           <div className="text-right">
-            <p className="text-xs text-slate-500">Top 20% locations =</p>
+            <p className="text-xs text-slate-500">Top 20% items =</p>
             <p className="text-lg font-bold font-mono text-emerald-400">{paretoPoint.picksAt20}% picks</p>
           </div>
         )}

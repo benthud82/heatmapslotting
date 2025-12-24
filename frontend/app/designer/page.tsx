@@ -714,7 +714,8 @@ export default function Home() {
 
       const updatedElements = [...elements, ...newElementsToAdd];
       setElements(updatedElements);
-      setSelectedElementIds(newElementIds);
+      // Don't set selection yet - wait for backend to return permanent IDs
+      // to prevent UUID errors if user tries to drag before API completes
       setSelectedMarkerIds([]);
 
       try {
@@ -727,12 +728,31 @@ export default function Home() {
           x_coordinate: el.x_coordinate,
           y_coordinate: el.y_coordinate,
           rotation: el.rotation,
+          width: el.width,
+          height: el.height,
         })));
 
-        // Actually, simpler to just reload or map carefully.
-        // For now, let's just assume success and reload if critical, but we need IDs for future updates.
-        // Let's reload data to be safe and get real IDs
-        await loadData();
+        // Map temporary IDs to permanent IDs from backend response
+        // Build a mapping: tempId -> permanentId
+        const tempToPermanentIdMap = new Map<string, string>();
+        for (let i = 0; i < newElementsToAdd.length; i++) {
+          tempToPermanentIdMap.set(newElementsToAdd[i].id, createdElements[i].id);
+        }
+
+        // Update local elements state: replace temp elements with the real ones from backend
+        setElements(currentElements => currentElements.map(el => {
+          const permanentId = tempToPermanentIdMap.get(el.id);
+          if (permanentId) {
+            // Find the corresponding created element
+            const createdEl = createdElements.find(c => c.id === permanentId);
+            return createdEl || el;
+          }
+          return el;
+        }));
+
+        // Update selection to use permanent IDs
+        const permanentSelectedIds = newElementIds.map(tempId => tempToPermanentIdMap.get(tempId) || tempId);
+        setSelectedElementIds(permanentSelectedIds);
       } catch (err) {
         setElements(elements); // Revert
         setError('Failed to paste elements');

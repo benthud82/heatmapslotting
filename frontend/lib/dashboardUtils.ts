@@ -21,7 +21,21 @@ export interface VelocityAnalysis {
   recommendation: SlottingRecommendation;
   trend: 'up' | 'down' | 'stable';
   trendPercent: number;
-  distance: number; // Manhattan distance to nearest cart parking spot
+  distance: number; // Legacy: Manhattan distance to nearest cart parking spot
+
+  // New Item-Level & Savings Fields
+  itemId?: string;
+  externalItemId?: string;
+  itemDescription?: string;
+  locationId?: string;
+  externalLocationId?: string;
+
+  currentDistance: number;       // Distance to nearest cart parking (pixels)
+  optimalDistance: number;       // Target distance (0 for Hot)
+  walkSavingsPerPick: number;    // Savings per visit in pixels
+  dailyWalkSavingsFeet: number;  // Estimated daily savings
+  dailyTimeSavingsMinutes: number;
+  priorityScore: number;
 }
 
 export interface ZoneBreakdown {
@@ -189,7 +203,7 @@ export function getSlottingRecommendation(
  * Analyze velocity for all elements, incorporating distance to cart parking
  */
 export function analyzeVelocity(
-  aggregatedData: AggregatedPickData[],
+  aggregatedData: (AggregatedPickData | any)[], // Use any to allow item properties without strict type guards for now
   previousPeriodData?: AggregatedPickData[],
   elements?: Array<{ id: string; x: number; y: number }>,
   cartParkingSpots?: Array<{ x: number; y: number }>
@@ -218,7 +232,15 @@ export function analyzeVelocity(
   // Calculate distances for all elements
   const distances: number[] = [];
   sorted.forEach(item => {
-    const pos = elementPositionMap.get(item.element_id);
+    // For item-level data, we might have coordinates directly
+    let pos: { x: number; y: number } | undefined;
+
+    if (item.x_coordinate !== undefined && item.y_coordinate !== undefined) {
+      pos = { x: Number(item.x_coordinate), y: Number(item.y_coordinate) };
+    } else {
+      pos = elementPositionMap.get(item.element_id);
+    }
+
     if (pos && cartParkingSpots && cartParkingSpots.length > 0) {
       distances.push(findNearestCartParking(pos, cartParkingSpots));
     } else {
@@ -258,9 +280,41 @@ export function analyzeVelocity(
       }
     }
 
+    // We assume 1 visit per active day (days_count)
+    // 1 pixel = 1 inch
+    const currentDistPx = distance;
+    const roundTripPx = currentDistPx * 2;
+    const totalVisits = item.days_count;
+
+    // Total savings over the entire data period in pixels
+    const totalSavingsPx = roundTripPx * totalVisits;
+
+    // Convert to Feet (12 px = 1 ft)
+    const totalSavingsFeet = totalSavingsPx / 12;
+
+    // Estimate period duration from data to normalize to "Daily"
+    // (Use the max days_count from the entire dataset as the period length approximation)
+    const maxDays = sorted.length > 0 ? Math.max(...sorted.map(i => i.days_count)) : 1;
+    const periodDuration = Math.max(maxDays, 1);
+
+    const dailyWalkSavingsFeet = Math.round(totalSavingsFeet / periodDuration);
+
+    // Walking speed: 3 mph = 264 ft/min
+    const dailyTimeSavingsMinutes = Math.round((dailyWalkSavingsFeet / 264) * 10) / 10;
+
+    // Priority Score for ranking: Total savings (impact)
+    const priorityScore = totalSavingsFeet;
+
     return {
       elementId: item.element_id,
       elementName: item.element_name,
+      // ... mapping item properties ...
+      itemId: item.item_id || '', // Handle item-level vs element-level differences if needed
+      externalItemId: item.external_item_id || '',
+      itemDescription: item.item_description,
+      locationId: item.location_id || '',
+      externalLocationId: item.external_location_id || '',
+
       totalPicks: item.total_picks,
       avgDailyPicks: Math.round(avgDailyPicks * 10) / 10,
       daysActive: item.days_count,
@@ -269,7 +323,14 @@ export function analyzeVelocity(
       recommendation: getSlottingRecommendation(velocityTier, percentile, distancePercentile),
       trend,
       trendPercent: Math.round(trendPercent),
-      distance: Math.round(distance),
+
+      distance: Math.round(distance), // Legacy compatibility
+      currentDistance: Math.round(distance),
+      optimalDistance: 0, // Target is always closest possible
+      walkSavingsPerPick: Math.round(roundTripPx), // Savings per visit in pixels
+      dailyWalkSavingsFeet,
+      dailyTimeSavingsMinutes,
+      priorityScore,
     };
   });
 }
@@ -332,6 +393,8 @@ export interface MoveRecommendation {
   percentile: number;
   trendPercent: number;
   action: 'move-closer' | 'move-further';
+  dailyWalkSavingsFeet?: number;
+  dailyTimeSavingsMinutes?: number;
 }
 
 /**
@@ -356,6 +419,8 @@ export function getTopMoveRecommendations(
     velocityTier: item.velocityTier,
     percentile: item.percentile,
     trendPercent: item.trendPercent,
+    dailyWalkSavingsFeet: item.dailyWalkSavingsFeet,
+    dailyTimeSavingsMinutes: item.dailyTimeSavingsMinutes,
     action,
   });
 
@@ -677,8 +742,9 @@ export function generateSparklineData(
 export interface ParetoDataPoint {
   skuPercentile: number;    // % of SKUs (0-100)
   cumulativePicks: number;  // Cumulative % of picks (0-100)
-  elementName: string;      // Name for tooltip
-  picks: number;            // Raw picks for this element
+  elementName: string;      // Location name for context
+  externalItemId: string;   // SKU ID for display
+  picks: number;            // Raw picks for this item
 }
 
 /**
@@ -704,6 +770,7 @@ export function getParetoDistribution(
       skuPercentile: Math.round(((index + 1) / sorted.length) * 100),
       cumulativePicks: Math.round((cumulativePicks / totalPicks) * 100),
       elementName: item.elementName,
+      externalItemId: item.externalItemId || item.elementName,
       picks: item.totalPicks,
     };
   });

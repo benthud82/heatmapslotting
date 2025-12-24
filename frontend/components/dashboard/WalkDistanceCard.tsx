@@ -79,7 +79,7 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
           <p className="text-slate-400 text-sm mb-4 max-w-xs mx-auto">
             Add route markers in the Designer to calculate walk distance for your picks.
           </p>
-          
+
           {/* Missing markers checklist */}
           {data?.missingMarkers && (
             <div className="flex flex-col items-center gap-2 mb-4 text-xs">
@@ -138,95 +138,98 @@ export default function WalkDistanceCard({ data, loading, previousPeriodData }: 
   }
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 shadow-xl">
+    <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl p-6 shadow-xl h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-white font-bold flex items-center gap-2">
-          <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="flex items-center justify-between mb-6">
+        <h3 className="text-white font-bold flex items-center gap-2 text-lg">
+          <svg className="w-6 h-6 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
-          Walk Distance
+          Walk Distance Analysis
         </h3>
         {trend && (
-          <span className={`text-xs font-mono px-2 py-1 rounded ${
-            trend.isReduction 
-              ? 'bg-emerald-500/20 text-emerald-400' 
-              : 'bg-red-500/20 text-red-400'
-          }`}>
+          <span className={`text-sm font-mono px-3 py-1 rounded-full ${trend.isReduction
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              : 'bg-red-500/20 text-red-400 border border-red-500/30'
+            }`}>
             {trend.isReduction ? '↓' : '↑'} {Math.abs(trend.percent).toFixed(1)}%
           </span>
         )}
       </div>
 
-      {/* Main Metric */}
-      <div className="mb-6">
-        <div className="flex items-baseline gap-2">
-          <span className="text-4xl font-bold text-white font-mono">
-            {formatDistance(data.totalDistanceFeet ?? 0)}
-          </span>
-        </div>
-        <p className="text-slate-500 text-sm mt-1">
-          {(data.totalPicks ?? 0).toLocaleString()} picks • ~{formatTime(data.estimatedMinutes ?? 0)} walking
-        </p>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div className="bg-slate-800/50 rounded-xl p-3">
-          <p className="text-slate-400 text-xs mb-1">Avg per Pick</p>
-          <p className="text-white font-mono font-bold">
-            {(data.avgDistancePerPickFeet ?? 0).toFixed(1)} ft
+      {/* Main Stats */}
+      <div className="grid grid-cols-2 gap-6 mb-8">
+        <div>
+          <p className="text-slate-400 text-sm mb-1 uppercase tracking-wider">Total Walk Distance</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-5xl font-bold text-white font-mono tracking-tight">
+              {formatDistance(data.totalDistanceFeet ?? 0)}
+            </span>
+          </div>
+          <p className="text-slate-500 text-sm mt-2">
+            Estimated time: <span className="text-slate-300 font-medium">{formatTime(data.estimatedMinutes ?? 0)}</span> at 3mph
           </p>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-3">
-          <p className="text-slate-400 text-xs mb-1">Cart Stops</p>
-          <p className="text-white font-mono font-bold">
-            {data.markers?.cartParkingCount ?? 0}
-          </p>
-        </div>
-      </div>
 
-      {/* Route Breakdown */}
-      {data.routeSummary && (
-        <div className="border-t border-slate-800 pt-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Route Breakdown</p>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Start → First Cart</span>
-              <span className="text-white font-mono">{Math.round((data.routeSummary.startToFirstCart ?? 0) / 12)} ft</span>
+        <div className="space-y-4">
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-slate-400 text-sm">Cart Travel</span>
+              <span className="text-white font-mono font-medium">{formatDistance(data.cartTravelDistFeet ?? 0)}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Picking Travel</span>
-              <span className="text-white font-mono">{Math.round((data.routeSummary.pickingDistance ?? 0) / 12)} ft</span>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-500 rounded-full"
+                style={{ width: `${Math.min(100, ((data.cartTravelDistFeet ?? 0) / (data.totalDistanceFeet || 1)) * 100)}%` }}
+              ></div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Last Cart → Stop</span>
-              <span className="text-white font-mono">{Math.round((data.routeSummary.lastCartToStop ?? 0) / 12)} ft</span>
+          </div>
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-slate-400 text-sm">Pedestrian Walking</span>
+              <span className="text-white font-mono font-medium">{formatDistance(data.pedestrianTravelDistFeet ?? 0)}</span>
+            </div>
+            <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full"
+                style={{ width: `${Math.min(100, ((data.pedestrianTravelDistFeet ?? 0) / (data.totalDistanceFeet || 1)) * 100)}%` }}
+              ></div>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* Cart Utilization */}
-      {data.cartUtilization && data.cartUtilization.length > 0 && (
-        <div className="border-t border-slate-800 pt-4 mt-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wider mb-3">Cart Utilization</p>
-          <div className="space-y-2">
-            {data.cartUtilization.slice(0, 3).map((cart, index) => (
-              <div key={index} className="flex items-center justify-between text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="w-5 h-5 bg-blue-500/20 text-blue-400 rounded flex items-center justify-center text-xs font-mono">
-                    {index + 1}
-                  </span>
-                  <span className="text-slate-300 truncate max-w-[100px]">{cart.label ?? `Cart ${index + 1}`}</span>
-                </div>
-                <div className="text-right">
-                  <span className="text-white font-mono">{cart.picksServed ?? 0}</span>
-                  <span className="text-slate-500 text-xs ml-1">picks</span>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* Secondary Metrics */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Visits</p>
+          <p className="text-2xl text-white font-mono font-bold">
+            {(data.visitCount ?? 0).toLocaleString()}
+          </p>
+          <p className="text-slate-500 text-xs mt-1">Unique stops</p>
+        </div>
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Total Picks</p>
+          <p className="text-2xl text-white font-mono font-bold">
+            {(data.totalPicks ?? 0).toLocaleString()}
+          </p>
+          <p className="text-slate-500 text-xs mt-1">Units picked</p>
+        </div>
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Avg / Visit</p>
+          <p className="text-2xl text-white font-mono font-bold">
+            {(data.avgDistancePerPickFeet ?? 0).toFixed(0)} <span className="text-sm font-sans text-slate-400">ft</span>
+          </p>
+          <p className="text-slate-500 text-xs mt-1">Per stop</p>
+        </div>
+      </div>
+
+      {/* Daily Breakdown Hint */}
+      {data.dailyBreakdown && data.dailyBreakdown.length > 0 && (
+        <div className="mt-auto pt-4 border-t border-slate-800">
+          <p className="text-xs text-slate-500 text-center">
+            Analysis based on {data.dailyBreakdown.length} days of activity efficiently routed.
+          </p>
         </div>
       )}
     </div>

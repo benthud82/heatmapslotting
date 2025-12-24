@@ -13,6 +13,8 @@ interface TrendWatchProps {
 interface TrendItem {
   elementId: string;
   elementName: string;
+  externalItemId: string;
+  itemDescription?: string;
   trendPercent: number;
   totalPicks: number;
   velocityTier: 'hot' | 'warm' | 'cold';
@@ -47,8 +49,8 @@ function TrendItemRow({ item, rank, onClick }: { item: TrendItem; rank: number; 
       {/* Item info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-white truncate">
-            {item.elementName}
+          <span className="text-sm font-medium text-white truncate" title={item.itemDescription || item.externalItemId}>
+            {item.externalItemId}
           </span>
           <span
             className="text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 opacity-60"
@@ -60,9 +62,14 @@ function TrendItemRow({ item, rank, onClick }: { item: TrendItem; rank: number; 
             {item.velocityTier.toUpperCase()}
           </span>
         </div>
-        <span className="text-xs text-slate-500 font-mono">
-          {item.totalPicks.toLocaleString()} picks
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">
+            in {item.elementName}
+          </span>
+          <span className="text-xs text-slate-500 font-mono">
+            {item.totalPicks.toLocaleString()} picks
+          </span>
+        </div>
       </div>
 
       {/* Trend percentage */}
@@ -85,6 +92,8 @@ export default function TrendWatch({ velocityAnalysis, loading, limit = 5, onIte
       .map(item => ({
         elementId: item.elementId,
         elementName: item.elementName,
+        externalItemId: item.externalItemId || item.elementName,
+        itemDescription: item.itemDescription,
         trendPercent: item.trendPercent,
         totalPicks: item.totalPicks,
         velocityTier: item.velocityTier,
@@ -164,7 +173,7 @@ export default function TrendWatch({ velocityAnalysis, loading, limit = 5, onIte
       {risingStars.length > 0 && (
         <div className="mt-4 pt-3 border-t border-slate-800">
           <p className="text-xs text-slate-500">
-            These locations show significant pick volume increases vs the previous period.
+            These items show significant pick volume increases vs the previous period.
             Consider monitoring for potential slotting optimization.
           </p>
         </div>

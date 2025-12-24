@@ -63,13 +63,13 @@ function TrendIndicator({ trend, percent }: { trend: 'up' | 'down' | 'stable'; p
   }
 
   const isUp = trend === 'up';
-  
+
   return (
     <span className={`flex items-center gap-1 text-xs font-mono ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-      <svg 
-        className={`w-3 h-3 ${isUp ? '' : 'rotate-180'}`} 
-        fill="none" 
-        viewBox="0 0 24 24" 
+      <svg
+        className={`w-3 h-3 ${isUp ? '' : 'rotate-180'}`}
+        fill="none"
+        viewBox="0 0 24 24"
         stroke="currentColor"
       >
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
@@ -95,14 +95,14 @@ function TierBadge({ tier }: { tier: VelocityTier }) {
 }
 
 // Sort header button
-function SortHeader({ 
-  label, 
-  field, 
-  currentField, 
-  direction, 
+function SortHeader({
+  label,
+  field,
+  currentField,
+  direction,
   onSort,
   className = ''
-}: { 
+}: {
   label: string;
   field: SortField;
   currentField: SortField;
@@ -111,20 +111,19 @@ function SortHeader({
   className?: string;
 }) {
   const isActive = currentField === field;
-  
+
   return (
     <button
       onClick={() => onSort(field)}
-      className={`flex items-center gap-1 text-xs font-mono uppercase tracking-wider hover:text-white transition-colors ${
-        isActive ? 'text-white' : 'text-slate-400'
-      } ${className}`}
+      className={`flex items-center gap-1 text-xs font-mono uppercase tracking-wider hover:text-white transition-colors ${isActive ? 'text-white' : 'text-slate-400'
+        } ${className}`}
     >
       {label}
       {isActive && (
-        <svg 
-          className={`w-3 h-3 ${direction === 'desc' ? 'rotate-180' : ''}`} 
-          fill="none" 
-          viewBox="0 0 24 24" 
+        <svg
+          className={`w-3 h-3 ${direction === 'desc' ? 'rotate-180' : ''}`}
+          fill="none"
+          viewBox="0 0 24 24"
           stroke="currentColor"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -295,17 +294,15 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
               <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
                 <button
                   onClick={() => setViewMode('item')}
-                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${
-                    viewMode === 'item' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${viewMode === 'item' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   Items
                 </button>
                 <button
                   onClick={() => setViewMode('element')}
-                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${
-                    viewMode === 'element' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
-                  }`}
+                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${viewMode === 'element' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
+                    }`}
                 >
                   Elements
                 </button>
@@ -316,7 +313,7 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
             </span>
           </div>
         </div>
-        
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Search */}
@@ -332,24 +329,23 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
               className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
             />
           </div>
-          
+
           {/* Tier filter */}
           <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
             {(['all', 'hot', 'warm', 'cold'] as const).map((tier) => (
               <button
                 key={tier}
                 onClick={() => setFilterTier(tier)}
-                className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${
-                  filterTier === tier
-                    ? tier === 'all' 
-                      ? 'bg-slate-700 text-white'
-                      : tier === 'hot'
-                        ? 'bg-red-500/30 text-red-300'
-                        : tier === 'warm'
-                          ? 'bg-amber-500/30 text-amber-300'
-                          : 'bg-blue-500/30 text-blue-300'
-                    : 'text-slate-400 hover:text-white'
-                }`}
+                className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${filterTier === tier
+                  ? tier === 'all'
+                    ? 'bg-slate-700 text-white'
+                    : tier === 'hot'
+                      ? 'bg-red-500/30 text-red-300'
+                      : tier === 'warm'
+                        ? 'bg-amber-500/30 text-amber-300'
+                        : 'bg-blue-500/30 text-blue-300'
+                  : 'text-slate-400 hover:text-white'
+                  }`}
               >
                 {tier === 'all' ? 'All' : tier.charAt(0).toUpperCase() + tier.slice(1)}
               </button>
@@ -495,6 +491,9 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
                 <th className="px-4 py-3 text-right hidden md:table-cell">
                   <SortHeader label="Avg/Day" field="avgDaily" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
                 </th>
+                <th className="px-4 py-3 text-right hidden lg:table-cell">
+                  <SortHeader label="Walk Save" field="walkSavings" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
+                </th>
                 <th className="px-4 py-3 text-center hidden lg:table-cell">
                   <SortHeader label="Trend" field="trend" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
                 </th>
@@ -531,6 +530,17 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
                       <span className="text-sm font-mono text-slate-400 tabular-nums">
                         {item.avgDailyPicks.toFixed(1)}
                       </span>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden lg:table-cell">
+                      {item.dailyWalkSavingsFeet > 0 ? (
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-mono text-emerald-400 tabular-nums">
+                            {item.dailyWalkSavingsFeet.toLocaleString()} ft
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-mono text-slate-500">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 hidden lg:table-cell">
                       <div className="flex justify-center">

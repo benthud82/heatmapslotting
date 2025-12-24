@@ -1772,8 +1772,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               );
             })()}
 
-            {/* Transformer for selected element (rotation handles) - only for single selection */}
-            {selectedElementIds.length === 1 && (() => {
+            {/* Transformer for selected element (rotation handles) - only for single selection in edit mode */}
+            {selectedElementIds.length === 1 && !isReadOnly && (() => {
               const selectedElement = elements.find(el => el.id === selectedElementIds[0]);
               if (!selectedElement) return null;
 

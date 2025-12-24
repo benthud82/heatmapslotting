@@ -68,36 +68,51 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
 
             for (let locIndex = 0; locIndex < numLocations; locIndex++) {
                 const locationId = `LOC-${elementName}-${String(locIndex + 1).padStart(2, '0')}`;
-                const itemId = `SKU-${String(itemCounter++).padStart(3, '0')}`;
 
-                // Assign velocity tier with significant variation WITHIN each element
-                // This creates reslotting opportunities
-                const tierRoll = Math.random();
-                let itemMultiplier: number;
+                // Mixed Bins: 10% chance of having 2 items in this location
+                const itemsInLocation = Math.random() < 0.10 ? 2 : 1;
 
-                if (tierRoll < 0.2) {
-                    // HOT (20%): High velocity - 0.8 to 1.5x base
-                    itemMultiplier = 0.8 + Math.random() * 0.7;
-                } else if (tierRoll < 0.5) {
-                    // WARM (30%): Medium velocity - 0.25 to 0.55x base
-                    itemMultiplier = 0.25 + Math.random() * 0.3;
-                } else {
-                    // COLD (50%): Low velocity - 0.02 to 0.15x base
-                    itemMultiplier = 0.02 + Math.random() * 0.13;
+                for (let i = 0; i < itemsInLocation; i++) {
+                    let itemId;
+
+                    // Split SKUs: 10% chance to reuse an existing item ID (if we have enough)
+                    // This simulates an item being stored in multiple locations
+                    if (itemCounter > 20 && Math.random() < 0.10) {
+                        const randomExisting = Math.floor(Math.random() * (itemCounter - 1)) + 1;
+                        itemId = `SKU-${String(randomExisting).padStart(3, '0')}`;
+                    } else {
+                        itemId = `SKU-${String(itemCounter++).padStart(3, '0')}`;
+                    }
+
+                    // Assign velocity tier with significant variation WITHIN each element
+                    // This creates reslotting opportunities
+                    const tierRoll = Math.random();
+                    let itemMultiplier: number;
+
+                    if (tierRoll < 0.2) {
+                        // HOT (20%): High velocity - 0.8 to 1.5x base
+                        itemMultiplier = 0.8 + Math.random() * 0.7;
+                    } else if (tierRoll < 0.5) {
+                        // WARM (30%): Medium velocity - 0.25 to 0.55x base
+                        itemMultiplier = 0.25 + Math.random() * 0.3;
+                    } else {
+                        // COLD (50%): Low velocity - 0.02 to 0.15x base
+                        itemMultiplier = 0.02 + Math.random() * 0.13;
+                    }
+
+                    // Generate picks for each date
+                    dates.forEach(date => {
+                        // Daily variation ±20%
+                        const dailyVariation = 0.8 + Math.random() * 0.4;
+
+                        // Calculate final pick count
+                        const picks = Math.max(1, Math.floor(
+                            maxBasePicks * elementMultiplier * itemMultiplier * dailyVariation
+                        ));
+
+                        allRows.push([itemId, locationId, elementName, date, picks].join(','));
+                    });
                 }
-
-                // Generate picks for each date
-                dates.forEach(date => {
-                    // Daily variation ±20%
-                    const dailyVariation = 0.8 + Math.random() * 0.4;
-
-                    // Calculate final pick count
-                    const picks = Math.max(1, Math.floor(
-                        maxBasePicks * elementMultiplier * itemMultiplier * dailyVariation
-                    ));
-
-                    allRows.push([itemId, locationId, elementName, date, picks].join(','));
-                });
             }
         });
 
