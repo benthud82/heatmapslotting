@@ -8,9 +8,10 @@ interface UploadPicksModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  layoutId: string;
 }
 
-export default function UploadPicksModal({ isOpen, onClose, onSuccess }: UploadPicksModalProps) {
+export default function UploadPicksModal({ isOpen, onClose, onSuccess, layoutId }: UploadPicksModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export default function UploadPicksModal({ isOpen, onClose, onSuccess }: UploadP
     setSuccess(null);
 
     try {
-      const response = await picksApi.uploadCSV(file);
+      const response = await picksApi.uploadCSV(file, layoutId);
 
       // Build success message
       let successMessage = `Successfully uploaded ${response.rowsProcessed} rows of pick data`;

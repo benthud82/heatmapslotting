@@ -2,15 +2,19 @@
 
 import { useState, useMemo } from 'react';
 import { VelocityAnalysis, SlottingRecommendation, VelocityTier } from '@/lib/dashboardUtils';
+import { ItemVelocityAnalysis } from '@/lib/types';
 
 interface VelocityTableProps {
   data: VelocityAnalysis[];
+  itemData?: ItemVelocityAnalysis[];
   loading?: boolean;
   onRowClick?: (item: VelocityAnalysis) => void;
+  onItemRowClick?: (item: ItemVelocityAnalysis) => void;
 }
 
-type SortField = 'rank' | 'name' | 'totalPicks' | 'avgDaily' | 'trend' | 'recommendation';
+type SortField = 'rank' | 'name' | 'totalPicks' | 'avgDaily' | 'trend' | 'recommendation' | 'walkSavings' | 'itemId';
 type SortDirection = 'asc' | 'desc';
+type ViewMode = 'element' | 'item';
 
 // Recommendation badge component
 function RecommendationBadge({ recommendation }: { recommendation: SlottingRecommendation }) {
@@ -130,11 +134,15 @@ function SortHeader({
   );
 }
 
-export default function VelocityTable({ data, loading, onRowClick }: VelocityTableProps) {
+export default function VelocityTable({ data, itemData, loading, onRowClick, onItemRowClick }: VelocityTableProps) {
   const [sortField, setSortField] = useState<SortField>('rank');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [filterTier, setFilterTier] = useState<VelocityTier | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Determine if we have item-level data
+  const hasItemData = itemData && itemData.length > 0;
+  const [viewMode, setViewMode] = useState<ViewMode>(hasItemData ? 'item' : 'element');
 
   // Handle sort
   const handleSort = (field: SortField) => {
@@ -146,27 +154,27 @@ export default function VelocityTable({ data, loading, onRowClick }: VelocityTab
     }
   };
 
-  // Sort and filter data
+  // Sort and filter element-level data
   const displayData = useMemo(() => {
     let filtered = [...data];
-    
+
     // Apply tier filter
     if (filterTier !== 'all') {
       filtered = filtered.filter(item => item.velocityTier === filterTier);
     }
-    
+
     // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(item => 
+      filtered = filtered.filter(item =>
         item.elementName.toLowerCase().includes(query)
       );
     }
-    
+
     // Sort
     filtered.sort((a, b) => {
       let comparison = 0;
-      
+
       switch (sortField) {
         case 'rank':
           comparison = b.percentile - a.percentile;
@@ -188,12 +196,71 @@ export default function VelocityTable({ data, loading, onRowClick }: VelocityTab
           comparison = order.indexOf(a.recommendation) - order.indexOf(b.recommendation);
           break;
       }
-      
+
       return sortDirection === 'asc' ? comparison : -comparison;
     });
-    
+
     return filtered;
   }, [data, sortField, sortDirection, filterTier, searchQuery]);
+
+  // Sort and filter item-level data
+  const displayItemData = useMemo(() => {
+    if (!itemData) return [];
+    let filtered = [...itemData];
+
+    // Apply tier filter
+    if (filterTier !== 'all') {
+      filtered = filtered.filter(item => item.velocityTier === filterTier);
+    }
+
+    // Apply search filter
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.externalItemId.toLowerCase().includes(query) ||
+        item.elementName.toLowerCase().includes(query) ||
+        item.externalLocationId.toLowerCase().includes(query) ||
+        (item.itemDescription?.toLowerCase().includes(query) ?? false)
+      );
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortField) {
+        case 'rank':
+          comparison = b.percentile - a.percentile;
+          break;
+        case 'itemId':
+          comparison = a.externalItemId.localeCompare(b.externalItemId);
+          break;
+        case 'name':
+          comparison = a.elementName.localeCompare(b.elementName);
+          break;
+        case 'totalPicks':
+          comparison = b.totalPicks - a.totalPicks;
+          break;
+        case 'avgDaily':
+          comparison = b.avgDailyPicks - a.avgDailyPicks;
+          break;
+        case 'trend':
+          comparison = b.trendPercent - a.trendPercent;
+          break;
+        case 'walkSavings':
+          comparison = b.dailyWalkSavingsFeet - a.dailyWalkSavingsFeet;
+          break;
+        case 'recommendation':
+          const order: SlottingRecommendation[] = ['move-closer', 'review', 'optimal', 'move-further'];
+          comparison = order.indexOf(a.recommendation) - order.indexOf(b.recommendation);
+          break;
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    return filtered;
+  }, [itemData, sortField, sortDirection, filterTier, searchQuery]);
 
   if (loading) {
     return (
@@ -222,9 +289,32 @@ export default function VelocityTable({ data, loading, onRowClick }: VelocityTab
             </svg>
             Velocity Ranking
           </h3>
-          <span className="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded">
-            {displayData.length} locations
-          </span>
+          <div className="flex items-center gap-3">
+            {/* View mode toggle - only show if we have item data */}
+            {hasItemData && (
+              <div className="flex items-center gap-1 bg-slate-800 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('item')}
+                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${
+                    viewMode === 'item' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Items
+                </button>
+                <button
+                  onClick={() => setViewMode('element')}
+                  className={`px-3 py-1.5 text-xs font-mono rounded-md transition-colors ${
+                    viewMode === 'element' ? 'bg-cyan-500/30 text-cyan-300' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Elements
+                </button>
+              </div>
+            )}
+            <span className="text-xs font-mono text-slate-500 bg-slate-800 px-2 py-1 rounded">
+              {viewMode === 'item' ? displayItemData.length : displayData.length} {viewMode === 'item' ? 'items' : 'locations'}
+            </span>
+          </div>
         </div>
         
         {/* Filters */}
@@ -236,7 +326,7 @@ export default function VelocityTable({ data, loading, onRowClick }: VelocityTab
             </svg>
             <input
               type="text"
-              placeholder="Search locations..."
+              placeholder={viewMode === 'item' ? "Search items, locations, elements..." : "Search locations..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500"
@@ -270,109 +360,251 @@ export default function VelocityTable({ data, loading, onRowClick }: VelocityTab
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-slate-800/50">
-            <tr>
-              <th className="px-4 py-3 text-left">
-                <SortHeader label="#" field="rank" currentField={sortField} direction={sortDirection} onSort={handleSort} />
-              </th>
-              <th className="px-4 py-3 text-left">
-                <SortHeader label="Location" field="name" currentField={sortField} direction={sortDirection} onSort={handleSort} />
-              </th>
-              <th className="px-4 py-3 text-right">
-                <SortHeader label="Total Picks" field="totalPicks" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
-              </th>
-              <th className="px-4 py-3 text-right hidden md:table-cell">
-                <SortHeader label="Avg/Day" field="avgDaily" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
-              </th>
-              <th className="px-4 py-3 text-center hidden lg:table-cell">
-                <SortHeader label="Trend" field="trend" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
-              </th>
-              <th className="px-4 py-3 text-center">
-                <SortHeader label="Action" field="recommendation" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800">
-            {displayData.length > 0 ? (
-              displayData.map((item, index) => (
-                <tr 
-                  key={item.elementId}
-                  onClick={() => onRowClick?.(item)}
-                  className="hover:bg-slate-800/50 transition-colors cursor-pointer group"
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-mono text-slate-500 w-6">{index + 1}</span>
-                      <TierBadge tier={item.velocityTier} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono text-white group-hover:text-cyan-400 transition-colors">
-                      {item.elementName}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-sm font-mono font-bold text-white tabular-nums">
-                      {item.totalPicks.toLocaleString()}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right hidden md:table-cell">
-                    <span className="text-sm font-mono text-slate-400 tabular-nums">
-                      {item.avgDailyPicks.toFixed(1)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 hidden lg:table-cell">
-                    <div className="flex justify-center">
-                      <TrendIndicator trend={item.trend} percent={item.trendPercent} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-center">
-                      <RecommendationBadge recommendation={item.recommendation} />
+        {viewMode === 'item' ? (
+          /* Item-level table */
+          <table className="w-full">
+            <thead className="bg-slate-800/50">
+              <tr>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="#" field="rank" currentField={sortField} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Item" field="itemId" currentField={sortField} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left hidden md:table-cell">
+                  <SortHeader label="Location" field="name" currentField={sortField} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-right">
+                  <SortHeader label="Picks" field="totalPicks" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
+                </th>
+                <th className="px-4 py-3 text-right hidden lg:table-cell">
+                  <SortHeader label="Walk Save" field="walkSavings" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
+                </th>
+                <th className="px-4 py-3 text-center hidden lg:table-cell">
+                  <SortHeader label="Trend" field="trend" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
+                </th>
+                <th className="px-4 py-3 text-center">
+                  <SortHeader label="Action" field="recommendation" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {displayItemData.length > 0 ? (
+                displayItemData.map((item, index) => (
+                  <tr
+                    key={item.itemId}
+                    onClick={() => onItemRowClick?.(item)}
+                    className="hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono text-slate-500 w-6">{index + 1}</span>
+                        <TierBadge tier={item.velocityTier} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-mono text-white group-hover:text-cyan-400 transition-colors">
+                          {item.externalItemId}
+                        </span>
+                        {item.itemDescription && (
+                          <span className="text-xs text-slate-500 truncate max-w-[150px]" title={item.itemDescription}>
+                            {item.itemDescription}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-mono text-slate-300">{item.elementName}</span>
+                        <span className="text-xs text-slate-500">{item.externalLocationId}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex flex-col items-end">
+                        <span className="text-sm font-mono font-bold text-white tabular-nums">
+                          {item.totalPicks.toLocaleString()}
+                        </span>
+                        <span className="text-xs text-slate-500 tabular-nums">
+                          {item.avgDailyPicks.toFixed(1)}/day
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden lg:table-cell">
+                      {item.dailyWalkSavingsFeet > 0 ? (
+                        <div className="flex flex-col items-end">
+                          <span className="text-sm font-mono text-emerald-400 tabular-nums">
+                            {item.dailyWalkSavingsFeet.toLocaleString()} ft
+                          </span>
+                          <span className="text-xs text-slate-500 tabular-nums">
+                            {item.dailyTimeSavingsMinutes} min
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-mono text-slate-500">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <div className="flex justify-center">
+                        <TrendIndicator trend={item.trend} percent={item.trendPercent} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-center">
+                        <RecommendationBadge recommendation={item.recommendation} />
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center text-slate-500">
+                      <svg className="w-12 h-12 mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-sm">No matching items found</p>
+                      {(filterTier !== 'all' || searchQuery) && (
+                        <button
+                          onClick={() => { setFilterTier('all'); setSearchQuery(''); }}
+                          className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
+                        >
+                          Clear filters
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
-              ))
-            ) : (
+              )}
+            </tbody>
+          </table>
+        ) : (
+          /* Element-level table */
+          <table className="w-full">
+            <thead className="bg-slate-800/50">
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center">
-                  <div className="flex flex-col items-center text-slate-500">
-                    <svg className="w-12 h-12 mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-sm">No matching locations found</p>
-                    {(filterTier !== 'all' || searchQuery) && (
-                      <button
-                        onClick={() => { setFilterTier('all'); setSearchQuery(''); }}
-                        className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
-                      >
-                        Clear filters
-                      </button>
-                    )}
-                  </div>
-                </td>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="#" field="rank" currentField={sortField} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <SortHeader label="Location" field="name" currentField={sortField} direction={sortDirection} onSort={handleSort} />
+                </th>
+                <th className="px-4 py-3 text-right">
+                  <SortHeader label="Total Picks" field="totalPicks" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
+                </th>
+                <th className="px-4 py-3 text-right hidden md:table-cell">
+                  <SortHeader label="Avg/Day" field="avgDaily" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-end" />
+                </th>
+                <th className="px-4 py-3 text-center hidden lg:table-cell">
+                  <SortHeader label="Trend" field="trend" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
+                </th>
+                <th className="px-4 py-3 text-center">
+                  <SortHeader label="Action" field="recommendation" currentField={sortField} direction={sortDirection} onSort={handleSort} className="justify-center" />
+                </th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {displayData.length > 0 ? (
+                displayData.map((item, index) => (
+                  <tr
+                    key={item.elementId}
+                    onClick={() => onRowClick?.(item)}
+                    className="hover:bg-slate-800/50 transition-colors cursor-pointer group"
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-mono text-slate-500 w-6">{index + 1}</span>
+                        <TierBadge tier={item.velocityTier} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-mono text-white group-hover:text-cyan-400 transition-colors">
+                        {item.elementName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span className="text-sm font-mono font-bold text-white tabular-nums">
+                        {item.totalPicks.toLocaleString()}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden md:table-cell">
+                      <span className="text-sm font-mono text-slate-400 tabular-nums">
+                        {item.avgDailyPicks.toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <div className="flex justify-center">
+                        <TrendIndicator trend={item.trend} percent={item.trendPercent} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-center">
+                        <RecommendationBadge recommendation={item.recommendation} />
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center">
+                    <div className="flex flex-col items-center text-slate-500">
+                      <svg className="w-12 h-12 mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <p className="text-sm">No matching locations found</p>
+                      {(filterTier !== 'all' || searchQuery) && (
+                        <button
+                          onClick={() => { setFilterTier('all'); setSearchQuery(''); }}
+                          className="mt-2 text-xs text-cyan-400 hover:text-cyan-300"
+                        >
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Footer with summary */}
-      {displayData.length > 0 && (
+      {((viewMode === 'item' && displayItemData.length > 0) || (viewMode === 'element' && displayData.length > 0)) && (
         <div className="px-6 py-4 bg-slate-800/30 border-t border-slate-800">
           <div className="flex flex-wrap items-center justify-between gap-4 text-xs font-mono text-slate-400">
-            <div className="flex items-center gap-4">
-              <span>
-                <span className="text-amber-400">{displayData.filter(d => d.recommendation === 'move-closer').length}</span> need attention
-              </span>
-              <span>
-                <span className="text-emerald-400">{displayData.filter(d => d.recommendation === 'optimal').length}</span> optimal
-              </span>
-            </div>
-            <div>
-              Total: <span className="text-white font-bold">{displayData.reduce((sum, d) => sum + d.totalPicks, 0).toLocaleString()}</span> picks
-            </div>
+            {viewMode === 'item' ? (
+              <>
+                <div className="flex items-center gap-4">
+                  <span>
+                    <span className="text-amber-400">{displayItemData.filter(d => d.recommendation === 'move-closer').length}</span> move closer
+                  </span>
+                  <span>
+                    <span className="text-emerald-400">{displayItemData.filter(d => d.recommendation === 'optimal').length}</span> optimal
+                  </span>
+                  <span>
+                    <span className="text-cyan-400">{displayItemData.reduce((sum, d) => sum + d.dailyWalkSavingsFeet, 0).toLocaleString()}</span> ft/day savings
+                  </span>
+                </div>
+                <div>
+                  Total: <span className="text-white font-bold">{displayItemData.reduce((sum, d) => sum + d.totalPicks, 0).toLocaleString()}</span> picks
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-4">
+                  <span>
+                    <span className="text-amber-400">{displayData.filter(d => d.recommendation === 'move-closer').length}</span> need attention
+                  </span>
+                  <span>
+                    <span className="text-emerald-400">{displayData.filter(d => d.recommendation === 'optimal').length}</span> optimal
+                  </span>
+                </div>
+                <div>
+                  Total: <span className="text-white font-bold">{displayData.reduce((sum, d) => sum + d.totalPicks, 0).toLocaleString()}</span> picks
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

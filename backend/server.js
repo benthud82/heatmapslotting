@@ -67,6 +67,8 @@ app.use('/api/stripe', require('./routes/stripe'));
 app.use('/api/layouts', authMiddleware, require('./routes/layouts'));
 app.use('/api/elements', authMiddleware, require('./routes/bays'));
 app.use('/api/picks', authMiddleware, require('./routes/picks'));
+app.use('/api/locations', authMiddleware, require('./routes/locations'));
+app.use('/api/items', authMiddleware, require('./routes/items'));
 app.use('/api/user', authMiddleware, require('./routes/user'));
 app.use('/api', authMiddleware, require('./routes/routeMarkers'));
 

@@ -66,9 +66,129 @@ export interface AggregatedPickData {
   last_date: string;
 }
 
+// =============================================================================
+// ITEM-LEVEL TRACKING TYPES
+// =============================================================================
+
+// Location: A specific slot within a warehouse element
+export interface Location {
+  id: string;
+  element_id: string;
+  layout_id: string;
+  external_location_id: string;  // External ID from WMS (e.g., "LOC-001")
+  label?: string;
+  element_name: string;
+  element_x: number;
+  element_y: number;
+  relative_x: number;
+  relative_y: number;
+  current_item_internal_id?: string;
+  current_item_id?: string;
+  current_item_description?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Item: A SKU/product that can be slotted in a location
+export interface Item {
+  id: string;
+  layout_id: string;
+  external_item_id: string;       // External SKU (e.g., "SKU-12345")
+  description?: string;
+  current_location_id?: string;
+  current_location_external_id?: string;
+  location_label?: string;
+  element_id?: string;
+  element_name?: string;
+  element_x?: number;
+  element_y?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// Item-level pick transaction
+export interface ItemPickTransaction {
+  id: string;
+  item_id: string;
+  external_item_id: string;
+  location_id: string;
+  external_location_id: string;
+  element_id: string;
+  element_name: string;
+  pick_date: string;
+  pick_count: number;
+}
+
+// Aggregated item-level pick data
+export interface AggregatedItemPickData {
+  item_id: string;
+  external_item_id: string;
+  item_description?: string;
+  location_id: string;
+  external_location_id: string;
+  element_id: string;
+  element_name: string;
+  x_coordinate: number;
+  y_coordinate: number;
+  total_picks: number;
+  days_count: number;
+  first_date: string;
+  last_date: string;
+}
+
+// Velocity tier for items
+export type VelocityTier = 'hot' | 'warm' | 'cold';
+
+// Slotting recommendation
+export type SlottingRecommendation = 'move-closer' | 'optimal' | 'review' | 'move-further';
+
+// Item-level velocity analysis
+export interface ItemVelocityAnalysis {
+  itemId: string;
+  externalItemId: string;
+  itemDescription?: string;
+  locationId: string;
+  externalLocationId: string;
+  elementId: string;
+  elementName: string;
+  totalPicks: number;
+  avgDailyPicks: number;
+  daysActive: number;
+  velocityTier: VelocityTier;
+  percentile: number;
+  currentDistance: number;       // Distance to nearest cart parking (pixels)
+  optimalDistance: number;       // Distance of best available slot (pixels)
+  walkSavingsPerPick: number;    // (current - optimal) * 2 for round trip (pixels)
+  dailyWalkSavingsFeet: number;  // Estimated daily walk savings in feet
+  dailyTimeSavingsMinutes: number; // Estimated daily time savings
+  recommendation: SlottingRecommendation;
+  priorityScore: number;         // For ranking recommendations
+  trend: 'up' | 'down' | 'stable';
+  trendPercent: number;
+}
+
+// Reslotting summary
+export interface ReslottingSummary {
+  totalItemsAnalyzed: number;
+  itemsNeedingReslot: number;
+  potentialDailyWalkSavingsFeet: number;
+  potentialDailyTimeSavingsMinutes: number;
+}
+
+// Move recommendation for display
+export interface MoveRecommendation {
+  item: ItemVelocityAnalysis;
+  rank: number;
+}
+
 export interface UploadPicksResponse {
   message: string;
   rowsProcessed: number;
+  dataType?: 'item-level' | 'element-level';
+  stats?: {
+    uniqueItems: number;
+    uniqueLocations: number;
+  };
   warnings?: {
     unmatchedElements: string[];
     message: string;

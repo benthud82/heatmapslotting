@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API client for warehouse element placement
 
-import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError, RouteMarker, CreateRouteMarkerRequest, WalkDistanceData } from './types';
+import { Layout, WarehouseElement, CreateElementRequest, UpdateElementRequest, PickTransaction, AggregatedPickData, UploadPicksResponse, UploadPicksError, RouteMarker, CreateRouteMarkerRequest, WalkDistanceData, Location, Item, AggregatedItemPickData, ItemPickTransaction } from './types';
 
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -238,6 +238,101 @@ export const picksApi = {
 
   // Get all dates that have pick data
   getDates: (layoutId: string) => apiFetch<string[]>(`/api/picks/dates?layout_id=${layoutId}`),
+
+  // Get item-level aggregated pick counts
+  getItemsAggregated: async (layoutId: string, startDate?: string, endDate?: string): Promise<AggregatedItemPickData[]> => {
+    const params = new URLSearchParams();
+    params.append('layout_id', layoutId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/picks/items/aggregated${queryString ? `?${queryString}` : ''}`;
+
+    const data = await apiFetch<any[]>(endpoint);
+    // Normalize numbers
+    return data.map(item => ({
+      ...item,
+      total_picks: Number(item.total_picks),
+      days_count: Number(item.days_count),
+      x_coordinate: Number(item.x_coordinate),
+      y_coordinate: Number(item.y_coordinate),
+    }));
+  },
+
+  // Get all dates that have item-level pick data
+  getItemsDates: (layoutId: string) => apiFetch<string[]>(`/api/picks/items/dates?layout_id=${layoutId}`),
+};
+
+// Locations API
+export const locationsApi = {
+  // Get all locations for a layout
+  getAll: (layoutId: string): Promise<Location[]> =>
+    apiFetch<Location[]>(`/api/locations?layout_id=${layoutId}`),
+
+  // Get a single location
+  get: (locationId: string): Promise<Location> =>
+    apiFetch<Location>(`/api/locations/${locationId}`),
+
+  // Update a location
+  update: (locationId: string, data: { label?: string; relative_x?: number; relative_y?: number }): Promise<Location> =>
+    apiFetch<Location>(`/api/locations/${locationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Delete a location
+  delete: (locationId: string): Promise<{ message: string; id: string }> =>
+    apiFetch<{ message: string; id: string }>(`/api/locations/${locationId}`, {
+      method: 'DELETE',
+    }),
+
+  // Get locations for a specific element
+  getByElement: (elementId: string): Promise<Location[]> =>
+    apiFetch<Location[]>(`/api/locations/by-element/${elementId}`),
+};
+
+// Items API
+export const itemsApi = {
+  // Get all items for a layout
+  getAll: (layoutId: string): Promise<Item[]> =>
+    apiFetch<Item[]>(`/api/items?layout_id=${layoutId}`),
+
+  // Get a single item
+  get: (itemId: string): Promise<Item> =>
+    apiFetch<Item>(`/api/items/${itemId}`),
+
+  // Update an item
+  update: (itemId: string, data: { description?: string }): Promise<Item> =>
+    apiFetch<Item>(`/api/items/${itemId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  // Reassign item to a different location
+  updateLocation: (itemId: string, locationId: string): Promise<Item> =>
+    apiFetch<Item>(`/api/items/${itemId}/location`, {
+      method: 'PUT',
+      body: JSON.stringify({ location_id: locationId }),
+    }),
+
+  // Get pick history for an item
+  getPicks: (itemId: string, startDate?: string, endDate?: string): Promise<ItemPickTransaction[]> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/items/${itemId}/picks${queryString ? `?${queryString}` : ''}`;
+
+    return apiFetch<ItemPickTransaction[]>(endpoint);
+  },
+
+  // Delete an item
+  delete: (itemId: string): Promise<{ message: string; id: string }> =>
+    apiFetch<{ message: string; id: string }>(`/api/items/${itemId}`, {
+      method: 'DELETE',
+    }),
 };
 
 // Route Markers API (for walk distance)

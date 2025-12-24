@@ -22,7 +22,8 @@
       "Bash(taskkill //F //PID 14444)",
       "Bash(taskkill //F //PID 11704)",
       "Bash(npx tsc:*)",
-      "Bash(npx next lint:*)"
+      "Bash(npx next lint:*)",
+      "Bash(node -e:*)"
     ],
     "deny": [],
     "ask": []

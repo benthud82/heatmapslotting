@@ -831,3 +831,288 @@ export function getHotspots(
     .sort((a, b) => b.density - a.density);
 }
 
+// ============================================================================
+// ITEM-LEVEL VELOCITY ANALYSIS
+// ============================================================================
+
+import { AggregatedItemPickData, ItemVelocityAnalysis, ReslottingSummary, SlottingRecommendation as SlottingRec, VelocityTier as VelTier } from './types';
+
+// Walking speed constants
+const WALKING_SPEED_FEET_PER_MINUTE = 264; // 3 mph
+const PIXELS_PER_FOOT = 12; // 1 pixel = 1 inch, 12 inches = 1 foot
+
+/**
+ * Calculate walk savings for an item
+ */
+export function calculateWalkSavings(
+  currentDistance: number,
+  optimalDistance: number,
+  avgDailyPicks: number
+): {
+  savingsPerPick: number;
+  dailySavingsFeet: number;
+  dailyTimeSavingsMinutes: number;
+} {
+  // Round trip savings (go and return)
+  const roundTripSavings = Math.max(0, (currentDistance - optimalDistance) * 2);
+
+  // Total daily savings in pixels
+  const dailySavingsPixels = roundTripSavings * avgDailyPicks;
+
+  // Convert to feet
+  const dailySavingsFeet = dailySavingsPixels / PIXELS_PER_FOOT;
+
+  // Calculate time savings
+  const dailyTimeSavingsMinutes = dailySavingsFeet / WALKING_SPEED_FEET_PER_MINUTE;
+
+  return {
+    savingsPerPick: roundTripSavings,
+    dailySavingsFeet: Math.round(dailySavingsFeet * 10) / 10,
+    dailyTimeSavingsMinutes: Math.round(dailyTimeSavingsMinutes * 10) / 10,
+  };
+}
+
+/**
+ * Get item-level slotting recommendation with walk savings consideration
+ */
+export function getItemSlottingRecommendation(
+  velocityTier: VelTier,
+  percentile: number,
+  distancePercentile: number,
+  walkSavingsPerPick: number
+): SlottingRec {
+  // Hot items that are far from cart parking should move closer
+  if (velocityTier === 'hot' && distancePercentile >= 50) {
+    return 'move-closer';
+  }
+
+  // Hot items already close are optimal
+  if (velocityTier === 'hot' && distancePercentile < 30) {
+    return 'optimal';
+  }
+
+  // Cold items that are close to cart parking (in prime space) should move further
+  if (velocityTier === 'cold' && distancePercentile <= 20) {
+    return 'move-further';
+  }
+
+  // Cold items already far are optimal
+  if (velocityTier === 'cold') {
+    return 'optimal';
+  }
+
+  // Warm items with significant walk savings potential should be reviewed
+  if (velocityTier === 'warm' && walkSavingsPerPick > 200) {
+    return 'review';
+  }
+
+  return 'optimal';
+}
+
+/**
+ * Calculate priority score for reslotting recommendations
+ * Higher score = higher priority for reslotting
+ */
+export function calculatePriorityScore(
+  avgDailyPicks: number,
+  walkSavingsPerPick: number,
+  velocityTier: VelTier
+): number {
+  const velocityMultiplier: Record<VelTier, number> = {
+    hot: 1.5,
+    warm: 1.0,
+    cold: 0.5,
+  };
+
+  return Math.round(
+    avgDailyPicks * walkSavingsPerPick * velocityMultiplier[velocityTier]
+  );
+}
+
+/**
+ * Find the optimal (closest) available distance for an item
+ * For now, uses the minimum distance across all elements as a proxy
+ */
+export function findOptimalDistance(
+  allDistances: number[]
+): number {
+  if (allDistances.length === 0) return 0;
+
+  // The optimal distance is the minimum distance found
+  // In practice, this would consider available/empty slots
+  return Math.min(...allDistances.filter(d => d > 0)) || 0;
+}
+
+/**
+ * Analyze velocity for all items at the item level
+ */
+export function analyzeItemVelocity(
+  aggregatedItemData: AggregatedItemPickData[],
+  previousPeriodData?: AggregatedItemPickData[],
+  cartParkingSpots?: Array<{ x: number; y: number }>
+): ItemVelocityAnalysis[] {
+  if (aggregatedItemData.length === 0) return [];
+
+  // Sort by total picks descending
+  const sorted = [...aggregatedItemData].sort((a, b) => Number(b.total_picks) - Number(a.total_picks));
+
+  // Create a map of previous period data for trend calculation
+  const previousMap = new Map<string, number>();
+  if (previousPeriodData) {
+    previousPeriodData.forEach(item => {
+      previousMap.set(item.item_id, Number(item.total_picks));
+    });
+  }
+
+  // Calculate distances for all items
+  const distances: number[] = sorted.map(item => {
+    if (cartParkingSpots && cartParkingSpots.length > 0) {
+      return findNearestCartParking(
+        { x: Number(item.x_coordinate), y: Number(item.y_coordinate) },
+        cartParkingSpots
+      );
+    }
+    return 0;
+  });
+
+  // Find optimal distance (minimum non-zero distance)
+  const optimalDistance = findOptimalDistance(distances);
+
+  // Sort distances to calculate percentiles
+  const sortedDistances = [...distances].sort((a, b) => a - b);
+
+  return sorted.map((item, index) => {
+    const totalPicks = Number(item.total_picks);
+    const daysCount = Number(item.days_count);
+    const percentile = ((sorted.length - index) / sorted.length) * 100;
+    const velocityTier = getVelocityTier(percentile) as VelTier;
+    const avgDailyPicks = daysCount > 0 ? totalPicks / daysCount : totalPicks;
+
+    // Calculate distance and distance percentile
+    const currentDistance = distances[index];
+    const distanceRank = sortedDistances.indexOf(currentDistance);
+    const distancePercentile = sortedDistances.length > 1
+      ? ((distanceRank + 1) / sortedDistances.length) * 100
+      : 50;
+
+    // Calculate walk savings
+    const walkSavings = calculateWalkSavings(currentDistance, optimalDistance, avgDailyPicks);
+
+    // Calculate trend
+    let trend: 'up' | 'down' | 'stable' = 'stable';
+    let trendPercent = 0;
+
+    if (previousPeriodData && previousMap.has(item.item_id)) {
+      const prevPicks = previousMap.get(item.item_id)!;
+      if (prevPicks > 0) {
+        trendPercent = ((totalPicks - prevPicks) / prevPicks) * 100;
+        if (trendPercent > 5) trend = 'up';
+        else if (trendPercent < -5) trend = 'down';
+      } else if (totalPicks > 0) {
+        trend = 'up';
+        trendPercent = 100;
+      }
+    }
+
+    // Get recommendation
+    const recommendation = getItemSlottingRecommendation(
+      velocityTier,
+      percentile,
+      distancePercentile,
+      walkSavings.savingsPerPick
+    );
+
+    // Calculate priority score
+    const priorityScore = calculatePriorityScore(
+      avgDailyPicks,
+      walkSavings.savingsPerPick,
+      velocityTier
+    );
+
+    return {
+      itemId: item.item_id,
+      externalItemId: item.external_item_id,
+      itemDescription: item.item_description,
+      locationId: item.location_id,
+      externalLocationId: item.external_location_id,
+      elementId: item.element_id,
+      elementName: item.element_name,
+      totalPicks,
+      avgDailyPicks: Math.round(avgDailyPicks * 10) / 10,
+      daysActive: daysCount,
+      velocityTier,
+      percentile: Math.round(percentile),
+      currentDistance: Math.round(currentDistance),
+      optimalDistance: Math.round(optimalDistance),
+      walkSavingsPerPick: Math.round(walkSavings.savingsPerPick),
+      dailyWalkSavingsFeet: walkSavings.dailySavingsFeet,
+      dailyTimeSavingsMinutes: walkSavings.dailyTimeSavingsMinutes,
+      recommendation,
+      priorityScore,
+      trend,
+      trendPercent: Math.round(trendPercent),
+    };
+  });
+}
+
+/**
+ * Get top item-level reslotting recommendations
+ */
+export function getItemReslottingRecommendations(
+  itemAnalysis: ItemVelocityAnalysis[],
+  limit: number = 5
+): {
+  moveCloser: ItemVelocityAnalysis[];
+  moveFurther: ItemVelocityAnalysis[];
+  summary: ReslottingSummary;
+} {
+  // Get items that need reslotting
+  const moveCloserCandidates = itemAnalysis
+    .filter(item => item.recommendation === 'move-closer')
+    .sort((a, b) => b.priorityScore - a.priorityScore);
+
+  const moveFurtherCandidates = itemAnalysis
+    .filter(item => item.recommendation === 'move-further')
+    .sort((a, b) => a.currentDistance - b.currentDistance); // Closest first
+
+  // If no move-closer candidates, look for hot items that could benefit
+  let moveCloser = moveCloserCandidates.slice(0, limit);
+  if (moveCloser.length === 0) {
+    moveCloser = itemAnalysis
+      .filter(item => item.velocityTier === 'hot' && item.dailyWalkSavingsFeet > 0)
+      .sort((a, b) => b.dailyWalkSavingsFeet - a.dailyWalkSavingsFeet)
+      .slice(0, limit);
+  }
+
+  // If no move-further candidates, look for cold items in prime spots
+  let moveFurther = moveFurtherCandidates.slice(0, limit);
+  if (moveFurther.length === 0) {
+    moveFurther = itemAnalysis
+      .filter(item => item.velocityTier === 'cold' && item.currentDistance < item.optimalDistance * 2)
+      .sort((a, b) => a.totalPicks - b.totalPicks)
+      .slice(0, limit);
+  }
+
+  // Calculate summary
+  const itemsNeedingReslot = itemAnalysis.filter(
+    item => item.recommendation === 'move-closer' || item.recommendation === 'move-further'
+  ).length;
+
+  const potentialDailyWalkSavingsFeet = itemAnalysis
+    .filter(item => item.recommendation === 'move-closer')
+    .reduce((sum, item) => sum + item.dailyWalkSavingsFeet, 0);
+
+  const potentialDailyTimeSavingsMinutes = potentialDailyWalkSavingsFeet / WALKING_SPEED_FEET_PER_MINUTE;
+
+  return {
+    moveCloser,
+    moveFurther,
+    summary: {
+      totalItemsAnalyzed: itemAnalysis.length,
+      itemsNeedingReslot,
+      potentialDailyWalkSavingsFeet: Math.round(potentialDailyWalkSavingsFeet),
+      potentialDailyTimeSavingsMinutes: Math.round(potentialDailyTimeSavingsMinutes * 10) / 10,
+    },
+  };
+}
+

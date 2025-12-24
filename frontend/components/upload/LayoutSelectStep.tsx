@@ -95,24 +95,21 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
 
         // 1. Custom Sort: Reverse Alpha (Z-A), then Ascending Numeric
         // This sorts: Pallet (P), Flow (F), Bin (B) when letters are reversed
+        // Elements sorted first are considered "closer" to start/cart parking
         const sortedNames = [...elementNames].sort((a, b) => {
-            // Extract letter and number parts
             const aMatch = a.match(/^([A-Za-z]+)(\d+)$/);
             const bMatch = b.match(/^([A-Za-z]+)(\d+)$/);
 
             if (!aMatch || !bMatch) {
-                // Fallback to standard sort if pattern doesn't match
                 return a.localeCompare(b);
             }
 
             const [, aLetter, aNum] = aMatch;
             const [, bLetter, bNum] = bMatch;
 
-            // Compare letters in reverse (Z-A)
             const letterCompare = bLetter.localeCompare(aLetter, undefined, { sensitivity: 'base' });
             if (letterCompare !== 0) return letterCompare;
 
-            // If letters are the same, compare numbers ascending
             return parseInt(aNum, 10) - parseInt(bNum, 10);
         });
 
@@ -121,34 +118,62 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
         let currentDate = new Date();
         while (dates.length < 8) {
             const day = currentDate.getDay();
-            if (day !== 0 && day !== 6) { // Skip Sunday (0) and Saturday (6)
+            if (day !== 0 && day !== 6) {
                 dates.push(currentDate.toISOString().split('T')[0]);
             }
             currentDate.setDate(currentDate.getDate() - 1);
         }
 
-        // 3. Generate CSV content with gradient + randomization
-        const headers = ['element_name', 'date', 'pick_count'];
-        const maxPicks = 1000;
-        const minPicks = 100;
+        // 3. Generate item-level CSV content
+        const headers = ['item_id', 'location_id', 'element_name', 'date', 'pick_count'];
+        const maxBasePicks = 150; // Max base picks for hottest items in closest elements
 
         const allRows: string[] = [];
+        let itemCounter = 1;
 
-        dates.forEach(date => {
-            const dayRows = sortedNames.map((name, index) => {
-                // Calculate gradient: High to Low based on sorted position
-                // First element gets maxPicks, last element gets minPicks
-                const progress = index / (sortedNames.length - 1 || 1);
-                const basePicks = Math.round(maxPicks - (progress * (maxPicks - minPicks)));
+        // For each element, generate 8-10 locations with items
+        sortedNames.forEach((elementName, elementIndex) => {
+            // Calculate element-level gradient (closer = higher base, farther = lower base)
+            // This creates the natural heatmap gradient
+            const distanceProgress = elementIndex / (sortedNames.length - 1 || 1);
+            const elementMultiplier = 1 - (distanceProgress * 0.7); // 1.0 for closest, 0.3 for farthest
 
-                // Add randomization: ±20% variation around the base
-                const variation = basePicks * 0.2;
-                const randomOffset = (Math.random() * 2 - 1) * variation; // Random value between -variation and +variation
-                const pickCount = Math.max(minPicks, Math.round(basePicks + randomOffset));
+            // Generate 8-10 locations per element
+            const numLocations = 8 + Math.floor(Math.random() * 3);
 
-                return [name, date, pickCount].join(',');
-            });
-            allRows.push(...dayRows);
+            for (let locIndex = 0; locIndex < numLocations; locIndex++) {
+                const locationId = `LOC-${elementName}-${String(locIndex + 1).padStart(2, '0')}`;
+                const itemId = `SKU-${String(itemCounter++).padStart(3, '0')}`;
+
+                // Assign velocity tier with significant variation WITHIN each element
+                // This creates reslotting opportunities
+                const tierRoll = Math.random();
+                let itemMultiplier: number;
+
+                if (tierRoll < 0.2) {
+                    // HOT (20%): High velocity - 0.8 to 1.5x base
+                    itemMultiplier = 0.8 + Math.random() * 0.7;
+                } else if (tierRoll < 0.5) {
+                    // WARM (30%): Medium velocity - 0.25 to 0.55x base
+                    itemMultiplier = 0.25 + Math.random() * 0.3;
+                } else {
+                    // COLD (50%): Low velocity - 0.02 to 0.15x base
+                    itemMultiplier = 0.02 + Math.random() * 0.13;
+                }
+
+                // Generate picks for each date
+                dates.forEach(date => {
+                    // Daily variation ±20%
+                    const dailyVariation = 0.8 + Math.random() * 0.4;
+
+                    // Calculate final pick count
+                    const picks = Math.max(1, Math.floor(
+                        maxBasePicks * elementMultiplier * itemMultiplier * dailyVariation
+                    ));
+
+                    allRows.push([itemId, locationId, elementName, date, picks].join(','));
+                });
+            }
         });
 
         const csvContent = [headers.join(','), ...allRows].join('\n');
@@ -158,7 +183,7 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `test_data_8days_${new Date().getTime()}.csv`);
+        link.setAttribute('download', `test_item_picks_8days_${new Date().getTime()}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
