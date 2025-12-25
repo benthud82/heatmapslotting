@@ -262,6 +262,19 @@ export const picksApi = {
 
   // Get all dates that have item-level pick data
   getItemsDates: (layoutId: string) => apiFetch<string[]>(`/api/picks/items/dates?layout_id=${layoutId}`),
+
+  // Get daily picks for a specific element from item-level data
+  getElementDailyPicks: (layoutId: string, elementId: string, startDate?: string, endDate?: string): Promise<PickTransaction[]> => {
+    const params = new URLSearchParams();
+    params.append('layout_id', layoutId);
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+
+    const queryString = params.toString();
+    const endpoint = `/api/picks/items/by-element/${elementId}${queryString ? `?${queryString}` : ''}`;
+
+    return apiFetch<PickTransaction[]>(endpoint);
+  },
 };
 
 // Locations API

@@ -5,6 +5,7 @@ import { getHeatmapGradientCSS } from '@/lib/heatmapColors';
 import { AggregatedPickData, AggregatedItemPickData } from '@/lib/types';
 import { picksApi } from '@/lib/api';
 
+
 interface HeatmapSidebarProps {
     minPicks: number;
     maxPicks: number;
@@ -16,6 +17,7 @@ interface HeatmapSidebarProps {
     startDate?: string;
     endDate?: string;
     onViewDetails?: () => void;
+    onSkuClick?: (item: AggregatedItemPickData, rank: number) => void;
 }
 
 export default function HeatmapSidebar({
@@ -29,6 +31,7 @@ export default function HeatmapSidebar({
     startDate = '',
     endDate = '',
     onViewDetails,
+    onSkuClick,
 }: HeatmapSidebarProps) {
     // Item data state for selected element
     const [itemData, setItemData] = useState<AggregatedItemPickData[]>([]);
@@ -41,7 +44,7 @@ export default function HeatmapSidebar({
         return aggregatedData.find(d => d.element_id === selectedElementId) || null;
     }, [selectedElementId, aggregatedData]);
 
-    // Fetch item data when element is selected
+    // Fetch item data when element is selected or dates change
     useEffect(() => {
         if (selectedElementId && layoutId) {
             fetchItemData();
@@ -49,7 +52,7 @@ export default function HeatmapSidebar({
             setItemData([]);
             setMostRecentDate(null);
         }
-    }, [selectedElementId, layoutId]);
+    }, [selectedElementId, layoutId, startDate, endDate]);
 
     const fetchItemData = async () => {
         if (!layoutId || !selectedElementId) return;
@@ -203,7 +206,8 @@ export default function HeatmapSidebar({
                             {itemData.map((item, idx) => (
                                 <div
                                     key={item.item_id}
-                                    className="p-3 rounded-lg bg-slate-800/30 hover:bg-slate-800/50 transition-colors border border-slate-700/30"
+                                    onClick={() => onSkuClick?.(item, idx + 1)}
+                                    className="p-3 rounded-lg bg-slate-800/30 hover:bg-slate-800/50 transition-colors border border-slate-700/30 cursor-pointer hover:border-cyan-500/30"
                                 >
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="flex-1 min-w-0">

@@ -9,10 +9,12 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { WarehouseElement, Layout, AggregatedPickData, RouteMarker } from '@/lib/types';
+import { WarehouseElement, Layout, AggregatedPickData, RouteMarker, AggregatedItemPickData } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { analyzeVelocity } from '@/lib/dashboardUtils';
 import { useRef } from 'react';
+import SkuDetailModal from '@/components/heatmap/SkuDetailModal';
+
 
 export default function Heatmap() {
   const canvasRef = useRef<any>(null);
@@ -100,6 +102,8 @@ export default function Heatmap() {
 
   // Detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedSku, setSelectedSku] = useState<AggregatedItemPickData | null>(null);
+  const [selectedSkuRank, setSelectedSkuRank] = useState<number | undefined>(undefined);
 
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
@@ -474,6 +478,11 @@ export default function Heatmap() {
             onClearSelection={handleClearSelection}
             startDate={startDate}
             endDate={endDate}
+            onViewDetails={handleViewDetails}
+            onSkuClick={(item, rank) => {
+              setSelectedSku(item);
+              setSelectedSkuRank(rank);
+            }}
           />
         ) : (
           <div className="h-full border-l border-slate-800 bg-slate-900/50 backdrop-blur-sm p-6 min-w-[280px] w-[320px]">
@@ -481,6 +490,31 @@ export default function Heatmap() {
           </div>
         )}
       </div>
+
+      {/* Element Detail Modal */}
+      {showDetailModal && selectedElementData && (
+        <HeatmapElementModal
+          element={selectedElementData}
+          layoutId={currentLayoutId}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => setShowDetailModal(false)}
+        />
+      )}
+
+      {/* SKU Detail Modal */}
+      {selectedSku && (
+        <SkuDetailModal
+          item={selectedSku}
+          rank={selectedSkuRank}
+          startDate={startDate}
+          endDate={endDate}
+          onClose={() => {
+            setSelectedSku(null);
+            setSelectedSkuRank(undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

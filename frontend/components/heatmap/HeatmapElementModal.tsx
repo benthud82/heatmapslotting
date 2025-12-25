@@ -13,6 +13,9 @@ interface HeatmapElementModalProps {
 }
 
 type TabType = 'items' | 'history';
+type SortField = 'rank' | 'item_id' | 'description' | 'location' | 'picks';
+type HistorySortField = 'date' | 'picks';
+type SortDirection = 'asc' | 'desc';
 
 export default function HeatmapElementModal({
     element,
@@ -28,6 +31,12 @@ export default function HeatmapElementModal({
     const [itemData, setItemData] = useState<AggregatedItemPickData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Sort states
+    const [itemSortField, setItemSortField] = useState<SortField>('picks');
+    const [itemSortDir, setItemSortDir] = useState<SortDirection>('desc');
+    const [historySortField, setHistorySortField] = useState<HistorySortField>('date');
+    const [historySortDir, setHistorySortDir] = useState<SortDirection>('desc');
 
     // Fetch data when modal opens
     useEffect(() => {
@@ -48,16 +57,23 @@ export default function HeatmapElementModal({
             setLoading(true);
             setError(null);
 
-            // Fetch transactions and items in parallel
-            const [transactionsData, itemsData] = await Promise.all([
+            // Fetch legacy transactions, items, and element daily picks from item data in parallel
+            const [legacyTransactionsData, itemsData, elementDailyPicks] = await Promise.all([
                 picksApi.getTransactions(layoutId, startDate || undefined, endDate || undefined),
                 picksApi.getItemsAggregated(layoutId, startDate || undefined, endDate || undefined),
+                picksApi.getElementDailyPicks(layoutId, element.element_id, startDate || undefined, endDate || undefined),
             ]);
 
-            // Filter to this element
-            const filteredTransactions = transactionsData.filter(t => t.element_id === element.element_id);
-            filteredTransactions.sort((a, b) => b.pick_date.localeCompare(a.pick_date));
-            setTransactions(filteredTransactions);
+            // Filter legacy transactions to this element
+            const filteredLegacyTransactions = legacyTransactionsData.filter(t => t.element_id === element.element_id);
+
+            // Use legacy transactions if available, otherwise use element daily picks from item data
+            const finalTransactions = filteredLegacyTransactions.length > 0
+                ? filteredLegacyTransactions
+                : elementDailyPicks;
+
+            finalTransactions.sort((a, b) => b.pick_date.localeCompare(a.pick_date));
+            setTransactions(finalTransactions);
 
             const filteredItems = itemsData.filter(i => i.element_id === element.element_id);
             filteredItems.sort((a, b) => b.total_picks - a.total_picks);
@@ -71,37 +87,41 @@ export default function HeatmapElementModal({
 
     // Calculate comprehensive stats
     const stats = useMemo(() => {
-        if (transactions.length === 0) {
-            return {
-                totalPicks: element?.total_picks || 0,
-                avgPerDay: 0,
-                peakDay: { date: '-', picks: 0 },
-                activeDays: 0,
-                totalDays: 0,
-            };
-        }
-
-        const pickCounts = transactions.map(t => t.pick_count);
-        const totalPicks = pickCounts.reduce((a, b) => a + b, 0);
-        const avgPerDay = totalPicks / transactions.length;
-
-        // Find peak day
-        const peakTransaction = transactions.reduce((max, t) =>
-            t.pick_count > max.pick_count ? t : max, transactions[0]);
+        const totalPicks = element?.total_picks || 0;
 
         // Calculate date range span
-        let totalDays = transactions.length;
+        let totalDays = 1;
         if (startDate && endDate) {
             const start = new Date(startDate);
             const end = new Date(endDate);
             totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        } else if (element?.first_date && element?.last_date) {
+            const start = new Date(element.first_date);
+            const end = new Date(element.last_date);
+            totalDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+        }
+
+        // Get active days from element or transactions
+        const activeDays = transactions.length > 0
+            ? transactions.length
+            : (element?.days_count || 0);
+
+        // Calculate average - use active days if available, otherwise total days
+        const avgPerDay = activeDays > 0 ? totalPicks / activeDays : (totalDays > 0 ? totalPicks / totalDays : 0);
+
+        // Find peak day from transactions if available
+        let peakDay = { date: '-', picks: 0 };
+        if (transactions.length > 0) {
+            const peakTransaction = transactions.reduce((max, t) =>
+                t.pick_count > max.pick_count ? t : max, transactions[0]);
+            peakDay = { date: peakTransaction.pick_date, picks: peakTransaction.pick_count };
         }
 
         return {
             totalPicks,
             avgPerDay,
-            peakDay: { date: peakTransaction.pick_date, picks: peakTransaction.pick_count },
-            activeDays: transactions.length,
+            peakDay,
+            activeDays,
             totalDays,
         };
     }, [transactions, element, startDate, endDate]);
@@ -131,6 +151,79 @@ export default function HeatmapElementModal({
         if (itemData.length === 0) return 1;
         return Math.max(...itemData.map(i => i.total_picks));
     }, [itemData]);
+
+    // Sorted item data
+    const sortedItemData = useMemo(() => {
+        const sorted = [...itemData];
+        sorted.sort((a, b) => {
+            let comparison = 0;
+            switch (itemSortField) {
+                case 'item_id':
+                    comparison = a.external_item_id.localeCompare(b.external_item_id);
+                    break;
+                case 'description':
+                    comparison = (a.item_description || '').localeCompare(b.item_description || '');
+                    break;
+                case 'location':
+                    comparison = a.external_location_id.localeCompare(b.external_location_id);
+                    break;
+                case 'picks':
+                    comparison = a.total_picks - b.total_picks;
+                    break;
+                case 'rank':
+                default:
+                    // Rank is based on original sort by picks desc
+                    comparison = b.total_picks - a.total_picks;
+                    break;
+            }
+            return itemSortDir === 'asc' ? comparison : -comparison;
+        });
+        return sorted;
+    }, [itemData, itemSortField, itemSortDir]);
+
+    // Sorted transaction data
+    const sortedTransactions = useMemo(() => {
+        const sorted = [...transactions];
+        sorted.sort((a, b) => {
+            let comparison = 0;
+            switch (historySortField) {
+                case 'date':
+                    comparison = a.pick_date.localeCompare(b.pick_date);
+                    break;
+                case 'picks':
+                    comparison = a.pick_count - b.pick_count;
+                    break;
+            }
+            return historySortDir === 'asc' ? comparison : -comparison;
+        });
+        return sorted;
+    }, [transactions, historySortField, historySortDir]);
+
+    // Sort handlers
+    const handleItemSort = (field: SortField) => {
+        if (itemSortField === field) {
+            setItemSortDir(itemSortDir === 'asc' ? 'desc' : 'asc');
+        } else {
+            setItemSortField(field);
+            setItemSortDir(field === 'picks' ? 'desc' : 'asc');
+        }
+    };
+
+    const handleHistorySort = (field: HistorySortField) => {
+        if (historySortField === field) {
+            setHistorySortDir(historySortDir === 'asc' ? 'desc' : 'asc');
+        } else {
+            setHistorySortField(field);
+            setHistorySortDir(field === 'picks' ? 'desc' : 'asc');
+        }
+    };
+
+    // Sort indicator component
+    const SortIndicator = ({ active, direction }: { active: boolean; direction: SortDirection }) => (
+        <span className={`ml-1 inline-block transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'}`}>
+            {direction === 'asc' ? '↑' : '↓'}
+        </span>
+    );
 
     if (!element) return null;
 
@@ -363,17 +456,47 @@ export default function HeatmapElementModal({
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {/* Table Header */}
+                                    {/* Table Header - Sortable */}
                                     <div className="grid grid-cols-12 gap-4 px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <span className="col-span-1">#</span>
-                                        <span className="col-span-3">Item ID</span>
-                                        <span className="col-span-3">Description</span>
-                                        <span className="col-span-2">Location</span>
-                                        <span className="col-span-3 text-right">Picks</span>
+                                        <button
+                                            onClick={() => handleItemSort('rank')}
+                                            className="col-span-1 flex items-center group hover:text-slate-300 transition-colors text-left"
+                                        >
+                                            #
+                                            <SortIndicator active={itemSortField === 'rank'} direction={itemSortDir} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleItemSort('item_id')}
+                                            className="col-span-3 flex items-center group hover:text-slate-300 transition-colors text-left"
+                                        >
+                                            Item ID
+                                            <SortIndicator active={itemSortField === 'item_id'} direction={itemSortDir} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleItemSort('description')}
+                                            className="col-span-3 flex items-center group hover:text-slate-300 transition-colors text-left"
+                                        >
+                                            Description
+                                            <SortIndicator active={itemSortField === 'description'} direction={itemSortDir} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleItemSort('location')}
+                                            className="col-span-2 flex items-center group hover:text-slate-300 transition-colors text-left"
+                                        >
+                                            Location
+                                            <SortIndicator active={itemSortField === 'location'} direction={itemSortDir} />
+                                        </button>
+                                        <button
+                                            onClick={() => handleItemSort('picks')}
+                                            className="col-span-3 flex items-center justify-end group hover:text-slate-300 transition-colors"
+                                        >
+                                            Picks
+                                            <SortIndicator active={itemSortField === 'picks'} direction={itemSortDir} />
+                                        </button>
                                     </div>
 
                                     {/* Item Rows */}
-                                    {itemData.map((item, idx) => {
+                                    {sortedItemData.map((item, idx) => {
                                         const percentage = (item.total_picks / itemStats.totalPicks) * 100;
                                         const barWidth = (item.total_picks / maxItemPicks) * 100;
 
@@ -429,15 +552,27 @@ export default function HeatmapElementModal({
                                 </div>
                             ) : (
                                 <div className="space-y-1">
-                                    {/* Table Header */}
+                                    {/* Table Header - Sortable */}
                                     <div className="grid grid-cols-12 gap-4 px-4 py-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                        <span className="col-span-4">Date</span>
+                                        <button
+                                            onClick={() => handleHistorySort('date')}
+                                            className="col-span-4 flex items-center group hover:text-slate-300 transition-colors text-left"
+                                        >
+                                            Date
+                                            <SortIndicator active={historySortField === 'date'} direction={historySortDir} />
+                                        </button>
                                         <span className="col-span-5">Distribution</span>
-                                        <span className="col-span-3 text-right">Picks</span>
+                                        <button
+                                            onClick={() => handleHistorySort('picks')}
+                                            className="col-span-3 flex items-center justify-end group hover:text-slate-300 transition-colors"
+                                        >
+                                            Picks
+                                            <SortIndicator active={historySortField === 'picks'} direction={historySortDir} />
+                                        </button>
                                     </div>
 
                                     {/* Transaction Rows */}
-                                    {transactions.map((t) => {
+                                    {sortedTransactions.map((t) => {
                                         const barWidth = (t.pick_count / maxPicks) * 100;
                                         const isPeak = t.pick_count === stats.peakDay.picks;
 

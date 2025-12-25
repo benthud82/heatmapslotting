@@ -665,6 +665,61 @@ router.get('/dates', authMiddleware, async (req, res, next) => {
   }
 });
 
+// GET /api/picks/items/by-element/:elementId - Get daily pick breakdown for an element from item-level data
+router.get('/items/by-element/:elementId', authMiddleware, async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { elementId } = req.params;
+    const { start_date, end_date, layout_id } = req.query;
+
+    if (!layout_id) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    // Verify layout belongs to user
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layout_id, userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Layout not found' });
+    }
+
+    // Build query to get daily picks aggregated from item_pick_transactions
+    let queryText = `
+      SELECT
+        ipt.element_id,
+        we.label as element_name,
+        to_char(ipt.pick_date, 'YYYY-MM-DD') as pick_date,
+        SUM(ipt.pick_count)::integer as pick_count
+      FROM item_pick_transactions ipt
+      JOIN warehouse_elements we ON ipt.element_id = we.id
+      WHERE ipt.layout_id = $1 AND ipt.element_id = $2
+    `;
+    const queryParams = [layout_id, elementId];
+
+    if (start_date) {
+      queryParams.push(start_date);
+      queryText += ` AND ipt.pick_date >= $${queryParams.length}`;
+    }
+
+    if (end_date) {
+      queryParams.push(end_date);
+      queryText += ` AND ipt.pick_date <= $${queryParams.length}`;
+    }
+
+    queryText += ` GROUP BY ipt.element_id, we.label, ipt.pick_date
+                   ORDER BY ipt.pick_date DESC`;
+
+    const result = await query(queryText, queryParams);
+
+    res.json(result.rows);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // DELETE /api/picks - Clear all pick data for the user's layout
 router.delete('/', authMiddleware, async (req, res, next) => {
   try {
