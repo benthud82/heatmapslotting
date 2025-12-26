@@ -60,11 +60,10 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                     <button
                         key={tool.id}
                         onClick={() => onSelectTool(tool.type)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${
-                            activeTool === tool.type
+                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${activeTool === tool.type
                                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
                                 : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                        }`}
+                            }`}
                         title={tool.label}
                     >
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
@@ -89,11 +88,10 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                     <button
                         key={tool.id}
                         onClick={() => onSelectTool(tool.type)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${
-                            activeTool === tool.type
+                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${activeTool === tool.type
                                 ? 'text-white shadow-lg'
                                 : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                        }`}
+                            }`}
                         style={activeTool === tool.type ? { backgroundColor: tool.color, boxShadow: `0 4px 14px -3px ${tool.color}80` } : {}}
                         title={tool.label}
                     >
@@ -103,7 +101,7 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
 
                         {/* Colored indicator dot when not active */}
                         {activeTool !== tool.type && (
-                            <div 
+                            <div
                                 className="absolute top-1 right-1 w-2 h-2 rounded-full"
                                 style={{ backgroundColor: tool.color }}
                             />

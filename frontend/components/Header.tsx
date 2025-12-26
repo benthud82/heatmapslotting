@@ -166,6 +166,15 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
                                     >
                                         Admin Dashboard
                                     </Link>
+                                    <button
+                                        onClick={() => {
+                                            window.dispatchEvent(new CustomEvent('show-onboarding'));
+                                            setIsProfileOpen(false);
+                                        }}
+                                        className="block w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                                    >
+                                        Show Onboarding Guide
+                                    </button>
 
                                     <div className="border-t border-slate-800 mt-1 pt-1">
                                         <button

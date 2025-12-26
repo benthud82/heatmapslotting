@@ -15,7 +15,11 @@ import KeyboardShortcutsModal from '@/components/designer/KeyboardShortcutsModal
 import Toast from '@/components/ui/Toast';
 import PatternGeneratorModal, { GeneratedElementData } from '@/components/designer/PatternGeneratorModal';
 import ResequenceModal from '@/components/designer/ResequenceModal';
+import TemplateLibrary from '@/components/designer/TemplateLibrary';
+import DxfImportModal from '@/components/designer/DxfImportModal';
 import { layoutApi, elementsApi, routeMarkersApi, API_URL } from '@/lib/api';
+import { WarehouseTemplate } from '@/lib/templates';
+import { ImportedElement } from '@/lib/dxfImporter';
 import { supabase } from '@/lib/supabase';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
 import { useHistory } from '@/hooks/useHistory';
@@ -88,6 +92,9 @@ export default function Home() {
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showPatternModal, setShowPatternModal] = useState(false);
   const [showResequenceModal, setShowResequenceModal] = useState(false);
+  const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
+  const [showDxfImport, setShowDxfImport] = useState(false);
+
   const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
   const [copiedMarkers, setCopiedMarkers] = useState<RouteMarker[]>([]);
   const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info'; duration?: number; onUndo?: () => void; onClose?: () => void } | null>(null);
@@ -97,6 +104,8 @@ export default function Home() {
 
   // Canvas Ref for exports
   const canvasRef = useRef<WarehouseCanvasRef>(null);
+
+
 
   // Load initial data
   useEffect(() => {
@@ -979,6 +988,223 @@ export default function Home() {
     }
   }, [elements, setElements]);
 
+  // Direct element creation for drag-drop (bypasses activeTool state)
+  const handleDirectElementCreate = useCallback(
+    async (x: number, y: number, elementType: ElementType) => {
+      const tempId = nanoid();
+      const config = ELEMENT_CONFIGS[elementType];
+
+      // Generate abbreviated label
+      const typeCount = elements.filter(el => el.element_type === elementType).length + 1;
+      const abbreviations: Record<ElementType, string> = {
+        bay: 'B',
+        flow_rack: 'FR',
+        full_pallet: 'P',
+        text: 'T',
+        line: 'L',
+        arrow: 'A',
+      };
+      const abbreviatedLabel = `${abbreviations[elementType]}${typeCount}`;
+
+      const tempElement: WarehouseElement = {
+        id: tempId,
+        layout_id: layout?.id || '',
+        element_type: elementType,
+        label: abbreviatedLabel,
+        x_coordinate: x,
+        y_coordinate: y,
+        width: config.width,
+        height: config.height,
+        rotation: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Update state via history
+      const newElements = [...elements, tempElement];
+      setElements(newElements);
+
+      try {
+        setSaving(true);
+        const created = await elementsApi.create({
+          layout_id: layout?.id || currentLayoutId || '',
+          element_type: elementType,
+          label: tempElement.label,
+          x_coordinate: x,
+          y_coordinate: y,
+          rotation: 0,
+          width: config.width,
+          height: config.height,
+        });
+
+        // Replace temp element with real one
+        setElements(newElements.map((el) => (el.id === tempId ? created : el)));
+        setToast({ message: `Created ${config.displayName}`, type: 'success', duration: 1500 });
+      } catch (err) {
+        setElements(elements); // Revert to previous state
+        // @ts-expect-error - dynamic error access
+        const message = err.data?.message || err.message || 'Failed to create element';
+        setError(message);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [layout, elements, setElements, currentLayoutId]
+  );
+
+  // Apply template - bulk create elements and route markers from template
+  const handleApplyTemplate = useCallback(async (template: WarehouseTemplate) => {
+    if (!currentLayoutId) return;
+
+    // Create temporary elements
+    const tempElements: WarehouseElement[] = template.elements.map((el, index) => ({
+      id: `temp-template-${index}`,
+      layout_id: currentLayoutId,
+      element_type: el.element_type,
+      label: el.label,
+      x_coordinate: el.x_coordinate,
+      y_coordinate: el.y_coordinate,
+      width: el.width,
+      height: el.height,
+      rotation: el.rotation,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Create temporary route markers
+    const tempMarkers: RouteMarker[] = template.routeMarkers.map((marker, index) => ({
+      id: `temp-marker-${index}`,
+      layout_id: currentLayoutId,
+      marker_type: marker.marker_type,
+      label: marker.label,
+      x_coordinate: marker.x_coordinate,
+      y_coordinate: marker.y_coordinate,
+      sequence_order: marker.sequence_order,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Optimistic update - add to existing
+    setHistoryState(prev => ({
+      elements: [...prev.elements, ...tempElements],
+      routeMarkers: [...prev.routeMarkers, ...tempMarkers],
+    }));
+    setShowTemplateLibrary(false);
+
+    try {
+      setSaving(true);
+
+      // Create all elements on backend
+      const createdElements = await Promise.all(
+        template.elements.map(el =>
+          elementsApi.create({
+            layout_id: currentLayoutId,
+            element_type: el.element_type,
+            label: el.label,
+            x_coordinate: el.x_coordinate,
+            y_coordinate: el.y_coordinate,
+            width: el.width,
+            height: el.height,
+            rotation: el.rotation,
+          })
+        )
+      );
+
+      // Create all route markers on backend
+      const createdMarkers = await Promise.all(
+        template.routeMarkers.map(marker =>
+          routeMarkersApi.create(currentLayoutId, {
+            marker_type: marker.marker_type,
+            label: marker.label,
+            x_coordinate: marker.x_coordinate,
+            y_coordinate: marker.y_coordinate,
+            sequence_order: marker.sequence_order,
+          })
+        )
+      );
+
+      // Replace temp with real IDs
+      setHistoryState(prev => ({
+        elements: prev.elements.filter(el => !el.id.startsWith('temp-template-')).concat(createdElements),
+        routeMarkers: prev.routeMarkers.filter(m => !m.id.startsWith('temp-marker-')).concat(createdMarkers),
+      }));
+
+      setToast({
+        message: `Applied "${template.name}" template (${createdElements.length} elements, ${createdMarkers.length} markers)`,
+        type: 'success',
+      });
+    } catch (err) {
+      // Revert on error
+      setHistoryState(prev => ({
+        elements: prev.elements.filter(el => !el.id.startsWith('temp-template-')),
+        routeMarkers: prev.routeMarkers.filter(m => !m.id.startsWith('temp-marker-')),
+      }));
+      setError('Failed to apply template');
+    } finally {
+      setSaving(false);
+    }
+  }, [currentLayoutId, setHistoryState]);
+
+  // DXF Import - bulk create elements from imported DXF file
+  const handleDxfImport = useCallback(async (importedElements: ImportedElement[]) => {
+    if (!currentLayoutId || importedElements.length === 0) return;
+
+    // Create temporary elements
+    const tempElements: WarehouseElement[] = importedElements.map((el, index) => ({
+      id: `temp-dxf-${index}`,
+      layout_id: currentLayoutId,
+      element_type: el.element_type,
+      label: el.label,
+      x_coordinate: el.x_coordinate,
+      y_coordinate: el.y_coordinate,
+      width: el.width,
+      height: el.height,
+      rotation: el.rotation,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    }));
+
+    // Optimistic update
+    setElements(prev => [...prev, ...tempElements]);
+
+    try {
+      setSaving(true);
+
+      // Create all elements on backend
+      const createdElements = await Promise.all(
+        importedElements.map(el =>
+          elementsApi.create({
+            layout_id: currentLayoutId,
+            element_type: el.element_type,
+            label: el.label,
+            x_coordinate: el.x_coordinate,
+            y_coordinate: el.y_coordinate,
+            width: el.width,
+            height: el.height,
+            rotation: el.rotation,
+          })
+        )
+      );
+
+      // Replace temp with real IDs
+      setElements(prev => prev.filter(el => !el.id.startsWith('temp-dxf-')).concat(createdElements));
+
+      // Select all newly created elements
+      setSelectedElementIds(createdElements.map(el => el.id));
+
+      setToast({
+        message: `Imported ${createdElements.length} elements from DXF file`,
+        type: 'success',
+      });
+    } catch (err) {
+      // Revert on error
+      setElements(prev => prev.filter(el => !el.id.startsWith('temp-dxf-')));
+      setError('Failed to import DXF elements');
+    } finally {
+      setSaving(false);
+    }
+  }, [currentLayoutId, setElements]);
+
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -1086,6 +1312,25 @@ export default function Home() {
             />
             <div className="h-6 w-px bg-slate-800 mx-4"></div>
             <button
+              onClick={() => setShowTemplateLibrary(true)}
+              className="px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border bg-gradient-to-r from-blue-600 to-indigo-600 border-blue-500 text-white shadow-lg shadow-blue-900/30 hover:from-blue-500 hover:to-indigo-500"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+              <span className="hidden sm:inline">Templates</span>
+            </button>
+            <button
+              onClick={() => setShowDxfImport(true)}
+              className="px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="hidden sm:inline">Import DXF</span>
+            </button>
+            <div className="h-6 w-px bg-slate-800 mx-2"></div>
+            <button
               onClick={() => setShowDistances(!showDistances)}
               className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showDistances
                 ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
@@ -1104,7 +1349,35 @@ export default function Home() {
       < div className="flex-1 flex overflow-hidden" >
         <Sidebar activeTool={activeTool} onSelectTool={setActiveTool} />
 
-        <main className="flex-1 relative bg-[#0a0f1e] overflow-hidden">
+        <main
+          className="flex-1 relative bg-[#0a0f1e] overflow-hidden"
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+          }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            try {
+              const data = JSON.parse(e.dataTransfer.getData('application/json'));
+              if (!data?.type) return;
+
+              // Get canvas position from the drop event
+              const rect = e.currentTarget.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const y = e.clientY - rect.top;
+
+              if (data.isRouteMarker) {
+                // Create route marker
+                await handleMarkerCreate(x, y, data.type as RouteMarkerType);
+              } else {
+                // Create element directly without changing activeTool
+                await handleDirectElementCreate(x, y, data.type as ElementType);
+              }
+            } catch (err) {
+              console.error('Drop error:', err);
+            }
+          }}
+        >
           <WarehouseCanvas
             ref={canvasRef}
             elements={elements}
@@ -1153,6 +1426,7 @@ export default function Home() {
             onMultiElementUpdate={handleMultiElementUpdate}
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
+
           />
 
           {error && (
@@ -1257,6 +1531,24 @@ export default function Home() {
       }
 
       <KeyboardShortcutsModal isOpen={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
+
+      <TemplateLibrary
+        isOpen={showTemplateLibrary}
+        onClose={() => setShowTemplateLibrary(false)}
+        onSelectTemplate={handleApplyTemplate}
+        currentElementCount={elements.length}
+        elementLimit={elementLimit}
+      />
+
+      <DxfImportModal
+        isOpen={showDxfImport}
+        onClose={() => setShowDxfImport(false)}
+        onImport={handleDxfImport}
+        currentElementCount={elements.length}
+        elementLimit={elementLimit}
+      />
+
+
 
       {
         toast && (

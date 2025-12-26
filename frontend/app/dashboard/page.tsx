@@ -198,6 +198,13 @@ export default function Dashboard() {
         }
     }, [selectedPeriod, currentLayoutId, availableDates]);
 
+    // Track dashboard visit for onboarding
+    useEffect(() => {
+        if (aggregatedData.length > 0 || transactions.length > 0) {
+            localStorage.setItem('onboarding_dashboard_visited', 'true');
+        }
+    }, [aggregatedData, transactions]);
+
     const loadData = async () => {
         try {
             setLoading(true);

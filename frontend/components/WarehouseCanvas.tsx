@@ -3,7 +3,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState, useMemo, useCallback, useImperativeHandle } from 'react';
-import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow } from 'react-konva';
+import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow, Image as KonvaImage } from 'react-konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType, ROUTE_MARKER_CONFIGS } from '@/lib/types';

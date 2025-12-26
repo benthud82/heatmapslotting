@@ -1,0 +1,48 @@
+{
+  "id": "flow-rack-zone",
+  "name": "Flow Rack Pick Module",
+  "description": "Pre-configured high-velocity pick zone with 20 flow racks arranged for optimal picking efficiency.",
+  "thumbnail": "flow-rack",
+  "category": "zone",
+  "canvasWidth": 1200,
+  "canvasHeight": 800,
+  "elements": [
+    { "element_type": "text", "label": "FLOW RACK PICK MODULE", "x_coordinate": 400, "y_coordinate": 30, "width": 250, "height": 30, "rotation": 0 },
+    { "element_type": "text", "label": "AISLE 1", "x_coordinate": 50, "y_coordinate": 100, "width": 80, "height": 24, "rotation": 0 },
+    { "element_type": "text", "label": "AISLE 2", "x_coordinate": 50, "y_coordinate": 280, "width": 80, "height": 24, "rotation": 0 },
+    { "element_type": "text", "label": "AISLE 3", "x_coordinate": 50, "y_coordinate": 460, "width": 80, "height": 24, "rotation": 0 },
+    { "element_type": "text", "label": "AISLE 4", "x_coordinate": 50, "y_coordinate": 640, "width": 80, "height": 24, "rotation": 0 },
+
+    { "element_type": "flow_rack", "label": "FR1-1", "x_coordinate": 150, "y_coordinate": 100, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR1-2", "x_coordinate": 290, "y_coordinate": 100, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR1-3", "x_coordinate": 430, "y_coordinate": 100, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR1-4", "x_coordinate": 570, "y_coordinate": 100, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR1-5", "x_coordinate": 710, "y_coordinate": 100, "width": 120, "height": 120, "rotation": 0 },
+
+    { "element_type": "flow_rack", "label": "FR2-1", "x_coordinate": 150, "y_coordinate": 280, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR2-2", "x_coordinate": 290, "y_coordinate": 280, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR2-3", "x_coordinate": 430, "y_coordinate": 280, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR2-4", "x_coordinate": 570, "y_coordinate": 280, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR2-5", "x_coordinate": 710, "y_coordinate": 280, "width": 120, "height": 120, "rotation": 0 },
+
+    { "element_type": "flow_rack", "label": "FR3-1", "x_coordinate": 150, "y_coordinate": 460, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR3-2", "x_coordinate": 290, "y_coordinate": 460, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR3-3", "x_coordinate": 430, "y_coordinate": 460, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR3-4", "x_coordinate": 570, "y_coordinate": 460, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR3-5", "x_coordinate": 710, "y_coordinate": 460, "width": 120, "height": 120, "rotation": 0 },
+
+    { "element_type": "flow_rack", "label": "FR4-1", "x_coordinate": 150, "y_coordinate": 640, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR4-2", "x_coordinate": 290, "y_coordinate": 640, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR4-3", "x_coordinate": 430, "y_coordinate": 640, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR4-4", "x_coordinate": 570, "y_coordinate": 640, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR4-5", "x_coordinate": 710, "y_coordinate": 640, "width": 120, "height": 120, "rotation": 0 }
+  ],
+  "routeMarkers": [
+    { "marker_type": "start_point", "label": "Start", "x_coordinate": 50, "y_coordinate": 400 },
+    { "marker_type": "cart_parking", "label": "Cart 1", "x_coordinate": 900, "y_coordinate": 160, "sequence_order": 1 },
+    { "marker_type": "cart_parking", "label": "Cart 2", "x_coordinate": 900, "y_coordinate": 340, "sequence_order": 2 },
+    { "marker_type": "cart_parking", "label": "Cart 3", "x_coordinate": 900, "y_coordinate": 520, "sequence_order": 3 },
+    { "marker_type": "cart_parking", "label": "Cart 4", "x_coordinate": 900, "y_coordinate": 700, "sequence_order": 4 },
+    { "marker_type": "stop_point", "label": "Stop", "x_coordinate": 1050, "y_coordinate": 400 }
+  ]
+}

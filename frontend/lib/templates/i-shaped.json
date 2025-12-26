@@ -1,0 +1,66 @@
+{
+  "id": "i-shaped",
+  "name": "I-Shaped (Straight-Line)",
+  "description": "Linear flow from receiving to shipping. Ideal for high-volume fulfillment centers and automated facilities.",
+  "thumbnail": "i-shaped",
+  "category": "full-warehouse",
+  "canvasWidth": 2000,
+  "canvasHeight": 800,
+  "elements": [
+    { "element_type": "text", "label": "RECEIVING", "x_coordinate": 50, "y_coordinate": 50, "width": 150, "height": 30, "rotation": 0 },
+    { "element_type": "text", "label": "ZONE A", "x_coordinate": 400, "y_coordinate": 50, "width": 100, "height": 30, "rotation": 0 },
+    { "element_type": "text", "label": "ZONE B", "x_coordinate": 800, "y_coordinate": 50, "width": 100, "height": 30, "rotation": 0 },
+    { "element_type": "text", "label": "ZONE C", "x_coordinate": 1200, "y_coordinate": 50, "width": 100, "height": 30, "rotation": 0 },
+    { "element_type": "text", "label": "SHIPPING", "x_coordinate": 1750, "y_coordinate": 50, "width": 150, "height": 30, "rotation": 0 },
+
+    { "element_type": "full_pallet", "label": "R1", "x_coordinate": 50, "y_coordinate": 150, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "R2", "x_coordinate": 50, "y_coordinate": 220, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "R3", "x_coordinate": 50, "y_coordinate": 290, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "R4", "x_coordinate": 50, "y_coordinate": 360, "width": 48, "height": 52, "rotation": 0 },
+
+    { "element_type": "bay", "label": "A1", "x_coordinate": 300, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A2", "x_coordinate": 340, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A3", "x_coordinate": 380, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A4", "x_coordinate": 420, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A5", "x_coordinate": 460, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A6", "x_coordinate": 500, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+
+    { "element_type": "bay", "label": "A7", "x_coordinate": 300, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A8", "x_coordinate": 340, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A9", "x_coordinate": 380, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A10", "x_coordinate": 420, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A11", "x_coordinate": 460, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "A12", "x_coordinate": 500, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+
+    { "element_type": "flow_rack", "label": "FR1", "x_coordinate": 700, "y_coordinate": 150, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR2", "x_coordinate": 850, "y_coordinate": 150, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR3", "x_coordinate": 700, "y_coordinate": 300, "width": 120, "height": 120, "rotation": 0 },
+    { "element_type": "flow_rack", "label": "FR4", "x_coordinate": 850, "y_coordinate": 300, "width": 120, "height": 120, "rotation": 0 },
+
+    { "element_type": "bay", "label": "C1", "x_coordinate": 1100, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C2", "x_coordinate": 1140, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C3", "x_coordinate": 1180, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C4", "x_coordinate": 1220, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C5", "x_coordinate": 1260, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C6", "x_coordinate": 1300, "y_coordinate": 150, "width": 24, "height": 48, "rotation": 0 },
+
+    { "element_type": "bay", "label": "C7", "x_coordinate": 1100, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C8", "x_coordinate": 1140, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C9", "x_coordinate": 1180, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C10", "x_coordinate": 1220, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C11", "x_coordinate": 1260, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+    { "element_type": "bay", "label": "C12", "x_coordinate": 1300, "y_coordinate": 250, "width": 24, "height": 48, "rotation": 0 },
+
+    { "element_type": "full_pallet", "label": "S1", "x_coordinate": 1750, "y_coordinate": 150, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "S2", "x_coordinate": 1750, "y_coordinate": 220, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "S3", "x_coordinate": 1750, "y_coordinate": 290, "width": 48, "height": 52, "rotation": 0 },
+    { "element_type": "full_pallet", "label": "S4", "x_coordinate": 1750, "y_coordinate": 360, "width": 48, "height": 52, "rotation": 0 }
+  ],
+  "routeMarkers": [
+    { "marker_type": "start_point", "label": "Start", "x_coordinate": 150, "y_coordinate": 500 },
+    { "marker_type": "cart_parking", "label": "Cart 1", "x_coordinate": 550, "y_coordinate": 500, "sequence_order": 1 },
+    { "marker_type": "cart_parking", "label": "Cart 2", "x_coordinate": 950, "y_coordinate": 500, "sequence_order": 2 },
+    { "marker_type": "cart_parking", "label": "Cart 3", "x_coordinate": 1350, "y_coordinate": 500, "sequence_order": 3 },
+    { "marker_type": "stop_point", "label": "Stop", "x_coordinate": 1700, "y_coordinate": 500 }
+  ]
+}

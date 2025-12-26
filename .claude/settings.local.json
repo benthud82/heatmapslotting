@@ -23,7 +23,8 @@
       "Bash(taskkill //F //PID 11704)",
       "Bash(npx tsc:*)",
       "Bash(npx next lint:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "WebFetch(domain:www.slot3d.com)"
     ],
     "deny": [],
     "ask": []
