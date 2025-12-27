@@ -1374,72 +1374,78 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             {/* Distance Visualization Layer */}
             {showDistances && distanceLines.map((line, i) => (
               <Group key={`dist-${i}`}>
-                {/* Dashed Line - Cart Travel */}
+                {/* Thin vibrant trace line */}
                 <Line
                   points={[line.start.x, line.start.y, line.end.x, line.end.y]}
-                  stroke="#3b82f6"
+                  stroke="#60a5fa"
                   strokeWidth={2}
-                  dash={[10, 10]}
-                  opacity={0.8}
+                  dash={[6, 4]}
+                  opacity={0.7}
                   listening={false}
                 />
-                {/* Cart Distance Label */}
+                {/* Compact Distance Label */}
                 <Group x={line.midpoint.x} y={line.midpoint.y}>
+                  {/* Slim Background pill */}
+                  <Rect
+                    x={-28}
+                    y={-11}
+                    width={56}
+                    height={22}
+                    fill="#0f172a"
+                    stroke="#3b82f6"
+                    strokeWidth={0.5}
+                    cornerRadius={4}
+                    opacity={0.85}
+                  />
+                  {/* Distance value - tightly packed */}
                   <Text
-                    x={-50}
-                    y={-12}
-                    width={100}
+                    x={-28}
+                    y={-10}
+                    width={56}
                     text={`${line.distanceFeet.toFixed(1)}'`}
-                    fontSize={12}
+                    fontSize={11}
                     fontFamily="monospace"
                     fontStyle="bold"
-                    fill="#e2e8f0"
+                    fill="#f8fafc"
                     align="center"
                     verticalAlign="middle"
-                    shadowColor="black"
-                    shadowBlur={2}
-                    shadowOpacity={0.8}
-                    shadowOffset={{ x: 1, y: 1 }}
                   />
+                  {/* Tiny segment context */}
                   <Text
-                    x={-50}
-                    y={2}
-                    width={100}
+                    x={-28}
+                    y={1}
+                    width={56}
                     text={line.segmentName}
-                    fontSize={9}
+                    fontSize={7}
                     fontFamily="monospace"
                     fill="#94a3b8"
                     align="center"
                     verticalAlign="middle"
-                    shadowColor="black"
-                    shadowBlur={2}
-                    shadowOpacity={0.8}
-                    shadowOffset={{ x: 1, y: 1 }}
                   />
                 </Group>
-                {/* Pedestrian Walk Indicator at Start (if parking spot) */}
+                {/* Minimalist Pedestrian Indicator */}
                 {line.pedestrianAtStart && line.pedestrianAtStart.walkDistanceFeet > 0 && (
-                  <Group x={line.start.x} y={line.start.y + 20}>
-                    {/* Background pill */}
+                  <Group x={line.start.x} y={line.start.y + 18}>
                     <Rect
-                      x={-35}
-                      y={-8}
-                      width={70}
-                      height={16}
-                      fill="#78350f"
-                      cornerRadius={8}
-                      opacity={0.9}
-                    />
-                    {/* Walk icon + distance */}
-                    <Text
-                      x={-35}
+                      x={-24}
                       y={-6}
-                      width={70}
+                      width={48}
+                      height={12}
+                      fill="#78350f"
+                      stroke="#fbbf24"
+                      strokeWidth={0.5}
+                      cornerRadius={6}
+                      opacity={0.8}
+                    />
+                    <Text
+                      x={-24}
+                      y={-5}
+                      width={48}
                       text={`🚶${line.pedestrianAtStart.walkDistanceFeet.toFixed(0)}'`}
-                      fontSize={10}
+                      fontSize={8}
                       fontFamily="monospace"
                       fontStyle="bold"
-                      fill="#fbbf24"
+                      fill="#fde68a"
                       align="center"
                       verticalAlign="middle"
                     />
@@ -1611,7 +1617,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                       />
                     </>
                   )}
-                  {/* Label below marker */}
+                  {/* Clean label with strong floating contrast shadow */}
                   <Text
                     x={-50}
                     y={config.height / 2 + 4}
@@ -1619,9 +1625,14 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                     text={marker.label}
                     fontSize={10}
                     fontFamily="monospace"
-                    fill="#94a3b8"
+                    fontStyle="bold"
+                    fill="#f8fafc"
                     align="center"
                     verticalAlign="middle"
+                    shadowColor="#000"
+                    shadowBlur={2}
+                    shadowOpacity={1}
+                    shadowOffset={{ x: 1, y: 1 }}
                   />
                 </Group>
               );
@@ -1788,14 +1799,16 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
         </Stage>
 
-        {/* Floating HUD - Enhanced Distance Display */}
         {showDistances && routeDistanceResult && (
-          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border-2 border-blue-500 rounded-xl shadow-2xl p-4 min-w-[280px] backdrop-blur-sm">
-            <div className="flex flex-col gap-2">
+          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border border-slate-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] p-4 min-w-[280px] backdrop-blur-md">
+            {/* Accent Bar */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 rounded-t-xl opacity-80"></div>
+
+            <div className="flex flex-col gap-2 mt-1">
               {/* Header */}
               <div className="flex justify-between items-center">
-                <div className="text-[10px] font-mono font-bold text-slate-400 tracking-wider uppercase">
-                  Total Distance
+                <div className="text-[11px] font-mono font-bold text-blue-400 tracking-wider uppercase">
+                  Route Analytics
                 </div>
                 <div className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400 border border-slate-700">
                   Manhattan
