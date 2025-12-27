@@ -1300,49 +1300,19 @@ export default function Home() {
       <MenuBar
         layoutName={layout?.name || 'Untitled Layout'}
         onAction={handleMenuAction}
+        onShowTemplates={() => setShowTemplateLibrary(true)}
+        onShowDxfImport={() => setShowDxfImport(true)}
+        showDistances={showDistances}
+        onToggleDistances={() => setShowDistances(!showDistances)}
         headerContent={
-          <>
-            <LayoutManager
-              layouts={layouts}
-              currentLayoutId={currentLayoutId}
-              onLayoutSelect={setCurrentLayoutId}
-              onLayoutCreate={handleLayoutCreate}
-              onLayoutRename={handleLayoutRename}
-              onLayoutDelete={handleLayoutDelete}
-            />
-            <div className="h-6 w-px bg-slate-800 mx-4"></div>
-            <button
-              onClick={() => setShowTemplateLibrary(true)}
-              className="px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border bg-gradient-to-r from-blue-600 to-indigo-600 border-blue-500 text-white shadow-lg shadow-blue-900/30 hover:from-blue-500 hover:to-indigo-500"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-              </svg>
-              <span className="hidden sm:inline">Templates</span>
-            </button>
-            <button
-              onClick={() => setShowDxfImport(true)}
-              className="px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span className="hidden sm:inline">Import DXF</span>
-            </button>
-            <div className="h-6 w-px bg-slate-800 mx-2"></div>
-            <button
-              onClick={() => setShowDistances(!showDistances)}
-              className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showDistances
-                ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
-                : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
-                }`}
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.806-.98l-3.253-1.626M15 10v10" />
-              </svg>
-              <span className="hidden sm:inline">{showDistances ? 'Hide Distances' : 'Show Distances'}</span>
-            </button>
-          </>
+          <LayoutManager
+            layouts={layouts}
+            currentLayoutId={currentLayoutId}
+            onLayoutSelect={setCurrentLayoutId}
+            onLayoutCreate={handleLayoutCreate}
+            onLayoutRename={handleLayoutRename}
+            onLayoutDelete={handleLayoutDelete}
+          />
         }
       />
 
@@ -1465,6 +1435,11 @@ export default function Home() {
             selectedMarker={selectedMarkerIds.length === 1 ? routeMarkers.find(m => m.id === selectedMarkerIds[0]) || null : null}
             onMarkerUpdate={handleMarkerUpdate}
             onMarkerDelete={handleMarkerDelete}
+            elements={elements}
+            routeMarkers={routeMarkers}
+            labelDisplayMode={labelDisplayMode}
+            onLabelDisplayModeChange={setLabelDisplayMode}
+            onAlign={handleAlign}
           />
           {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>
@@ -1481,6 +1456,10 @@ export default function Home() {
         cursorPos={cursorPos}
         elementLimit={elementLimit}
         userTier={userTier}
+        showGrid={showGrid}
+        onToggleGrid={() => setShowGrid(prev => !prev)}
+        snapToGrid={snapToGrid}
+        onToggleSnap={() => setSnapToGrid(prev => !prev)}
       />
 
       {

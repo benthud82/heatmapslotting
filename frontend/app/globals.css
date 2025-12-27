@@ -14,6 +14,42 @@
   }
 }
 
+/* ============================================================================
+   DESIGNER UI THEME VARIABLES
+   Enterprise SaaS dark theme for warehouse designer
+   ============================================================================ */
+:root {
+  /* Panel backgrounds */
+  --panel-bg: #0f172a;           /* slate-950 */
+  --panel-bg-secondary: #1e293b;  /* slate-800 */
+  --panel-bg-tertiary: #334155;   /* slate-700 */
+  --panel-border: #334155;        /* slate-700 */
+  --panel-border-subtle: #1e293b; /* slate-800 */
+
+  /* Accent colors */
+  --accent-blue: #3b82f6;
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+  --accent-yellow: #eab308;
+  --accent-cyan: #22d3ee;
+
+  /* Text hierarchy */
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-disabled: #475569;
+
+  /* Route marker colors */
+  --marker-start: #10b981;
+  --marker-stop: #ef4444;
+  --marker-cart: #3b82f6;
+
+  /* Interactive states */
+  --hover-bg: #1e293b;
+  --active-bg: #3b82f6;
+  --focus-ring: #3b82f6;
+}
+
 body {
   color: var(--foreground);
   background: var(--background);

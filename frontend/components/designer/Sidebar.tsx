@@ -8,21 +8,34 @@ interface SidebarProps {
     onSelectTool: (tool: 'select' | ElementType | RouteMarkerType) => void;
 }
 
+interface Tool {
+    id: string;
+    label: string;
+    shortcut: string;
+    type: 'select' | ElementType | RouteMarkerType;
+    color?: string;
+}
+
 export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
-    const elementTools = [
-        { id: 'select', label: 'Select (V)', type: 'select' as const },
-        { id: 'bay', label: 'Draw Bay', type: 'bay' as const },
-        { id: 'flow_rack', label: 'Draw Flow Rack', type: 'flow_rack' as const },
-        { id: 'full_pallet', label: 'Draw Pallet', type: 'full_pallet' as const },
-        { id: 'text', label: 'Add Text', type: 'text' as const },
-        { id: 'line', label: 'Draw Line', type: 'line' as const },
-        { id: 'arrow', label: 'Draw Arrow', type: 'arrow' as const },
+    // Tool definitions with keyboard shortcuts
+    const selectTool: Tool = { id: 'select', label: 'Select', shortcut: 'V', type: 'select' };
+
+    const elementTools: Tool[] = [
+        { id: 'bay', label: 'Bay', shortcut: 'B', type: 'bay' },
+        { id: 'flow_rack', label: 'Flow Rack', shortcut: 'F', type: 'flow_rack' },
+        { id: 'full_pallet', label: 'Pallet', shortcut: 'P', type: 'full_pallet' },
     ];
 
-    const routeMarkerTools = [
-        { id: 'start_point', label: 'Start Point', type: 'start_point' as RouteMarkerType, color: '#10b981' },
-        { id: 'stop_point', label: 'Stop Point', type: 'stop_point' as RouteMarkerType, color: '#ef4444' },
-        { id: 'cart_parking', label: 'Cart Parking', type: 'cart_parking' as RouteMarkerType, color: '#3b82f6' },
+    const annotationTools: Tool[] = [
+        { id: 'text', label: 'Text', shortcut: 'T', type: 'text' },
+        { id: 'line', label: 'Line', shortcut: 'L', type: 'line' },
+        { id: 'arrow', label: 'Arrow', shortcut: 'A', type: 'arrow' },
+    ];
+
+    const routeMarkerTools: Tool[] = [
+        { id: 'start_point', label: 'Start', shortcut: '1', type: 'start_point', color: 'var(--marker-start)' },
+        { id: 'stop_point', label: 'Stop', shortcut: '2', type: 'stop_point', color: 'var(--marker-stop)' },
+        { id: 'cart_parking', label: 'Cart', shortcut: '3', type: 'cart_parking', color: 'var(--marker-cart)' },
     ];
 
     const renderIcon = (id: string) => {
@@ -52,66 +65,99 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
         }
     };
 
-    return (
-        <aside className="w-14 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-4 gap-1 z-30 overflow-y-auto">
-            {/* Element Tools */}
-            <div className="flex flex-col items-center gap-1">
-                {elementTools.map((tool) => (
-                    <button
-                        key={tool.id}
-                        onClick={() => onSelectTool(tool.type)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${activeTool === tool.type
-                                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                            }`}
-                        title={tool.label}
-                    >
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
-                            {renderIcon(tool.id)}
-                        </svg>
+    const ToolButton = ({ tool, isRouteMarker = false }: { tool: Tool; isRouteMarker?: boolean }) => {
+        const isActive = activeTool === tool.type;
+        const markerColor = isRouteMarker ? (tool.color || '#3b82f6') : undefined;
 
-                        {/* Tooltip */}
-                        <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 border border-slate-700 shadow-xl">
-                            {tool.label}
-                        </div>
-                    </button>
+        return (
+            <button
+                onClick={() => onSelectTool(tool.type)}
+                draggable={tool.type !== 'select'}
+                onDragStart={(e) => {
+                    if (tool.type !== 'select') {
+                        e.dataTransfer.setData('application/json', JSON.stringify({
+                            type: tool.type,
+                            isRouteMarker
+                        }));
+                    }
+                }}
+                className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${
+                    isActive
+                        ? isRouteMarker
+                            ? 'text-white ring-2 ring-white/30'
+                            : 'bg-blue-600 text-white ring-2 ring-blue-400/50 shadow-lg shadow-blue-900/50'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+                }`}
+                style={isActive && isRouteMarker ? {
+                    backgroundColor: markerColor,
+                    boxShadow: `0 4px 14px -3px ${markerColor}80`
+                } : {}}
+                title={`${tool.label} (${tool.shortcut})`}
+            >
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
+                    {renderIcon(tool.id)}
+                </svg>
+
+                {/* Colored indicator dot for route markers when not active */}
+                {isRouteMarker && !isActive && (
+                    <div
+                        className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                        style={{ backgroundColor: markerColor }}
+                    />
+                )}
+
+                {/* Enhanced Tooltip with keyboard shortcut */}
+                <div className="absolute left-full ml-2 px-2 py-1.5 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 border border-slate-700 shadow-xl transition-opacity duration-100 flex items-center gap-2">
+                    <span>{tool.label}</span>
+                    <kbd className="px-1.5 py-0.5 bg-slate-900 text-slate-400 text-[10px] font-mono rounded border border-slate-600">
+                        {tool.shortcut}
+                    </kbd>
+                </div>
+            </button>
+        );
+    };
+
+    const SectionHeader = ({ label }: { label: string }) => (
+        <span className="text-[9px] text-slate-500 font-mono uppercase tracking-wider mt-2 mb-1">
+            {label}
+        </span>
+    );
+
+    return (
+        <aside className="w-14 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-3 gap-0.5 z-30 overflow-y-auto">
+            {/* Select Tool - Always at top */}
+            <ToolButton tool={selectTool} />
+
+            {/* Divider */}
+            <div className="w-8 h-px bg-slate-700 my-2" />
+
+            {/* Element Tools */}
+            <SectionHeader label="Elements" />
+            <div className="flex flex-col items-center gap-0.5">
+                {elementTools.map((tool) => (
+                    <ToolButton key={tool.id} tool={tool} />
                 ))}
             </div>
 
             {/* Divider */}
             <div className="w-8 h-px bg-slate-700 my-2" />
 
-            {/* Route Markers Section */}
-            <div className="flex flex-col items-center gap-1">
-                <span className="text-[9px] text-slate-500 font-mono uppercase tracking-wider mb-1">Route</span>
+            {/* Annotation Tools */}
+            <SectionHeader label="Annotate" />
+            <div className="flex flex-col items-center gap-0.5">
+                {annotationTools.map((tool) => (
+                    <ToolButton key={tool.id} tool={tool} />
+                ))}
+            </div>
+
+            {/* Divider */}
+            <div className="w-8 h-px bg-slate-700 my-2" />
+
+            {/* Route Markers */}
+            <SectionHeader label="Route" />
+            <div className="flex flex-col items-center gap-0.5">
                 {routeMarkerTools.map((tool) => (
-                    <button
-                        key={tool.id}
-                        onClick={() => onSelectTool(tool.type)}
-                        className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${activeTool === tool.type
-                                ? 'text-white shadow-lg'
-                                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                            }`}
-                        style={activeTool === tool.type ? { backgroundColor: tool.color, boxShadow: `0 4px 14px -3px ${tool.color}80` } : {}}
-                        title={tool.label}
-                    >
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
-                            {renderIcon(tool.id)}
-                        </svg>
-
-                        {/* Colored indicator dot when not active */}
-                        {activeTool !== tool.type && (
-                            <div
-                                className="absolute top-1 right-1 w-2 h-2 rounded-full"
-                                style={{ backgroundColor: tool.color }}
-                            />
-                        )}
-
-                        {/* Tooltip */}
-                        <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 border border-slate-700 shadow-xl">
-                            {tool.label}
-                        </div>
-                    </button>
+                    <ToolButton key={tool.id} tool={tool} isRouteMarker />
                 ))}
             </div>
         </aside>

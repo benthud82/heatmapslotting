@@ -1,10 +1,14 @@
 import { WarehouseElement } from '@/lib/types';
 
-export type AlignmentType = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
-export type DistributionType = 'horizontal' | 'vertical';
+export type AlignmentType = 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom' | 'distributeH' | 'distributeV';
 
 export function alignElements(elements: WarehouseElement[], type: AlignmentType): WarehouseElement[] {
     if (elements.length < 2) return elements;
+
+    // Handle distribution types
+    if (type === 'distributeH' || type === 'distributeV') {
+        return distributeElements(elements, type === 'distributeH' ? 'horizontal' : 'vertical');
+    }
 
     // Calculate bounds
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -28,7 +32,7 @@ export function alignElements(elements: WarehouseElement[], type: AlignmentType)
             case 'left':
                 newEl.x_coordinate = minX;
                 break;
-            case 'center':
+            case 'centerH':
                 newEl.x_coordinate = avgX - el.width / 2;
                 break;
             case 'right':
@@ -37,7 +41,7 @@ export function alignElements(elements: WarehouseElement[], type: AlignmentType)
             case 'top':
                 newEl.y_coordinate = minY;
                 break;
-            case 'middle':
+            case 'centerV':
                 newEl.y_coordinate = avgY - el.height / 2;
                 break;
             case 'bottom':
@@ -48,7 +52,7 @@ export function alignElements(elements: WarehouseElement[], type: AlignmentType)
     });
 }
 
-export function distributeElements(elements: WarehouseElement[], type: DistributionType): WarehouseElement[] {
+function distributeElements(elements: WarehouseElement[], type: 'horizontal' | 'vertical'): WarehouseElement[] {
     if (elements.length < 3) return elements;
 
     // Sort elements by position
@@ -61,13 +65,6 @@ export function distributeElements(elements: WarehouseElement[], type: Distribut
     const last = sorted[sorted.length - 1];
 
     if (type === 'horizontal') {
-
-
-        // Actually, simpler logic: distribute centers or start points?
-        // Standard is usually distributing the space between them or their centers.
-        // Let's distribute centers for simplicity if widths vary, or left edges.
-        // Let's distribute left edges evenly between first and last.
-
         const start = first.x_coordinate;
         const end = last.x_coordinate;
         const step = (end - start) / (sorted.length - 1);

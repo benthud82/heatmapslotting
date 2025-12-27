@@ -10,6 +10,7 @@ import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, Route
 import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
+import { calculateRouteDistance, type DistanceCalculationResult } from '@/lib/distanceCalculation';
 
 // Route marker snapping function with intelligent prioritization
 const findRouteMarkerSnapPoints = (
@@ -318,6 +319,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [cursorCanvasPos, setCursorCanvasPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoveredParkingId, setHoveredParkingId] = useState<string | null>(null);
 
   // Zoom and pan state
   const [stageScale, setStageScale] = useState(1);
@@ -416,106 +418,33 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setStagePosition(newPosition);
   }, [elements, containerSize]);
 
-  // Distance Calculation Logic
+  // Distance Calculation Logic - Using Manhattan distance (industry standard for warehouses)
+  const routeDistanceResult = useMemo<DistanceCalculationResult | null>(() => {
+    if (!showDistances || !routeMarkers.length) return null;
+    return calculateRouteDistance(routeMarkers, elements);
+  }, [showDistances, routeMarkers, elements]);
+
+  // Legacy format for compatibility with existing visualization code
   const distanceLines = useMemo(() => {
-    if (!showDistances || !routeMarkers.length) return [];
+    if (!routeDistanceResult) return [];
+    return routeDistanceResult.segments.map(seg => ({
+      start: seg.start,
+      end: seg.end,
+      distancePx: seg.distancePx,
+      distanceFeet: seg.distanceFeet,
+      midpoint: seg.midpoint,
+      segmentName: seg.segmentName,
+      pedestrianAtStart: seg.pedestrianAtStart,
+    }));
+  }, [routeDistanceResult]);
 
-    const startPoint = routeMarkers.find(m => m.marker_type === 'start_point');
-    const stopPoint = routeMarkers.find(m => m.marker_type === 'stop_point');
-    const carts = routeMarkers.filter(m => m.marker_type === 'cart_parking');
-
-    if (!startPoint || !stopPoint) return [];
-
-    // Sort carts: use sequence_order if available, otherwise sort by distance from start
-    const sortedCarts = [...carts].sort((a, b) => {
-      if (a.sequence_order !== undefined && b.sequence_order !== undefined) {
-        return a.sequence_order - b.sequence_order;
-      }
-      // Fallback: simple proximity sort (greedy)
-      // This is a simplification; for a true TSP we'd need more complex logic,
-      // but for visualization this is a reasonable default if sequence is missing.
-      return 0;
-    });
-
-    // If no sequence, do a greedy sort starting from start point
-    if (carts.length > 0 && carts.some(c => c.sequence_order === undefined)) {
-      let currentPos = { x: startPoint.x_coordinate, y: startPoint.y_coordinate };
-      const remainingCarts = [...carts];
-      const newSorted: RouteMarker[] = [];
-
-      while (remainingCarts.length > 0) {
-        let nearestIdx = -1;
-        let minDist = Infinity;
-
-        remainingCarts.forEach((cart, idx) => {
-          const dist = Math.sqrt(
-            Math.pow(cart.x_coordinate - currentPos.x, 2) +
-            Math.pow(cart.y_coordinate - currentPos.y, 2)
-          );
-          if (dist < minDist) {
-            minDist = dist;
-            nearestIdx = idx;
-          }
-        });
-
-        if (nearestIdx !== -1) {
-          const nearest = remainingCarts[nearestIdx];
-          newSorted.push(nearest);
-          currentPos = { x: nearest.x_coordinate, y: nearest.y_coordinate };
-          remainingCarts.splice(nearestIdx, 1);
-        }
-      }
-      // Replace sortedCarts with the spatially sorted ones
-      sortedCarts.length = 0;
-      sortedCarts.push(...newSorted);
-    }
-
-    const points = [startPoint, ...sortedCarts, stopPoint];
-    const lines: Array<{
-      start: { x: number; y: number };
-      end: { x: number; y: number };
-      distancePx: number;
-      distanceFeet: number;
-      midpoint: { x: number; y: number };
-      segmentName: string;
-    }> = [];
-
-    for (let i = 0; i < points.length - 1; i++) {
-      const p1 = points[i];
-      const p2 = points[i + 1];
-
-      // Center points based on marker dimensions
-      const config1 = ROUTE_MARKER_CONFIGS[p1.marker_type];
-      const config2 = ROUTE_MARKER_CONFIGS[p2.marker_type];
-
-      const x1 = Number(p1.x_coordinate) + config1.width / 2;
-      const y1 = Number(p1.y_coordinate) + config1.height / 2;
-      const x2 = Number(p2.x_coordinate) + config2.width / 2;
-      const y2 = Number(p2.y_coordinate) + config2.height / 2;
-
-      const distPx = Math.sqrt(Math.pow(x2 - x1, 2) + Math.pow(y2 - y1, 2));
-      const distFeet = distPx / 12; // 1 px = 1 inch
-
-      // Determine segment name
-      let segmentName = '';
-      if (p1.marker_type === 'start_point') segmentName = 'Start → ';
-      else if (p1.marker_type === 'cart_parking') segmentName = `Cart ${p1.sequence_order || '?'} → `;
-
-      if (p2.marker_type === 'stop_point') segmentName += 'Stop';
-      else if (p2.marker_type === 'cart_parking') segmentName += `Cart ${p2.sequence_order || '?'}`;
-
-      lines.push({
-        start: { x: x1, y: y1 },
-        end: { x: x2, y: y2 },
-        distancePx: distPx,
-        distanceFeet: distFeet,
-        midpoint: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
-        segmentName,
-      });
-    }
-
-    return lines;
-  }, [showDistances, routeMarkers]);
+  // Elements highlighted when hovering a parking spot (shows which elements belong to it)
+  const highlightedElementIds = useMemo(() => {
+    if (!hoveredParkingId || !routeDistanceResult) return new Set<string>();
+    const assignment = routeDistanceResult.parkingAssignments.find(a => a.parkingId === hoveredParkingId);
+    if (!assignment) return new Set<string>();
+    return new Set(assignment.assignedElements.map(e => e.elementId));
+  }, [hoveredParkingId, routeDistanceResult]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -1385,6 +1314,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                 heatmapColor = getHeatmapColor(picks, minPicks, maxPicks);
               }
 
+              // Check if this element is highlighted (belongs to hovered parking spot)
+              const isZoneHighlighted = highlightedElementIds.has(element.id);
+
               return (
                 <ElementShape
                   key={element.id}
@@ -1392,6 +1324,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   config={config}
                   isSelected={isSelected}
                   isHovered={isHovered}
+                  isZoneHighlighted={isZoneHighlighted}
                   labelDisplayMode={labelDisplayMode}
                   ref={isSingleSelection ? selectedShapeRef : null}
                   onClick={(e) => onElementClick(element.id, e.evt.ctrlKey, e.evt.metaKey)}
@@ -1441,7 +1374,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             {/* Distance Visualization Layer */}
             {showDistances && distanceLines.map((line, i) => (
               <Group key={`dist-${i}`}>
-                {/* Dashed Line */}
+                {/* Dashed Line - Cart Travel */}
                 <Line
                   points={[line.start.x, line.start.y, line.end.x, line.end.y]}
                   stroke="#3b82f6"
@@ -1450,8 +1383,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   opacity={0.8}
                   listening={false}
                 />
-                {/* Distance Label */}
-                {/* Distance Label */}
+                {/* Cart Distance Label */}
                 <Group x={line.midpoint.x} y={line.midpoint.y}>
                   <Text
                     x={-50}
@@ -1485,6 +1417,34 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                     shadowOffset={{ x: 1, y: 1 }}
                   />
                 </Group>
+                {/* Pedestrian Walk Indicator at Start (if parking spot) */}
+                {line.pedestrianAtStart && line.pedestrianAtStart.walkDistanceFeet > 0 && (
+                  <Group x={line.start.x} y={line.start.y + 20}>
+                    {/* Background pill */}
+                    <Rect
+                      x={-35}
+                      y={-8}
+                      width={70}
+                      height={16}
+                      fill="#78350f"
+                      cornerRadius={8}
+                      opacity={0.9}
+                    />
+                    {/* Walk icon + distance */}
+                    <Text
+                      x={-35}
+                      y={-6}
+                      width={70}
+                      text={`🚶${line.pedestrianAtStart.walkDistanceFeet.toFixed(0)}'`}
+                      fontSize={10}
+                      fontFamily="monospace"
+                      fontStyle="bold"
+                      fill="#fbbf24"
+                      align="center"
+                      verticalAlign="middle"
+                    />
+                  </Group>
+                )}
               </Group>
             ))}
 
@@ -1502,6 +1462,16 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   y={y + config.height / 2}
                   draggable={!isReadOnly}
                   onClick={(e) => onMarkerClick?.(marker.id, e.evt.ctrlKey, e.evt.metaKey)}
+                  onMouseEnter={() => {
+                    if (marker.marker_type === 'cart_parking' && showDistances) {
+                      setHoveredParkingId(marker.id);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    if (marker.marker_type === 'cart_parking') {
+                      setHoveredParkingId(null);
+                    }
+                  }}
                   onDblClick={() => {
                     // Start inline editing for marker label
                     setEditingLabel(marker.id);
@@ -1818,22 +1788,79 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
         </Stage>
 
-        {/* Floating HUD - Total Distance */}
-        {showDistances && (
-          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border-2 border-blue-500 rounded-xl shadow-2xl p-4 min-w-[220px] backdrop-blur-sm">
-            <div className="flex flex-col gap-1">
-              <div className="text-[10px] font-mono font-bold text-slate-400 tracking-wider uppercase">
-                Total Walk Path
+        {/* Floating HUD - Enhanced Distance Display */}
+        {showDistances && routeDistanceResult && (
+          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border-2 border-blue-500 rounded-xl shadow-2xl p-4 min-w-[280px] backdrop-blur-sm">
+            <div className="flex flex-col gap-2">
+              {/* Header */}
+              <div className="flex justify-between items-center">
+                <div className="text-[10px] font-mono font-bold text-slate-400 tracking-wider uppercase">
+                  Total Distance
+                </div>
+                <div className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400 border border-slate-700">
+                  Manhattan
+                </div>
               </div>
+
+              {/* Total */}
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-mono font-bold text-white">
-                  {distanceLines.reduce((sum, line) => sum + line.distanceFeet, 0).toFixed(1)}
+                  {routeDistanceResult.totalDistanceFeet.toFixed(1)}
                 </span>
                 <span className="text-sm font-mono font-bold text-blue-400">FT</span>
               </div>
-              <div className="absolute top-4 right-4">
-                <div className="px-2 py-1 bg-slate-800 rounded text-[10px] font-mono text-slate-300 border border-slate-700">
-                  {distanceLines.length} Segs
+
+              {/* Breakdown */}
+              <div className="border-t border-slate-700 pt-2 mt-1 space-y-1.5">
+                {/* Cart Travel */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                    <span className="text-[11px] font-mono text-slate-300">Cart Travel</span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-sm font-mono font-semibold text-blue-400">
+                      {routeDistanceResult.cartTravelFeet.toFixed(1)}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">ft</span>
+                    <span className="text-[10px] font-mono text-slate-600 ml-1">
+                      ({routeDistanceResult.totalDistanceFeet > 0
+                        ? Math.round((routeDistanceResult.cartTravelFeet / routeDistanceResult.totalDistanceFeet) * 100)
+                        : 0}%)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Pedestrian Walk */}
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                    <span className="text-[11px] font-mono text-slate-300">Pedestrian Walk</span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-sm font-mono font-semibold text-amber-400">
+                      {routeDistanceResult.pedestrianWalkFeet.toFixed(1)}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-500">ft</span>
+                    <span className="text-[10px] font-mono text-slate-600 ml-1">
+                      ({routeDistanceResult.totalDistanceFeet > 0
+                        ? Math.round((routeDistanceResult.pedestrianWalkFeet / routeDistanceResult.totalDistanceFeet) * 100)
+                        : 0}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stats row */}
+              <div className="flex justify-between border-t border-slate-700 pt-2 mt-1">
+                <div className="text-[10px] font-mono text-slate-500">
+                  <span className="text-slate-300 font-semibold">{routeDistanceResult.parkingStopCount}</span> stops
+                </div>
+                <div className="text-[10px] font-mono text-slate-500">
+                  <span className="text-slate-300 font-semibold">{routeDistanceResult.elementsServed}</span> elements
+                </div>
+                <div className="text-[10px] font-mono text-slate-500">
+                  <span className="text-slate-300 font-semibold">{routeDistanceResult.segmentCount}</span> segs
                 </div>
               </div>
             </div>
@@ -1911,9 +1938,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         )}
 
         {/* Canvas Control Buttons - Floating bottom-right */}
-        <div className="absolute bottom-4 right-4 z-40 flex flex-col gap-2">
-          {/* Route Markers Toggle Button */}
-          {onRouteMarkersToggle && routeMarkers.length > 0 && (
+        {/* Note: Snap and Fit controls moved to StatusBar. Only Route Markers toggle remains. */}
+        {onRouteMarkersToggle && routeMarkers.length > 0 && (
+          <div className="absolute bottom-4 right-4 z-40">
             <button
               onClick={onRouteMarkersToggle}
               className={`flex items-center gap-2 px-3 py-2 border rounded-lg shadow-lg backdrop-blur-sm transition-all group ${showRouteMarkers
@@ -1929,41 +1956,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                 {showRouteMarkers ? 'Hide Markers' : 'Show Markers'}
               </span>
             </button>
-          )}
-
-          {/* Snapping Toggle Button */}
-          {onSnappingToggle && (
-            <button
-              onClick={onSnappingToggle}
-              className={`flex items-center gap-2 px-3 py-2 border rounded-lg shadow-lg backdrop-blur-sm transition-all group ${snappingEnabled
-                ? 'bg-emerald-600/90 hover:bg-emerald-500 border-emerald-500 hover:border-emerald-400'
-                : 'bg-slate-800/90 hover:bg-slate-700 border-slate-600 hover:border-slate-500'
-                }`}
-              title={`${snappingEnabled ? 'Disable' : 'Enable'} smart snapping for element placement`}
-            >
-              <svg className={`w-4 h-4 ${snappingEnabled ? 'text-white' : 'text-slate-400 group-hover:text-white'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
-              <span className={`text-xs font-medium ${snappingEnabled ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
-                {snappingEnabled ? 'Snap On' : 'Snap Off'}
-              </span>
-            </button>
-          )}
-
-          {/* Fit All Button */}
-          {elements.length > 0 && (
-            <button
-              onClick={fitToElements}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-800/90 hover:bg-blue-600 border border-slate-600 hover:border-blue-500 rounded-lg shadow-lg backdrop-blur-sm transition-all group"
-              title="Fit all elements in view (show entire layout)"
-            >
-              <svg className="w-4 h-4 text-slate-400 group-hover:text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              </svg>
-              <span className="text-xs font-medium text-slate-300 group-hover:text-white">Fit All</span>
-            </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Canvas Info Panel */}
@@ -2038,6 +2032,7 @@ interface ElementShapeProps {
   config: { width: number; height: number; color: string; displayName: string; description: string };
   isSelected: boolean;
   isHovered: boolean;
+  isZoneHighlighted?: boolean; // Highlighted when parking spot is hovered
 
   labelDisplayMode: LabelDisplayMode;
   onClick: (e: KonvaEventObject<MouseEvent>) => void;
@@ -2064,6 +2059,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
       config,
       isSelected,
       isHovered,
+      isZoneHighlighted,
 
       labelDisplayMode,
       onClick,
@@ -2193,13 +2189,13 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
               y={-Number(element.height) / 2}
               width={Number(element.width)}
               height={Number(element.height)}
-              fill={fillColor}
-              opacity={isSelected ? 0.9 : 0.7}
-              stroke={isSelected ? '#3b82f6' : '#1e293b'}
-              strokeWidth={isSelected ? 3 : 1}
-              shadowColor={isSelected ? (heatmapColor || config.color) : 'transparent'}
-              shadowBlur={isSelected ? 20 : 0}
-              shadowOpacity={0.6}
+              fill={isZoneHighlighted ? '#fbbf24' : fillColor}
+              opacity={isZoneHighlighted ? 1 : (isSelected ? 0.9 : 0.7)}
+              stroke={isZoneHighlighted ? '#f59e0b' : (isSelected ? '#3b82f6' : '#1e293b')}
+              strokeWidth={isZoneHighlighted ? 3 : (isSelected ? 3 : 1)}
+              shadowColor={isZoneHighlighted ? '#f59e0b' : (isSelected ? (heatmapColor || config.color) : 'transparent')}
+              shadowBlur={isZoneHighlighted ? 25 : (isSelected ? 20 : 0)}
+              shadowOpacity={isZoneHighlighted ? 0.8 : 0.6}
             />
 
             {/* Element Label - conditionally rendered based on display mode */}

@@ -7,6 +7,11 @@ interface MenuBarProps {
     layoutName: string;
     onAction: (action: string) => void;
     headerContent?: React.ReactNode;
+    // New props for relocated controls
+    onShowTemplates?: () => void;
+    onShowDxfImport?: () => void;
+    showDistances?: boolean;
+    onToggleDistances?: () => void;
 }
 
 interface MenuItem {
@@ -15,6 +20,8 @@ interface MenuItem {
     shortcut?: string;
     divider?: boolean;
     disabled?: boolean;
+    checked?: boolean;
+    onClick?: () => void;
 }
 
 interface Menu {
@@ -22,7 +29,15 @@ interface Menu {
     items: MenuItem[];
 }
 
-export default function MenuBar({ layoutName, onAction, headerContent }: MenuBarProps) {
+export default function MenuBar({
+    layoutName,
+    onAction,
+    headerContent,
+    onShowTemplates,
+    onShowDxfImport,
+    showDistances = false,
+    onToggleDistances
+}: MenuBarProps) {
     const [activeMenu, setActiveMenu] = useState<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
 
@@ -31,6 +46,10 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
             label: 'File',
             items: [
                 { label: 'Save', action: 'save', shortcut: 'Ctrl+S' },
+                { divider: true },
+                { label: 'Templates...', onClick: onShowTemplates },
+                { label: 'Import DXF...', onClick: onShowDxfImport },
+                { divider: true },
                 { label: 'Export as PNG', action: 'export_png' },
                 { label: 'Export as PDF', action: 'export_pdf' },
                 { divider: true },
@@ -41,7 +60,7 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
             label: 'Edit',
             items: [
                 { label: 'Undo', action: 'undo', shortcut: 'Ctrl+Z' },
-                { label: 'Redo', action: 'redo', shortcut: 'Ctrl+Shift+Z' },
+                { label: 'Redo', action: 'redo', shortcut: 'Ctrl+Y' },
                 { divider: true },
                 { label: 'Cut', action: 'cut', shortcut: 'Ctrl+X' },
                 { label: 'Copy', action: 'copy', shortcut: 'Ctrl+C' },
@@ -57,18 +76,20 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
         {
             label: 'View',
             items: [
-                { label: 'Zoom In', action: 'zoom_in', shortcut: 'Ctrl++' },
-                { label: 'Zoom Out', action: 'zoom_out', shortcut: 'Ctrl+-' },
-                { label: 'Fit to Screen', action: 'zoom_fit', shortcut: 'Ctrl+0' },
+                { label: 'Zoom In', action: 'zoom_in', shortcut: '+' },
+                { label: 'Zoom Out', action: 'zoom_out', shortcut: '-' },
+                { label: 'Fit to Screen', action: 'zoom_fit', shortcut: 'F' },
                 { divider: true },
-                { label: 'Toggle Grid', action: 'toggle_grid' },
-                { label: 'Toggle Snap', action: 'toggle_snap' },
+                { label: 'Show Distances', checked: showDistances, onClick: onToggleDistances },
+                { divider: true },
+                { label: 'Toggle Grid', action: 'toggle_grid', shortcut: 'G' },
+                { label: 'Toggle Snap', action: 'toggle_snap', shortcut: 'S' },
             ]
         },
         {
             label: 'Help',
             items: [
-                { label: 'Keyboard Shortcuts', action: 'help_shortcuts' },
+                { label: 'Keyboard Shortcuts', action: 'help_shortcuts', shortcut: '?' },
                 { label: 'About', action: 'help_about' },
             ]
         }
@@ -101,14 +122,8 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
 
                 <div className="h-4 w-px bg-slate-800"></div>
 
-                {/* File Name or Custom Content */}
-                {headerContent ? (
-                    headerContent
-                ) : (
-                    <div className="text-sm text-slate-400 font-medium hover:text-white cursor-pointer transition-colors">
-                        {layoutName}
-                    </div>
-                )}
+                {/* Layout Manager (passed via headerContent) */}
+                {headerContent}
 
                 {/* Menu Items */}
                 <nav className="hidden md:flex items-center gap-1 ml-2 relative">
@@ -135,8 +150,12 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
                                             ) : (
                                                 <button
                                                     onClick={() => {
-                                                        if (!item.disabled && item.action) {
-                                                            onAction(item.action);
+                                                        if (!item.disabled) {
+                                                            if (item.onClick) {
+                                                                item.onClick();
+                                                            } else if (item.action) {
+                                                                onAction(item.action);
+                                                            }
                                                             setActiveMenu(null);
                                                         }
                                                     }}
@@ -146,7 +165,15 @@ export default function MenuBar({ layoutName, onAction, headerContent }: MenuBar
                                                         : 'text-slate-300 hover:bg-blue-600 hover:text-white'
                                                         }`}
                                                 >
-                                                    <span>{item.label}</span>
+                                                    <span className="flex items-center gap-2">
+                                                        {/* Checkmark for checked items */}
+                                                        {item.checked !== undefined && (
+                                                            <span className={`w-4 ${item.checked ? 'text-blue-400' : 'text-transparent'}`}>
+                                                                ✓
+                                                            </span>
+                                                        )}
+                                                        <span>{item.label}</span>
+                                                    </span>
                                                     {item.shortcut && (
                                                         <span className="text-slate-500 font-mono text-[10px]">{item.shortcut}</span>
                                                     )}
