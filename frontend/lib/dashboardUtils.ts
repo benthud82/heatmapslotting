@@ -1,7 +1,7 @@
 // Dashboard Analytics Utility Functions
 // Provides calculations for velocity tiers, zone classification, efficiency metrics, and trend analysis
 
-import { AggregatedPickData, PickTransaction } from './types';
+import { AggregatedPickData, PickTransaction, ItemReslottingOpportunity, ElementType } from './types';
 
 // ============================================================================
 // TYPES
@@ -1181,5 +1181,109 @@ export function getItemReslottingRecommendations(
       potentialDailyTimeSavingsMinutes: Math.round(potentialDailyTimeSavingsMinutes * 10) / 10,
     },
   };
+}
+
+/**
+ * Find reslotting opportunities for items based on walk burden reduction.
+ * Returns target elements that could reduce walk burden if items were moved there.
+ *
+ * @param itemAnalysis - Item velocity analysis results from analyzeItemVelocity()
+ * @param elements - All warehouse elements with their types and positions
+ * @param cartParkingSpots - Cart parking locations for distance calculations
+ * @param sameElementTypeOnly - If true, only suggest moves to same element type
+ */
+export function findItemReslottingOpportunities(
+  itemAnalysis: ItemVelocityAnalysis[],
+  elements: Array<{ id: string; label: string; x: number; y: number; element_type: ElementType }>,
+  cartParkingSpots: Array<{ x: number; y: number }>,
+  sameElementTypeOnly: boolean = true
+): ItemReslottingOpportunity[] {
+  if (!itemAnalysis.length || !elements.length || !cartParkingSpots.length) {
+    return [];
+  }
+
+  const opportunities: ItemReslottingOpportunity[] = [];
+
+  // Create element distance map from nearest parking (Manhattan distance)
+  const elementDistances = new Map<string, number>();
+  const elementMap = new Map<string, typeof elements[0]>();
+
+  elements.forEach(el => {
+    elementMap.set(el.id, el);
+    // Calculate Manhattan distance to nearest cart parking
+    let minDist = Infinity;
+    cartParkingSpots.forEach(parking => {
+      const dist = Math.abs(el.x - parking.x) + Math.abs(el.y - parking.y);
+      if (dist < minDist) minDist = dist;
+    });
+    elementDistances.set(el.id, minDist);
+  });
+
+  // Get sorted elements by distance (closest first)
+  const sortedElements = [...elements].sort((a, b) =>
+    (elementDistances.get(a.id) || 0) - (elementDistances.get(b.id) || 0)
+  );
+
+  // For each item with move-closer recommendation, find target elements
+  itemAnalysis
+    .filter(item => item.recommendation === 'move-closer')
+    .forEach(item => {
+      const currentElement = elementMap.get(item.elementId);
+      if (!currentElement) return;
+
+      const currentDistance = elementDistances.get(item.elementId) || item.currentDistance;
+
+      // Find potential target elements
+      const targetElements = sortedElements
+        .filter(el => {
+          // Skip current element
+          if (el.id === item.elementId) return false;
+
+          // Filter by element type if required
+          if (sameElementTypeOnly && el.element_type !== currentElement.element_type) {
+            return false;
+          }
+
+          // Only pickable element types (exclude text, line, arrow)
+          if (['text', 'line', 'arrow'].includes(el.element_type)) {
+            return false;
+          }
+
+          // Only suggest elements that are closer
+          const targetDist = elementDistances.get(el.id) || 0;
+          return targetDist < currentDistance;
+        })
+        .slice(0, 3) // Top 3 suggestions
+        .map(el => {
+          const targetDist = elementDistances.get(el.id) || 0;
+          const walkSavingsPerPickPixels = (currentDistance - targetDist) * 2; // Round trip
+          const walkSavingsFeetPerDay = Math.round((walkSavingsPerPickPixels * item.avgDailyPicks) / 12); // Convert to feet/day
+          return {
+            id: el.id,
+            name: el.label,
+            type: el.element_type,
+            distance: targetDist,
+            walkSavings: walkSavingsFeetPerDay,
+          };
+        });
+
+      if (targetElements.length > 0) {
+        opportunities.push({
+          item,
+          currentElement: {
+            id: currentElement.id,
+            name: currentElement.label,
+            type: currentElement.element_type,
+            distance: currentDistance,
+          },
+          targetElements,
+          totalDailyWalkSavings: targetElements[0].walkSavings,
+          recommendation: 'move-closer',
+        });
+      }
+    });
+
+  // Sort by potential savings (highest first)
+  return opportunities.sort((a, b) => b.totalDailyWalkSavings - a.totalDailyWalkSavings);
 }
 

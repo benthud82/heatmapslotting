@@ -557,6 +557,7 @@ router.get('/items/aggregated', authMiddleware, async (req, res, next) => {
         l.location_id as external_location_id,
         ipt.element_id,
         we.label as element_name,
+        we.element_type,
         we.x_coordinate,
         we.y_coordinate,
         SUM(ipt.pick_count) as total_picks,
@@ -582,7 +583,7 @@ router.get('/items/aggregated', authMiddleware, async (req, res, next) => {
     }
 
     queryText += ` GROUP BY ipt.item_id, i.item_id, i.description, ipt.location_id, l.location_id,
-                   ipt.element_id, we.label, we.x_coordinate, we.y_coordinate
+                   ipt.element_id, we.label, we.element_type, we.x_coordinate, we.y_coordinate
                    ORDER BY total_picks DESC`;
 
     const result = await query(queryText, queryParams);

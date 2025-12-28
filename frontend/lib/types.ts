@@ -128,6 +128,7 @@ export interface AggregatedItemPickData {
   external_location_id: string;
   element_id: string;
   element_name: string;
+  element_type: ElementType;
   x_coordinate: number;
   y_coordinate: number;
   total_picks: number;
@@ -359,3 +360,23 @@ export const ROUTE_MARKER_CONFIGS: Record<
     icon: '🛒'
   }
 };
+
+// Item-level reslotting opportunity
+export interface ItemReslottingOpportunity {
+  item: ItemVelocityAnalysis;
+  currentElement: {
+    id: string;
+    name: string;
+    type: ElementType;
+    distance: number;  // pixels
+  };
+  targetElements: Array<{
+    id: string;
+    name: string;
+    type: ElementType;
+    distance: number;  // pixels
+    walkSavings: number;  // feet/day
+  }>;
+  totalDailyWalkSavings: number;
+  recommendation: 'move-closer' | 'move-further';
+}

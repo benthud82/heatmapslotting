@@ -25,7 +25,9 @@
       "Bash(npx next lint:*)",
       "Bash(node -e:*)",
       "WebFetch(domain:www.slot3d.com)",
-      "WebFetch(domain:help.figma.com)"
+      "WebFetch(domain:help.figma.com)",
+      "Bash(xargs ls:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

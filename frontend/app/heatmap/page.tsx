@@ -5,13 +5,14 @@ import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
 import HeatmapElementModal from '@/components/heatmap/HeatmapElementModal';
+import SlottingAlertBanner from '@/components/heatmap/SlottingAlertBanner';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { WarehouseElement, Layout, AggregatedPickData, RouteMarker, AggregatedItemPickData } from '@/lib/types';
+import { WarehouseElement, Layout, AggregatedPickData, RouteMarker, AggregatedItemPickData, ItemReslottingOpportunity } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
-import { analyzeVelocity } from '@/lib/dashboardUtils';
+import { analyzeVelocity, analyzeItemVelocity, findItemReslottingOpportunities } from '@/lib/dashboardUtils';
 import { useRef } from 'react';
 import SkuDetailModal from '@/components/heatmap/SkuDetailModal';
 
@@ -64,7 +65,43 @@ export default function Heatmap() {
     });
   };
 
-  // ... (loadLayoutDetails and loadPickData updates will be in next steps or follow)
+  // Helper to calculate and add round trip distance to item-level data
+  const enrichItemDataWithDistance = (
+    data: AggregatedItemPickData[],
+    markers: RouteMarker[]
+  ): AggregatedItemPickData[] => {
+    if (!data.length || !markers.length) return data;
+
+    // Get parking spots (prioritize cart_parking, fallback to start_point)
+    let parkingSpots = markers
+      .filter(m => m.marker_type === 'cart_parking')
+      .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+
+    if (parkingSpots.length === 0) {
+      parkingSpots = markers
+        .filter(m => m.marker_type === 'start_point')
+        .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    }
+
+    if (parkingSpots.length === 0) return data;
+
+    return data.map(item => {
+      const itemPos = { x: Number(item.x_coordinate), y: Number(item.y_coordinate) };
+      // Calculate Manhattan distance to nearest parking
+      let minDist = Infinity;
+      parkingSpots.forEach(parking => {
+        const dist = Math.abs(itemPos.x - parking.x) + Math.abs(itemPos.y - parking.y);
+        if (dist < minDist) minDist = dist;
+      });
+      // Round trip feet = (distance * 2) / 12 (pixels to feet)
+      const roundTripFeet = Math.round((minDist * 2) / 12);
+
+      return {
+        ...item,
+        roundTripDistanceFeet: roundTripFeet,
+      };
+    });
+  };
 
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -99,6 +136,12 @@ export default function Heatmap() {
   const [routeMarkers, setRouteMarkers] = useState<RouteMarker[]>([]);
   const [showRouteMarkers, setShowRouteMarkers] = useState(true);
   const [showDistances, setShowDistances] = useState(false);
+  const [heatmapColorMode, setHeatmapColorMode] = useState<'picks' | 'burden'>('picks');
+
+  // Item-level data state
+  const [itemData, setItemData] = useState<AggregatedItemPickData[]>([]);
+  const [itemDataLoading, setItemDataLoading] = useState(false);
+  const [sameElementTypeOnly, setSameElementTypeOnly] = useState(true);
 
   // Detail modal state
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -233,9 +276,22 @@ export default function Heatmap() {
         setPickData(pickMap);
         setAggregatedData(enrichDataWithDistance(recentDayData, markersData, elementsData));
         setHasPickData(recentDayData.length > 0);
+
+        // Load item-level data
+        setItemDataLoading(true);
+        try {
+          const itemLevelData = await picksApi.getItemsAggregated(layoutId, formattedDate, formattedDate);
+          setItemData(enrichItemDataWithDistance(itemLevelData, markersData));
+        } catch (itemErr) {
+          console.error('Failed to load item-level data:', itemErr);
+          setItemData([]);
+        } finally {
+          setItemDataLoading(false);
+        }
       } else {
         setPickData(new Map());
         setAggregatedData([]);
+        setItemData([]);
         setHasPickData(false);
         setAvailableDates([]);
         setStartDate('');
@@ -266,6 +322,22 @@ export default function Heatmap() {
       setPickData(pickMap);
       setAggregatedData(enrichDataWithDistance(data, routeMarkers, elements));
       setHasPickData(data.length > 0);
+
+      // Also load item-level data
+      setItemDataLoading(true);
+      try {
+        const itemLevelData = await picksApi.getItemsAggregated(
+          layoutId,
+          startDate || undefined,
+          endDate || undefined
+        );
+        setItemData(enrichItemDataWithDistance(itemLevelData, routeMarkers));
+      } catch (itemErr) {
+        console.error('Failed to load item-level data:', itemErr);
+        setItemData([]);
+      } finally {
+        setItemDataLoading(false);
+      }
     } catch (err) {
       console.error('Failed to load pick data:', err);
     }
@@ -312,6 +384,98 @@ export default function Heatmap() {
     };
   }, [pickData]);
 
+  // Calculate walk burden data (picks × distance) for heatmap mode
+  // Uses item-level data when available for more accurate burden calculation
+  const walkBurdenData = useMemo(() => {
+    const burdenMap = new Map<string, number>();
+    if (heatmapColorMode !== 'burden') {
+      return { burdenMap, minBurden: 0, maxBurden: 0 };
+    }
+
+    // Use item-level data if available (more accurate)
+    if (itemData.length > 0) {
+      // Aggregate item-level burden by element
+      itemData.forEach(item => {
+        if (item.roundTripDistanceFeet) {
+          const burden = item.total_picks * item.roundTripDistanceFeet;
+          const existing = burdenMap.get(item.element_id) || 0;
+          burdenMap.set(item.element_id, existing + burden);
+        }
+      });
+    } else if (aggregatedData.length > 0) {
+      // Fall back to element-level data
+      aggregatedData.forEach(item => {
+        if (item.roundTripDistanceFeet) {
+          const burden = item.total_picks * item.roundTripDistanceFeet;
+          burdenMap.set(item.element_id, burden);
+        }
+      });
+    }
+
+    const burdenValues = Array.from(burdenMap.values());
+    if (burdenValues.length === 0) {
+      return { burdenMap, minBurden: 0, maxBurden: 0 };
+    }
+
+    return {
+      burdenMap,
+      minBurden: Math.min(...burdenValues),
+      maxBurden: Math.max(...burdenValues),
+    };
+  }, [heatmapColorMode, itemData, aggregatedData]);
+
+  // Calculate item-level slotting recommendations for alert banner
+  const itemSlottingRecommendations = useMemo((): { opportunities: ItemReslottingOpportunity[]; totalDailySavingsFeet: number } => {
+    if (!showDistances || !itemData.length || !routeMarkers.length) {
+      return { opportunities: [], totalDailySavingsFeet: 0 };
+    }
+
+    // Get parking spots for distance calculation
+    let parkingSpots = routeMarkers
+      .filter(m => m.marker_type === 'cart_parking')
+      .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+
+    if (parkingSpots.length === 0) {
+      parkingSpots = routeMarkers
+        .filter(m => m.marker_type === 'start_point')
+        .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    }
+
+    if (parkingSpots.length === 0) {
+      return { opportunities: [], totalDailySavingsFeet: 0 };
+    }
+
+    // Map elements with their types for reslotting analysis
+    const elementsWithTypes = elements
+      .filter(el => !['text', 'line', 'arrow'].includes(el.element_type))
+      .map(el => ({
+        id: el.id,
+        label: el.label,
+        x: Number(el.x_coordinate),
+        y: Number(el.y_coordinate),
+        element_type: el.element_type,
+      }));
+
+    // Run item-level velocity analysis
+    const itemAnalysis = analyzeItemVelocity(itemData, undefined, parkingSpots);
+
+    // Find reslotting opportunities with element type matching
+    const opportunities = findItemReslottingOpportunities(
+      itemAnalysis,
+      elementsWithTypes,
+      parkingSpots,
+      sameElementTypeOnly
+    );
+
+    // Calculate total potential savings
+    const totalDailySavingsFeet = opportunities.reduce(
+      (sum, opp) => sum + opp.totalDailyWalkSavings,
+      0
+    );
+
+    return { opportunities, totalDailySavingsFeet };
+  }, [showDistances, itemData, routeMarkers, elements, sameElementTypeOnly]);
+
   if (loading && !layouts.length) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
@@ -355,67 +519,96 @@ export default function Heatmap() {
             </svg>
             <span className="hidden sm:inline">UPLOAD PICKS</span>
           </button>
-          <button
-            onClick={() => setShowRouteMarkers(!showRouteMarkers)}
-            className={`px-4 py-2 font-mono text-sm rounded transition-colors flex items-center gap-2 border ${showRouteMarkers
-              ? 'bg-purple-600 border-purple-500 text-white shadow-lg shadow-purple-900/20'
-              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
-              }`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            <span className="hidden sm:inline">{showRouteMarkers ? 'HIDE MARKERS' : 'SHOW MARKERS'}</span>
-          </button>
-          <button
-            onClick={() => setShowDistances(!showDistances)}
-            className={`px-4 py-2 font-mono text-sm rounded transition-colors flex items-center gap-2 border ${showDistances
-              ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/20'
-              : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
-              }`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.806-.98l-3.253-1.626M15 10v10" />
-            </svg>
-            <span className="hidden sm:inline">{showDistances ? 'HIDE DISTANCES' : 'SHOW DISTANCES'}</span>
-          </button>
         </div>
       </Header>
 
-      {/* Date Range Filters */}
+      {/* Date Range & View Controls Bar */}
       {(hasPickData || availableDates.length > 0) && (
         <div className="bg-slate-900 border-b border-slate-800 flex-shrink-0">
           <div className="w-full px-6 py-3">
-            <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span className="text-sm font-mono text-slate-400">Date Range:</span>
+            <div className="flex items-center justify-between flex-wrap gap-4">
+              {/* Left: Date Range */}
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span className="text-sm font-mono text-slate-400">Date Range:</span>
+                </div>
+
+                <DateRangePicker
+                  startDate={startDate}
+                  endDate={endDate}
+                  onChange={(start, end) => {
+                    setStartDate(start);
+                    setEndDate(end);
+                  }}
+                  availableDates={availableDates}
+                />
+
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => {
+                      setStartDate('');
+                      setEndDate('');
+                    }}
+                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
 
-              <DateRangePicker
-                startDate={startDate}
-                endDate={endDate}
-                onChange={(start, end) => {
-                  setStartDate(start);
-                  setEndDate(end);
-                }}
-                availableDates={availableDates}
-              />
-
-              {(startDate || endDate) && (
+              {/* Right: View Controls */}
+              <div className="flex items-center gap-2">
+                {/* Route Markers Toggle */}
                 <button
-                  onClick={() => {
-                    setStartDate('');
-                    setEndDate('');
-                  }}
-                  className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
+                  onClick={() => setShowRouteMarkers(!showRouteMarkers)}
+                  className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showRouteMarkers
+                    ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                    }`}
                 >
-                  Clear
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Markers
                 </button>
-              )}
+
+                {/* Distances Toggle */}
+                <button
+                  onClick={() => setShowDistances(!showDistances)}
+                  className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showDistances
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                    }`}
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.806-.98l-3.253-1.626M15 10v10" />
+                  </svg>
+                  Distances
+                </button>
+
+                {/* Color Mode Toggle */}
+                {hasPickData && (
+                  <div className="flex bg-slate-800 rounded border border-slate-700 text-[11px] font-mono">
+                    <button
+                      onClick={() => setHeatmapColorMode('picks')}
+                      className={`px-2.5 py-1.5 rounded-l transition-colors ${heatmapColorMode === 'picks' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                    >
+                      Picks
+                    </button>
+                    <button
+                      onClick={() => setHeatmapColorMode('burden')}
+                      className={`px-2.5 py-1.5 rounded-r transition-colors ${heatmapColorMode === 'burden' ? 'bg-amber-600/30 text-amber-300' : 'text-slate-400 hover:text-slate-300'}`}
+                      title="Color by Walk Burden (picks × distance)"
+                    >
+                      Burden
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -437,6 +630,17 @@ export default function Heatmap() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* Slotting Recommendations Alert */}
+      {showDistances && hasPickData && (
+        <SlottingAlertBanner
+          opportunities={itemSlottingRecommendations.opportunities}
+          totalDailySavingsFeet={itemSlottingRecommendations.totalDailySavingsFeet}
+          sameElementTypeOnly={sameElementTypeOnly}
+          onToggleSameType={() => setSameElementTypeOnly(prev => !prev)}
+          onItemClick={(itemId, elementId) => setSelectedElementId(elementId)}
+        />
       )}
 
       {/* Main Content - Full Height Flex Container */}
@@ -463,6 +667,10 @@ export default function Heatmap() {
             onRouteMarkersToggle={() => setShowRouteMarkers(prev => !prev)}
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
+            heatmapColorMode={heatmapColorMode}
+            walkBurdenData={walkBurdenData.burdenMap}
+            minBurden={walkBurdenData.minBurden}
+            maxBurden={walkBurdenData.maxBurden}
           />
         </div>
 
@@ -483,6 +691,7 @@ export default function Heatmap() {
               setSelectedSku(item);
               setSelectedSkuRank(rank);
             }}
+            allItemData={itemData}
           />
         ) : (
           <div className="h-full border-l border-slate-800 bg-slate-900/50 backdrop-blur-sm p-6 min-w-[280px] w-[320px]">
@@ -515,6 +724,54 @@ export default function Heatmap() {
           }}
         />
       )}
+
+      {/* Status Bar Footer */}
+      <footer className="h-7 bg-slate-900 border-t border-slate-800 flex items-center justify-between px-4 text-[11px] font-mono text-slate-400 select-none z-40 flex-shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">ELEMENTS:</span>
+            <span className="font-semibold text-white">{elements.length}</span>
+          </div>
+          <div className="w-px h-3 bg-slate-700"></div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">ITEMS:</span>
+            <span className="font-semibold text-white">{itemData.length}</span>
+          </div>
+          <div className="w-px h-3 bg-slate-700"></div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">PICKS:</span>
+            <span className="font-semibold text-white">{totalPicks.toLocaleString()}</span>
+          </div>
+          {routeMarkers.length > 0 && (
+            <>
+              <div className="w-px h-3 bg-slate-700"></div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-500">MARKERS:</span>
+                <span className="font-semibold text-white">{routeMarkers.length}</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {itemDataLoading ? (
+            <div className="flex items-center gap-1.5 text-slate-400">
+              <div className="w-1.5 h-1.5 border border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-[10px]">LOADING</span>
+            </div>
+          ) : hasPickData ? (
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+              <span className="text-[10px] text-green-400">READY</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 bg-slate-500 rounded-full"></div>
+              <span className="text-[10px] text-slate-500">NO DATA</span>
+            </div>
+          )}
+        </div>
+      </footer>
     </div>
   );
 }

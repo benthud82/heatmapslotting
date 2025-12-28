@@ -18,6 +18,8 @@ interface HeatmapSidebarProps {
     endDate?: string;
     onViewDetails?: () => void;
     onSkuClick?: (item: AggregatedItemPickData, rank: number) => void;
+    // Item-level data for more accurate burden calculations
+    allItemData?: AggregatedItemPickData[];
 }
 
 export default function HeatmapSidebar({
@@ -32,6 +34,7 @@ export default function HeatmapSidebar({
     endDate = '',
     onViewDetails,
     onSkuClick,
+    allItemData,
 }: HeatmapSidebarProps) {
     // Item data state for selected element
     const [itemData, setItemData] = useState<AggregatedItemPickData[]>([]);
@@ -97,20 +100,53 @@ export default function HeatmapSidebar({
         }
     };
 
-    // Calculate statistics
+    // Sort mode for hotspots
+    const [sortMode, setSortMode] = useState<'picks' | 'burden'>('picks');
+
+    // Calculate statistics with walk burden
+    // Uses item-level data when available for more accurate burden calculations
     const stats = useMemo(() => {
         const activeElements = aggregatedData.length;
 
-        // Top 3 Hotspots
-        const topHotspots = [...aggregatedData]
-            .sort((a, b) => b.total_picks - a.total_picks)
-            .slice(0, 3);
+        // Calculate walk burden for each element
+        // Use item-level data if available (more accurate)
+        const dataWithBurden = aggregatedData.map(d => {
+            let walkBurden = 0;
+
+            if (allItemData && allItemData.length > 0) {
+                // Aggregate item-level burden for this element
+                const elementItems = allItemData.filter(item => item.element_id === d.element_id);
+                walkBurden = elementItems.reduce((sum, item) => {
+                    return sum + (item.roundTripDistanceFeet || 0) * item.total_picks;
+                }, 0);
+            } else {
+                // Fall back to element-level calculation
+                walkBurden = d.roundTripDistanceFeet ? d.total_picks * d.roundTripDistanceFeet : 0;
+            }
+
+            return {
+                ...d,
+                walkBurden,
+            };
+        });
+
+        // Sort by selected mode
+        const sorted = [...dataWithBurden].sort((a, b) =>
+            sortMode === 'burden' ? b.walkBurden - a.walkBurden : b.total_picks - a.total_picks
+        );
+
+        // Top 5 hotspots (increased from 3 to show more slotting candidates)
+        const topHotspots = sorted.slice(0, 5);
+
+        // Total walk burden
+        const totalWalkBurden = dataWithBurden.reduce((sum, d) => sum + d.walkBurden, 0);
 
         return {
             activeElements,
             topHotspots,
+            totalWalkBurden,
         };
-    }, [aggregatedData]);
+    }, [aggregatedData, allItemData, sortMode]);
 
     // Render element detail view when element is selected
     if (selectedElementId && selectedElement) {
@@ -303,27 +339,63 @@ export default function HeatmapSidebar({
                 </div>
             </div>
 
-            {/* Top Hotspots */}
+            {/* Top Hotspots with Walk Burden */}
             <div>
-                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
-                    Top Hotspots
-                </h3>
-                <div className="space-y-3">
-                    {stats.topHotspots.map((spot, index) => (
-                        <div key={spot.element_id} className="flex items-center justify-between p-3 bg-slate-800/30 rounded-lg border border-slate-700/30 hover:bg-slate-800/50 transition-colors">
-                            <div className="flex items-center gap-3">
-                                <div className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold ${index === 0 ? 'bg-yellow-500/20 text-yellow-500' :
-                                    index === 1 ? 'bg-slate-700 text-slate-300' :
-                                        'bg-slate-800 text-slate-500'
-                                    }`}>
-                                    {index + 1}
+                <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse"></span>
+                        {sortMode === 'burden' ? 'Highest Walk Burden' : 'Top Hotspots'}
+                    </h3>
+                    {/* Sort Toggle */}
+                    <div className="flex bg-slate-800 rounded text-[10px] font-mono">
+                        <button
+                            onClick={() => setSortMode('picks')}
+                            className={`px-2 py-1 rounded-l transition-colors ${sortMode === 'picks' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Picks
+                        </button>
+                        <button
+                            onClick={() => setSortMode('burden')}
+                            className={`px-2 py-1 rounded-r transition-colors ${sortMode === 'burden' ? 'bg-amber-600/30 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                            Burden
+                        </button>
+                    </div>
+                </div>
+                <div className="space-y-2">
+                    {stats.topHotspots.map((spot, index) => {
+                        // Color code based on walk burden severity
+                        const burdenSeverity = stats.totalWalkBurden > 0 ? spot.walkBurden / stats.totalWalkBurden : 0;
+                        const isCritical = burdenSeverity > 0.15; // >15% of total burden
+
+                        return (
+                            <div key={spot.element_id} className={`p-2.5 bg-slate-800/30 rounded-lg border transition-colors hover:bg-slate-800/50 ${isCritical && sortMode === 'burden' ? 'border-amber-500/40' : 'border-slate-700/30'}`}>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-5 h-5 flex items-center justify-center rounded text-[10px] font-bold ${index === 0 ? 'bg-yellow-500/20 text-yellow-500' :
+                                            index === 1 ? 'bg-slate-700 text-slate-300' :
+                                                'bg-slate-800 text-slate-500'
+                                            }`}>
+                                            {index + 1}
+                                        </div>
+                                        <span className="font-mono text-xs text-white font-medium truncate max-w-[120px]">{spot.element_name}</span>
+                                    </div>
+                                    <span className="font-mono text-xs text-slate-400">{spot.total_picks.toLocaleString()} picks</span>
                                 </div>
-                                <span className="font-mono text-sm text-white font-medium">{spot.element_name}</span>
+                                {/* Distance and Walk Burden row */}
+                                <div className="flex items-center justify-between text-[10px] font-mono">
+                                    <span className="text-slate-500">
+                                        {spot.roundTripDistanceFeet ? `${spot.roundTripDistanceFeet.toFixed(0)} ft` : '-- ft'}
+                                    </span>
+                                    {spot.walkBurden > 0 && (
+                                        <span className={`${isCritical ? 'text-amber-400' : 'text-slate-500'}`}>
+                                            {(spot.walkBurden / 1000).toFixed(1)}k ft walked
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <span className="font-mono text-sm text-slate-400">{spot.total_picks.toLocaleString()}</span>
-                        </div>
-                    ))}
+                        );
+                    })}
                     {stats.topHotspots.length === 0 && (
                         <div className="text-sm text-slate-500 italic text-center py-4">No data available</div>
                     )}

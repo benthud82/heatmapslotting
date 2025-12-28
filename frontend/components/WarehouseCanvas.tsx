@@ -10,7 +10,7 @@ import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, Route
 import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
-import { calculateRouteDistance, type DistanceCalculationResult } from '@/lib/distanceCalculation';
+import { calculateRouteDistance, type DistanceCalculationResult, getMarkerCenter, getElementCenter, pixelsToFeet, calculateManhattanDistance } from '@/lib/distanceCalculation';
 
 // Route marker snapping function with intelligent prioritization
 const findRouteMarkerSnapPoints = (
@@ -276,6 +276,11 @@ interface WarehouseCanvasProps {
   // Distance visualization
   showDistances?: boolean;
   onDistancesToggle?: () => void;
+  // Walk burden heatmap mode
+  heatmapColorMode?: 'picks' | 'burden';
+  walkBurdenData?: Map<string, number>;
+  minBurden?: number;
+  maxBurden?: number;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -307,6 +312,10 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   onMultiElementUpdate,
   showDistances = false,
   onDistancesToggle,
+  heatmapColorMode = 'picks',
+  walkBurdenData,
+  minBurden = 0,
+  maxBurden = 0,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -320,6 +329,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [cursorCanvasPos, setCursorCanvasPos] = useState<{ x: number; y: number } | null>(null);
   const [hoveredParkingId, setHoveredParkingId] = useState<string | null>(null);
+  const [parkingTooltipPos, setParkingTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
   // Zoom and pan state
   const [stageScale, setStageScale] = useState(1);
@@ -445,6 +455,83 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     if (!assignment) return new Set<string>();
     return new Set(assignment.assignedElements.map(e => e.elementId));
   }, [hoveredParkingId, routeDistanceResult]);
+
+  // Calculate parking zone stats for tooltip when hovering a parking spot
+  const hoveredParkingStats = useMemo(() => {
+    if (!hoveredParkingId || !routeDistanceResult) return null;
+    const assignment = routeDistanceResult.parkingAssignments.find(a => a.parkingId === hoveredParkingId);
+    if (!assignment || assignment.assignedElements.length === 0) return null;
+
+    const distances = assignment.assignedElements.map(e => e.roundTripFeet);
+    const nearestDist = Math.min(...distances);
+    const farthestDist = Math.max(...distances);
+    const totalDist = assignment.totalPedestrianDistFeet;
+
+    return {
+      elementCount: assignment.assignedElements.length,
+      totalWalkFeet: totalDist,
+      nearestFeet: nearestDist,
+      farthestFeet: farthestDist,
+      parkingLabel: assignment.parkingLabel,
+    };
+  }, [hoveredParkingId, routeDistanceResult]);
+
+  // Calculate round-trip distance for each pickable element to nearest start/parking
+  const elementDistances = useMemo(() => {
+    if (!showDistances) return new Map<string, { distanceFeet: number; nearestLabel: string }>();
+
+    // Get pickable elements only
+    const pickableElements = elements.filter(
+      e => e.element_type === 'bay' || e.element_type === 'flow_rack' || e.element_type === 'full_pallet'
+    );
+
+    if (pickableElements.length === 0) return new Map<string, { distanceFeet: number; nearestLabel: string }>();
+
+    // Find start point and parking spots
+    const startPoint = routeMarkers.find(m => m.marker_type === 'start_point');
+    const cartParkingSpots = routeMarkers.filter(m => m.marker_type === 'cart_parking');
+
+    // Need at least a start point to calculate distances
+    if (!startPoint && cartParkingSpots.length === 0) {
+      return new Map<string, { distanceFeet: number; nearestLabel: string }>();
+    }
+
+    const result = new Map<string, { distanceFeet: number; nearestLabel: string }>();
+
+    pickableElements.forEach(element => {
+      const elementCenter = getElementCenter(element);
+      let minDistance = Infinity;
+      let nearestLabel = '';
+
+      // Check distance to start point
+      if (startPoint) {
+        const startCenter = getMarkerCenter(startPoint);
+        const dist = calculateManhattanDistance(elementCenter, startCenter);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestLabel = 'Start';
+        }
+      }
+
+      // Check distance to each parking spot
+      cartParkingSpots.forEach((parking, idx) => {
+        const parkingCenter = getMarkerCenter(parking);
+        const dist = calculateManhattanDistance(elementCenter, parkingCenter);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestLabel = parking.label || `P${idx + 1}`;
+        }
+      });
+
+      if (minDistance < Infinity) {
+        // Round trip = 2x one-way distance
+        const roundTripFeet = pixelsToFeet(minDistance * 2);
+        result.set(element.id, { distanceFeet: roundTripFeet, nearestLabel });
+      }
+    });
+
+    return result;
+  }, [showDistances, elements, routeMarkers]);
 
   // Expose methods to parent via ref
   useImperativeHandle(ref, () => ({
@@ -1307,9 +1394,14 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               const isHovered = element.id === hoveredElementId;
               const isSingleSelection = isSelected && selectedElementIds.length === 1;
 
-              // Calculate heatmap color if pick data exists for this element
+              // Calculate heatmap color based on color mode
               let heatmapColor: string | undefined;
-              if (pickData && pickData.has(element.id)) {
+              if (heatmapColorMode === 'burden' && walkBurdenData && walkBurdenData.has(element.id)) {
+                // Walk burden mode: color by picks × distance
+                const burden = walkBurdenData.get(element.id)!;
+                heatmapColor = getHeatmapColor(burden, minBurden, maxBurden);
+              } else if (pickData && pickData.has(element.id)) {
+                // Default picks mode: color by pick count
                 const picks = pickData.get(element.id)!;
                 heatmapColor = getHeatmapColor(picks, minPicks, maxPicks);
               }
@@ -1371,88 +1463,90 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               );
             })}
 
-            {/* Distance Visualization Layer */}
+            {/* Cart Route Path Visualization */}
             {showDistances && distanceLines.map((line, i) => (
               <Group key={`dist-${i}`}>
-                {/* Thin vibrant trace line */}
+                {/* Route line connecting markers */}
                 <Line
                   points={[line.start.x, line.start.y, line.end.x, line.end.y]}
-                  stroke="#60a5fa"
-                  strokeWidth={2}
-                  dash={[6, 4]}
-                  opacity={0.7}
+                  stroke="#475569"
+                  strokeWidth={1.5}
+                  dash={[4, 3]}
+                  opacity={0.9}
                   listening={false}
                 />
-                {/* Compact Distance Label */}
+                {/* Industrial distance label */}
                 <Group x={line.midpoint.x} y={line.midpoint.y}>
-                  {/* Slim Background pill */}
                   <Rect
-                    x={-28}
-                    y={-11}
-                    width={56}
-                    height={22}
+                    x={-18}
+                    y={-8}
+                    width={36}
+                    height={16}
                     fill="#0f172a"
-                    stroke="#3b82f6"
-                    strokeWidth={0.5}
-                    cornerRadius={4}
-                    opacity={0.85}
+                    stroke="#334155"
+                    strokeWidth={1}
+                    opacity={0.95}
                   />
-                  {/* Distance value - tightly packed */}
                   <Text
-                    x={-28}
-                    y={-10}
-                    width={56}
-                    text={`${line.distanceFeet.toFixed(1)}'`}
-                    fontSize={11}
+                    x={-18}
+                    y={-7}
+                    width={36}
+                    text={`${line.distanceFeet.toFixed(0)}'`}
+                    fontSize={10}
                     fontFamily="monospace"
-                    fontStyle="bold"
-                    fill="#f8fafc"
+                    fill="#64748b"
                     align="center"
                     verticalAlign="middle"
                   />
-                  {/* Tiny segment context */}
+                </Group>
+              </Group>
+            ))}
+
+            {/* Element Distance Badges - Round-trip distance for each bay/rack/pallet */}
+            {showDistances && elements.filter(
+              e => e.element_type === 'bay' || e.element_type === 'flow_rack' || e.element_type === 'full_pallet'
+            ).map((element) => {
+              const distInfo = elementDistances.get(element.id);
+              if (!distInfo) return null;
+
+              const x = Number(element.x_coordinate);
+              const y = Number(element.y_coordinate);
+              const width = Number(element.width);
+              const height = Number(element.height);
+
+              // Position badge at bottom-right corner of element
+              const badgeX = x + width - 2;
+              const badgeY = y + height - 2;
+
+              return (
+                <Group key={`dist-badge-${element.id}`} x={badgeX} y={badgeY} listening={false}>
+                  {/* Compact distance badge */}
+                  <Rect
+                    x={-32}
+                    y={-14}
+                    width={34}
+                    height={16}
+                    fill="#1e293b"
+                    stroke="#475569"
+                    strokeWidth={0.5}
+                    cornerRadius={3}
+                    opacity={0.9}
+                  />
                   <Text
-                    x={-28}
-                    y={1}
-                    width={56}
-                    text={line.segmentName}
-                    fontSize={7}
+                    x={-32}
+                    y={-13}
+                    width={34}
+                    text={`${distInfo.distanceFeet.toFixed(0)}'`}
+                    fontSize={10}
                     fontFamily="monospace"
+                    fontStyle="bold"
                     fill="#94a3b8"
                     align="center"
                     verticalAlign="middle"
                   />
                 </Group>
-                {/* Minimalist Pedestrian Indicator */}
-                {line.pedestrianAtStart && line.pedestrianAtStart.walkDistanceFeet > 0 && (
-                  <Group x={line.start.x} y={line.start.y + 18}>
-                    <Rect
-                      x={-24}
-                      y={-6}
-                      width={48}
-                      height={12}
-                      fill="#78350f"
-                      stroke="#fbbf24"
-                      strokeWidth={0.5}
-                      cornerRadius={6}
-                      opacity={0.8}
-                    />
-                    <Text
-                      x={-24}
-                      y={-5}
-                      width={48}
-                      text={`🚶${line.pedestrianAtStart.walkDistanceFeet.toFixed(0)}'`}
-                      fontSize={8}
-                      fontFamily="monospace"
-                      fontStyle="bold"
-                      fill="#fde68a"
-                      align="center"
-                      verticalAlign="middle"
-                    />
-                  </Group>
-                )}
-              </Group>
-            ))}
+              );
+            })}
 
             {/* Route Markers */}
             {showRouteMarkers && routeMarkers.map((marker) => {
@@ -1471,11 +1565,20 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   onMouseEnter={() => {
                     if (marker.marker_type === 'cart_parking' && showDistances) {
                       setHoveredParkingId(marker.id);
+                      // Position tooltip below the parking marker
+                      const stage = stageRef.current;
+                      if (stage) {
+                        const pos = stage.getPointerPosition();
+                        if (pos) {
+                          setParkingTooltipPos({ x: pos.x, y: pos.y + 30 });
+                        }
+                      }
                     }
                   }}
                   onMouseLeave={() => {
                     if (marker.marker_type === 'cart_parking') {
                       setHoveredParkingId(null);
+                      setParkingTooltipPos(null);
                     }
                   }}
                   onDblClick={() => {
@@ -1800,80 +1903,107 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         </Stage>
 
         {showDistances && routeDistanceResult && (
-          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border border-slate-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] p-4 min-w-[280px] backdrop-blur-md">
+          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border border-slate-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] p-4 min-w-[240px] backdrop-blur-md">
             {/* Accent Bar */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 rounded-t-xl opacity-80"></div>
 
-            <div className="flex flex-col gap-2 mt-1">
+            <div className="flex flex-col gap-3 mt-1">
               {/* Header */}
               <div className="flex justify-between items-center">
                 <div className="text-[11px] font-mono font-bold text-blue-400 tracking-wider uppercase">
-                  Route Analytics
+                  Route Distance
                 </div>
                 <div className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400 border border-slate-700">
                   Manhattan
                 </div>
               </div>
 
-              {/* Total */}
-              <div className="flex items-baseline gap-2">
-                <span className="text-3xl font-mono font-bold text-white">
-                  {routeDistanceResult.totalDistanceFeet.toFixed(1)}
-                </span>
-                <span className="text-sm font-mono font-bold text-blue-400">FT</span>
-              </div>
-
-              {/* Breakdown */}
-              <div className="border-t border-slate-700 pt-2 mt-1 space-y-1.5">
-                {/* Cart Travel */}
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                    <span className="text-[11px] font-mono text-slate-300">Cart Travel</span>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-sm font-mono font-semibold text-blue-400">
-                      {routeDistanceResult.cartTravelFeet.toFixed(1)}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500">ft</span>
-                    <span className="text-[10px] font-mono text-slate-600 ml-1">
-                      ({routeDistanceResult.totalDistanceFeet > 0
-                        ? Math.round((routeDistanceResult.cartTravelFeet / routeDistanceResult.totalDistanceFeet) * 100)
-                        : 0}%)
-                    </span>
-                  </div>
+              {/* Cart Route Distance - Main Metric */}
+              <div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-mono font-bold text-white">
+                    {routeDistanceResult.cartTravelFeet.toFixed(0)}
+                  </span>
+                  <span className="text-sm font-mono font-bold text-blue-400">FT</span>
                 </div>
-
-                {/* Pedestrian Walk */}
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                    <span className="text-[11px] font-mono text-slate-300">Pedestrian Walk</span>
-                  </div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-sm font-mono font-semibold text-amber-400">
-                      {routeDistanceResult.pedestrianWalkFeet.toFixed(1)}
-                    </span>
-                    <span className="text-[10px] font-mono text-slate-500">ft</span>
-                    <span className="text-[10px] font-mono text-slate-600 ml-1">
-                      ({routeDistanceResult.totalDistanceFeet > 0
-                        ? Math.round((routeDistanceResult.pedestrianWalkFeet / routeDistanceResult.totalDistanceFeet) * 100)
-                        : 0}%)
-                    </span>
-                  </div>
+                <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                  Cart path: Start → {routeDistanceResult.parkingStopCount} stops → Stop
                 </div>
               </div>
+
+              {/* Element Round-Trip Stats */}
+              {elementDistances.size > 0 && (() => {
+                const distances = Array.from(elementDistances.values()).map(d => d.distanceFeet);
+                const minDist = Math.min(...distances);
+                const maxDist = Math.max(...distances);
+                const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+
+                return (
+                  <div className="border-t border-slate-700 pt-3">
+                    <div className="text-[10px] font-mono text-slate-400 mb-2 uppercase tracking-wide">
+                      Element Round-Trip Distances
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div className="text-center">
+                        <div className="text-[10px] font-mono text-slate-500">Nearest</div>
+                        <div className="text-sm font-mono font-semibold text-emerald-400">{minDist.toFixed(0)} ft</div>
+                      </div>
+                      <div className="text-center border-x border-slate-700">
+                        <div className="text-[10px] font-mono text-slate-500">Average</div>
+                        <div className="text-sm font-mono font-semibold text-slate-300">{avgDist.toFixed(0)} ft</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[10px] font-mono text-slate-500">Farthest</div>
+                        <div className="text-sm font-mono font-semibold text-rose-400">{maxDist.toFixed(0)} ft</div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Stats row */}
-              <div className="flex justify-between border-t border-slate-700 pt-2 mt-1">
+              <div className="flex justify-between border-t border-slate-700 pt-2">
                 <div className="text-[10px] font-mono text-slate-500">
                   <span className="text-slate-300 font-semibold">{routeDistanceResult.parkingStopCount}</span> stops
                 </div>
                 <div className="text-[10px] font-mono text-slate-500">
-                  <span className="text-slate-300 font-semibold">{routeDistanceResult.elementsServed}</span> elements
+                  <span className="text-slate-300 font-semibold">{elementDistances.size}</span> elements
                 </div>
-                <div className="text-[10px] font-mono text-slate-500">
-                  <span className="text-slate-300 font-semibold">{routeDistanceResult.segmentCount}</span> segs
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Parking Zone Tooltip */}
+        {showDistances && hoveredParkingStats && parkingTooltipPos && (
+          <div
+            className="absolute z-50 pointer-events-none"
+            style={{
+              left: `${parkingTooltipPos.x}px`,
+              top: `${parkingTooltipPos.y}px`,
+              transform: 'translateX(-50%)',
+            }}
+          >
+            <div className="bg-slate-900/95 border border-slate-600 p-2 min-w-[140px] text-xs font-mono">
+              <div className="text-slate-400 border-b border-slate-700 pb-1 mb-1">
+                Zone: {hoveredParkingStats.parkingLabel || 'Cart'}
+              </div>
+              <div className="space-y-0.5 text-slate-300">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Elements:</span>
+                  <span>{hoveredParkingStats.elementCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total walk:</span>
+                  <span>{hoveredParkingStats.totalWalkFeet.toFixed(0)} ft</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Nearest:</span>
+                  <span className="text-emerald-400">{hoveredParkingStats.nearestFeet.toFixed(0)} ft</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Farthest:</span>
+                  <span className="text-rose-400">{hoveredParkingStats.farthestFeet.toFixed(0)} ft</span>
                 </div>
               </div>
             </div>
