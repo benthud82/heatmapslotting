@@ -4,6 +4,7 @@ const multer = require('multer');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const authMiddleware = require('../middleware/auth');
+const { auditLog } = require('../middleware/audit');
 const { query } = require('../db');
 
 // Configure multer for memory storage (CSV files are small)
@@ -78,7 +79,7 @@ async function getOrCreateItem(layoutId, externalItemId, locationId) {
 
 // POST /api/picks/upload - Upload CSV with item-level pick data
 // New CSV format: item_id, location_id, element_name, date, pick_count
-router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('file'), async (req, res, next) => {
+router.post('/upload', authMiddleware, checkPickHistoryLimit, upload.single('file'), auditLog('UPLOAD', 'picks'), async (req, res, next) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -722,7 +723,7 @@ router.get('/items/by-element/:elementId', authMiddleware, async (req, res, next
 });
 
 // DELETE /api/picks - Clear all pick data for the user's layout
-router.delete('/', authMiddleware, async (req, res, next) => {
+router.delete('/', authMiddleware, auditLog('DELETE', 'picks'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { layout_id } = req.query;
@@ -769,7 +770,7 @@ router.delete('/', authMiddleware, async (req, res, next) => {
 });
 
 // DELETE /api/picks/batch - Delete picks for multiple dates
-router.delete('/batch', authMiddleware, async (req, res, next) => {
+router.delete('/batch', authMiddleware, auditLog('DELETE', 'picks'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { dates, layoutId } = req.body;
@@ -814,7 +815,7 @@ router.delete('/batch', authMiddleware, async (req, res, next) => {
 });
 
 // DELETE /api/picks/by-date/:date - Delete all picks for a specific date
-router.delete('/by-date/:date', authMiddleware, async (req, res, next) => {
+router.delete('/by-date/:date', authMiddleware, auditLog('DELETE', 'picks'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { date } = req.params;

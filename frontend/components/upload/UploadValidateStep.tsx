@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { validateCSV, ValidationResult } from '@/lib/csvValidation';
+import { validateCSV, validateParsedRows, isExcelFile, ValidationResult } from '@/lib/csvValidation';
+import { parseExcelFile } from '@/lib/excelParser';
 import CSVPreviewTable from './CSVPreviewTable';
 import ValidationSummary from './ValidationSummary';
 
@@ -133,11 +134,26 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
         setFile(file);
         setIsValidating(true);
         try {
-            const result = await validateCSV(file, validElementNames);
+            let result: ValidationResult;
+
+            if (isExcelFile(file.name)) {
+                // Parse Excel file and validate
+                const excelData = await parseExcelFile(file);
+                result = validateParsedRows(excelData.rows, excelData.headers, validElementNames);
+            } else {
+                // Use existing CSV validation
+                result = await validateCSV(file, validElementNames);
+            }
+
             setValidationResult(result);
         } catch (error) {
             console.error('Validation error:', error);
-            // Handle error state
+            setValidationResult({
+                isValid: false,
+                rows: [],
+                errors: [error instanceof Error ? error.message : 'Failed to parse file'],
+                stats: { totalRows: 0, validRows: 0, invalidRows: 0, unmatchedElements: [] }
+            });
         } finally {
             setIsValidating(false);
         }
@@ -178,7 +194,7 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
             <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900">Upload & Validate</h2>
                 <p className="mt-2 text-gray-600">
-                    Drag and drop your CSV file here. We'll check every row for errors.
+                    Drag and drop your CSV or Excel file here. We'll check every row for errors.
                 </p>
             </div>
 
@@ -228,10 +244,10 @@ export default function UploadValidateStep({ validElementNames, elementNames, on
                             <label htmlFor="csv-file-input" className="font-medium text-blue-400 hover:text-blue-300 cursor-pointer">
                                 Click to upload
                             </label>
-                            <input id="csv-file-input" type="file" accept=".csv" className="hidden" onChange={onFileSelect} />
+                            <input id="csv-file-input" type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={onFileSelect} />
                             {' '}or drag and drop
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">CSV files only</p>
+                        <p className="mt-1 text-xs text-slate-500">CSV or Excel files (.csv, .xlsx)</p>
                     </div>
                 ) : (
                     <div className="flex items-center space-x-4">

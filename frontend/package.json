@@ -23,7 +23,8 @@
     "react-dom": "^18",
     "react-konva": "^18.2.14",
     "recharts": "^3.6.0",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -1,38 +1,61 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
+const { validateLayout } = require('../middleware/validate');
+const { auditLog } = require('../middleware/audit');
 const { query } = require('../db');
 
-// GET /api/layouts - Get all layouts for the authenticated user
+// GET /api/layouts - Get all layouts for the authenticated user (with pagination)
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
 
-    // Get all layouts for this user
-    const result = await query(
-      'SELECT * FROM layouts WHERE user_id = $1 ORDER BY created_at ASC',
-      [userId]
-    );
+    // Pagination params
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = (page - 1) * limit;
 
-    // If no layouts exist, create a default one
-    if (result.rows.length === 0) {
+    // Get count and layouts in parallel
+    const [countResult, dataResult] = await Promise.all([
+      query('SELECT COUNT(*) FROM layouts WHERE user_id = $1', [userId]),
+      query(
+        'SELECT * FROM layouts WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3',
+        [userId, limit, offset]
+      )
+    ]);
+
+    const total = parseInt(countResult.rows[0].count);
+
+    // If no layouts exist and on first page, create a default one
+    if (total === 0 && page === 1) {
       const newLayout = await query(
         `INSERT INTO layouts (user_id, name, canvas_width, canvas_height)
          VALUES ($1, $2, $3, $4)
          RETURNING *`,
         [userId, 'My Warehouse Layout', 1200, 800]
       );
-      return res.json([newLayout.rows[0]]);
+      return res.json({
+        data: [newLayout.rows[0]],
+        pagination: { page: 1, limit, total: 1, pages: 1 }
+      });
     }
 
-    res.json(result.rows);
+    res.json({
+      data: dataResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     next(error);
   }
 });
 
 // POST /api/layouts - Create a new layout
-router.post('/', authMiddleware, async (req, res, next) => {
+router.post('/', authMiddleware, validateLayout, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { name, canvas_width, canvas_height } = req.body;
@@ -55,7 +78,7 @@ router.post('/', authMiddleware, async (req, res, next) => {
 });
 
 // PUT /api/layouts/:id - Update layout properties
-router.put('/:id', authMiddleware, async (req, res, next) => {
+router.put('/:id', authMiddleware, validateLayout, async (req, res, next) => {
   try {
     const userId = req.user.id;
     const layoutId = req.params.id;
@@ -83,7 +106,7 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
 });
 
 // DELETE /api/layouts/:id - Delete a layout
-router.delete('/:id', authMiddleware, async (req, res, next) => {
+router.delete('/:id', authMiddleware, auditLog('DELETE', 'layout'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const layoutId = req.params.id;

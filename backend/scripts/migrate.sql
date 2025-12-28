@@ -156,3 +156,24 @@ CREATE POLICY "Users can insert their own preferences" ON user_preferences
 CREATE POLICY "Users can update their own preferences" ON user_preferences
     FOR UPDATE USING (auth.uid() = user_id);
 
+
+-- 6. Audit Log
+-- Track all data modifications for compliance and debugging
+CREATE TABLE IF NOT EXISTS audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    action VARCHAR(50) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id UUID,
+    details JSONB,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for audit queries
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
+
+-- Note: Audit log intentionally does NOT have RLS enabled
+-- It's accessed only by backend service role, not direct user queries

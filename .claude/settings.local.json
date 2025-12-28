@@ -27,7 +27,12 @@
       "WebFetch(domain:www.slot3d.com)",
       "WebFetch(domain:help.figma.com)",
       "Bash(xargs ls:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(dir /s /b C:xampphtdocsheatmapslotting*.md)",
+      "Bash(findstr:*)",
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "Bash(npx eslint:*)"
     ],
     "deny": [],
     "ask": []

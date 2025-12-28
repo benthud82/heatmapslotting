@@ -67,8 +67,10 @@ export default function QuickUploadModal({ isOpen, onClose, onSuccess }: QuickUp
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (response.ok) {
-                const data = await response.json();
-                setValidElementNames(new Set(data.map((el: any) => el.label.toLowerCase())));
+                const result = await response.json();
+                // Handle paginated response format
+                const elements = result.data || result;
+                setValidElementNames(new Set(elements.map((el: any) => el.label.toLowerCase())));
             }
         } catch (err) {
             console.error(err);

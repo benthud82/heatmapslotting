@@ -1449,7 +1449,7 @@ export default function Home() {
         zoom={zoom}
         onZoomIn={() => setZoom(z => Math.min(z * 1.2, 5))}
         onZoomOut={() => setZoom(z => Math.max(z / 1.2, 0.1))}
-        onFit={() => setZoom(1)}
+        onFit={() => canvasRef.current?.fitToElements()}
         saving={saving}
         elementCount={elements.length}
         selectionCount={selectedElementIds.length}
@@ -1460,6 +1460,8 @@ export default function Home() {
         onToggleGrid={() => setShowGrid(prev => !prev)}
         snapToGrid={snapToGrid}
         onToggleSnap={() => setSnapToGrid(prev => !prev)}
+        showDistances={showDistances}
+        onToggleDistances={() => setShowDistances(prev => !prev)}
       />
 
       {

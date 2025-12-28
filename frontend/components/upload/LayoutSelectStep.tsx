@@ -68,7 +68,9 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
 
             if (!response.ok) throw new Error('Failed to fetch elements');
 
-            const data = await response.json();
+            const result = await response.json();
+            // Handle paginated response format
+            const data = result.data || result;
             // Filter out non-slottable elements (text, lines, arrows)
             const slottableElements = data.filter((el: any) =>
                 !['text', 'line', 'arrow'].includes(el.element_type)

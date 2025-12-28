@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **Warehouse Slotting Heatmap Visualization Tool** - a web-based application that helps warehouse operations teams draw their layout, ingest pick datasets, and visualize pick intensity by bay/location. The MVP focuses on the warehouse bay drawing and layout management features, with future phases planned for heatmap visualization, dataset ingestion, ABC analysis, and travel path optimization.
+This is a **Warehouse Slotting Heatmap Visualization Tool** - a web-based application that helps warehouse operations teams draw their layout, ingest pick datasets, and visualize pick intensity by bay/location. The application includes warehouse drawing, pick data upload (CSV/Excel), heatmap visualization, velocity analysis, and slotting recommendations.
 
-**Current Phase:** Basic warehouse bay drawer MVP with layout management
-**Tech Stack:** Node.js/Express backend, Next.js 14 frontend, PostgreSQL (Supabase)
+**Current Phase:** Production-ready MVP with full feature set
+**Tech Stack:** Node.js/Express backend, Next.js 14 frontend, PostgreSQL (Supabase), Supabase Auth
 
 ## Development Commands
 
@@ -50,11 +50,23 @@ backend/
 ├── db/
 │   └── index.js          # PostgreSQL connection pool, query helper
 ├── routes/
-│   ├── auth.js           # Authentication endpoints (placeholder)
-│   ├── layouts.js        # Layout CRUD endpoints (placeholder)
-│   └── bays.js           # Bay CRUD endpoints (placeholder)
+│   ├── auth.js           # Authentication endpoints
+│   ├── layouts.js        # Layout CRUD endpoints (paginated)
+│   ├── bays.js           # Warehouse element CRUD (paginated)
+│   ├── picks.js          # Pick data upload, aggregation, export
+│   ├── items.js          # Item/SKU management
+│   ├── locations.js      # Location/slot management
+│   ├── routeMarkers.js   # Route markers (start/stop points)
+│   ├── user.js           # User preferences
+│   ├── stripe.js         # Billing/subscription
+│   └── waitlist.js       # Waitlist management
 ├── middleware/
-│   └── auth.js           # Mock JWT authentication (to be implemented)
+│   ├── auth.js           # Supabase JWT verification
+│   ├── validate.js       # Input validation (elements, layouts, UUIDs)
+│   ├── limits.js         # Subscription tier limits
+│   └── audit.js          # Audit logging middleware
+├── config/
+│   └── tiers.js          # Subscription tier configuration
 └── scripts/
     └── migrate.sql       # Database schema
 ```
@@ -62,19 +74,35 @@ backend/
 **Key Backend Patterns:**
 - Express.js with async/await route handlers
 - PostgreSQL via `pg` library with connection pooling
-- Authentication middleware applied to protected routes
-- Centralized error handling middleware in `server.js`
-- Database connection tested on server startup
+- Supabase Auth integration (JWT verification)
+- Input validation middleware on all mutating endpoints
+- Audit logging on data modifications
+- Paginated list endpoints
 
 ### Frontend Structure
 ```
 frontend/
 ├── app/
 │   ├── layout.tsx        # Root layout with metadata
-│   └── page.tsx          # Homepage (Next.js default)
-└── (to be created)
-    ├── components/       # React components for layout editor, bay drawer
-    └── lib/              # API client, utilities
+│   ├── page.tsx          # Homepage with layout templates
+│   ├── designer/         # Warehouse drawing canvas
+│   ├── heatmap/          # Heatmap visualization
+│   ├── upload/           # CSV/Excel upload wizard
+│   ├── dashboard/        # Analytics dashboard
+│   └── profile/          # User settings
+├── components/
+│   ├── designer/         # Canvas tools, sidebar, status bar
+│   ├── heatmap/          # Heatmap modals, alerts
+│   ├── upload/           # Upload wizard steps
+│   ├── home/             # Template selector, quick actions
+│   └── ...               # Shared components
+└── lib/
+    ├── api.ts            # API client with pagination support
+    ├── csvValidation.ts  # CSV/Excel validation with fuzzy matching
+    ├── excelParser.ts    # Excel file parsing
+    ├── exportData.ts     # CSV export utilities
+    ├── templates/        # Layout templates (JSON)
+    └── types.ts          # TypeScript interfaces
 ```
 
 **Key Frontend Patterns:**
@@ -82,169 +110,164 @@ frontend/
 - TypeScript for type safety
 - Tailwind CSS for styling
 - react-konva for canvas-based warehouse layout drawing
-- Client components needed for interactivity (`'use client'` directive)
+- Supabase Auth for authentication
+- Client components for interactivity (`'use client'` directive)
 
 ### Database Schema
 
 **Core Tables:**
-- `users` - User accounts with email/password authentication
-- `layouts` - Saved warehouse layouts (canvas dimensions, metadata)
-- `bays` - Individual bay/location elements drawn on layouts
+- `users` - User accounts (synced from Supabase Auth)
+- `layouts` - Warehouse layouts (one per user)
+- `warehouse_elements` - Bays, flow racks, pallets, annotations
+- `pick_transactions` - Element-level pick data (legacy)
+- `item_pick_transactions` - Item-level pick data
+- `items` - SKU/product inventory
+- `locations` - Slot positions within elements
+- `route_markers` - Start/stop/parking points
+- `user_preferences` - User settings
+- `audit_log` - Data modification audit trail
 
 **Key Relationships:**
 - `layouts.user_id` → `users.id` (CASCADE DELETE)
-- `bays.layout_id` → `layouts.id` (CASCADE DELETE)
+- `warehouse_elements.layout_id` → `layouts.id` (CASCADE DELETE)
+- `items.layout_id` → `layouts.id`
+- `locations.element_id` → `warehouse_elements.id`
 
 **Coordinates System:**
-- Bays use decimal coordinates (x, y, width, height)
+- Elements use decimal coordinates (x, y, width, height)
 - Default canvas: 1200x800 pixels
 - Rotation in degrees (0-360)
+- 1 pixel = 1 inch for distance calculations
 
 ## Current Implementation Status
 
-### ✅ Completed
-- Backend server setup with Express
-- Database connection with PostgreSQL (Supabase)
-- Database schema created (users, layouts, bays)
-- Mock authentication middleware
-- Route structure (auth, layouts, bays) with placeholders
-- Frontend Next.js 14 setup with TypeScript and Tailwind
-- CORS configuration for local development
+### ✅ Completed Features
 
-### ⚠️ Pending Implementation (Next Steps)
-1. **Authentication API** - Implement register/login with bcrypt + JWT
-2. **Layout API** - CRUD operations for warehouse layouts
-3. **Bay API** - CRUD operations for bay elements
-4. **Frontend Auth** - Login/register pages, auth context
-5. **Layout Manager** - UI for creating/loading/saving layouts
-6. **Bay Drawing Canvas** - react-konva canvas for drawing bays
+**Authentication & Authorization:**
+- Supabase Auth integration (email/password, magic link)
+- JWT verification middleware
+- Row-level security in database
 
-See `NEXT_STEPS.md` for detailed implementation plan.
+**Warehouse Designer:**
+- Canvas drawing with react-konva
+- Element types: bay, flow_rack, full_pallet, text, line, arrow
+- Route markers (start, stop, cart parking)
+- Snapping and alignment tools
+- Easy Mode toggle (simplified UI)
+- Layout templates (Quick Grid, U-Shape, I-Shape, etc.)
 
-## Important Implementation Notes
+**Pick Data Management:**
+- CSV upload with validation
+- Excel (.xlsx) upload support
+- Fuzzy name matching for element names
+- Item-level and element-level data formats
+- Bulk insert optimization (batched queries)
 
-### Authentication Flow
-- Backend uses JWT tokens for authentication
-- Mock auth middleware currently returns fixed user ID for development
-- Real implementation: hash passwords with bcrypt, sign JWT with `JWT_SECRET`
-- Frontend must store JWT in localStorage and send in Authorization header
-- Auth middleware should verify JWT and attach `req.user` to requests
+**Heatmap Visualization:**
+- Pick intensity color coding
+- Walk burden analysis
+- Distance calculations from parking spots
+- Element and item detail modals
+- Date range filtering
 
-### Layout and Bay Management
-- All layout/bay operations require authentication
-- User can only access their own layouts (enforce `user_id` filtering)
-- Bay coordinates are relative to canvas origin (top-left = 0,0)
-- Bays support rotation for representing angled warehouse aisles
-- Color property stores hex color codes for visual differentiation
+**Data Export:**
+- Element-level velocity analysis CSV
+- Item-level data with rankings CSV
+- Velocity tier classification (A/B/C)
 
-### Canvas Drawing with react-konva
-- Use `Stage`, `Layer`, `Rect`, `Text` components from react-konva
-- Drawing flow: user selects tool → mousedown starts shape → mousemove resizes → mouseup finalizes
-- Selected bays should be visually highlighted
-- Double-click bay labels for inline editing
-- Real-time save to backend as bays are created/modified
+**Production Features:**
+- Audit logging on data modifications
+- Paginated list endpoints
+- Input validation middleware
+- Subscription tier limits
 
-### Environment Variables
+## API Response Formats
+
+### Paginated Endpoints
+List endpoints return paginated responses:
+```json
+{
+  "data": [...],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 100,
+    "pages": 5
+  }
+}
+```
+
+Query parameters:
+- `?page=1` - Page number (default: 1)
+- `?limit=20` - Items per page (default: 20, max: 100)
+
+### Standard Responses
+- `GET` requests return data or paginated response
+- `POST` requests return created resource with `201` status
+- `PUT` requests return updated resource
+- `DELETE` requests return `{ message, id }`
+- Errors return `{ error: "message" }` with appropriate status code
+
+## Environment Variables
+
 **Backend (.env):**
 ```
 PORT=3001
 DATABASE_URL=postgresql://[connection-string]
-JWT_SECRET=[random-secret]
 NODE_ENV=development
 CORS_ORIGIN=http://localhost:3000
+SUPABASE_URL=https://[project].supabase.co
+SUPABASE_SERVICE_KEY=[service-role-key]
 ```
 
 **Frontend (.env.local):**
 ```
 NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_SUPABASE_URL=https://[project].supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=[anon-key]
 ```
-
-### API Response Formats
-Follow REST conventions:
-- `GET` requests return data or arrays
-- `POST` requests return created resource with `201` status
-- `PUT` requests return updated resource
-- `DELETE` requests return `204` or success message
-- Errors return `{ error: "message" }` with appropriate status code
-
-## Future Features (Post-MVP)
-
-The spec (`warehouse-slotting-mvp-spec.md`) includes detailed code examples for:
-- **Dataset Upload** - CSV ingestion with stream parsing (Multer, fast-csv)
-- **Heatmap Visualization** - D3.js color scales, canvas rendering
-- **ABC Analysis** - SKU classification dashboard
-- **Travel Path Analysis** - Pick route optimization
-- **ROI Calculator** - Savings projection tool
-
-These are **deferred** until the MVP bay drawer is complete.
-
-## Testing Recommendations
-
-### Backend API Testing
-Use curl or Postman to test endpoints:
-```bash
-# Health check
-curl http://localhost:3001/api/health
-
-# Test auth route (mock)
-curl http://localhost:3001/api/auth/test
-
-# Test layout route (mock)
-curl http://localhost:3001/api/layouts/test
-```
-
-### Database Queries
-Test queries in Supabase SQL Editor before implementing in code.
-
-### Frontend Development
-- Use React DevTools for component debugging
-- Check browser console for API errors
-- Verify CORS headers if API calls fail
-
-## Common Gotchas
-
-1. **PostgreSQL SSL Connection**: Supabase requires SSL in production. The db config handles this via `NODE_ENV`.
-
-2. **UUID Primary Keys**: All tables use UUID, not auto-increment integers. Use `gen_random_uuid()` in PostgreSQL or generate client-side.
-
-3. **Decimal Coordinates**: Bay coordinates are `DECIMAL(10,2)`, not floats. Ensure precision when saving from canvas.
-
-4. **Mock Auth**: Current auth middleware always succeeds. Don't forget to implement real JWT verification before production.
-
-5. **Windows Path Issues**: Use forward slashes in import paths. PowerShell requires execution policy changes for npm scripts.
-
-6. **Next.js Client Components**: Canvas interactions require `'use client'` directive at top of component files.
 
 ## Key Dependencies
 
 **Backend:**
-- `express` v5.1.0 - Web framework
-- `pg` v8.16.3 - PostgreSQL client
-- `bcrypt` v6.0.0 - Password hashing
-- `jsonwebtoken` v9.0.2 - JWT tokens
-- `cors` v2.8.5 - CORS middleware
-- `dotenv` v17.2.3 - Environment variables
-- `nodemon` v3.1.10 (dev) - Auto-reload
+- `express` - Web framework
+- `pg` - PostgreSQL client
+- `multer` - File upload handling
+- `csv-parser` - CSV parsing
+- `cors` - CORS middleware
+- `dotenv` - Environment variables
 
 **Frontend:**
-- `next` v14.2.33 - React framework
-- `react` / `react-dom` v18 - UI library
-- `react-konva` v19.2.0 - Canvas drawing
-- `konva` v10.0.8 - Canvas library
-- `nanoid` v5.1.6 - Unique ID generation
-- `tailwindcss` v3.4.1 - CSS framework
-- `typescript` v5 - Type safety
+- `next` v14 - React framework
+- `react-konva` - Canvas drawing
+- `@supabase/supabase-js` - Auth client
+- `papaparse` - CSV parsing
+- `xlsx` - Excel parsing
+- `tailwindcss` - CSS framework
+- `typescript` - Type safety
+
+## Common Gotchas
+
+1. **Supabase Auth**: Ensure `SUPABASE_SERVICE_KEY` is the service role key, not the anon key.
+
+2. **Paginated Responses**: Frontend must extract `.data` from paginated endpoints.
+
+3. **Element Limits**: Subscription tiers limit the number of elements per layout.
+
+4. **Pick History Limits**: Subscription tiers limit how far back pick data is retained.
+
+5. **UUID Primary Keys**: All tables use UUID, not auto-increment integers.
+
+6. **Windows Path Issues**: Use forward slashes in import paths.
 
 ## File Naming Conventions
 
 - Backend: snake_case for database columns, camelCase for JavaScript
 - Frontend: PascalCase for components, camelCase for utilities
-- Routes: kebab-case for API endpoints (`/api/auth/register`)
+- Routes: kebab-case for API endpoints (`/api/picks/upload`)
 - TypeScript: `.tsx` for components with JSX, `.ts` for utilities
 
 ## References
 
-- Full spec with code examples: `warehouse-slotting-mvp-spec.md`
-- Setup instructions: `SETUP_INSTRUCTIONS.md`
-- Running servers: `RUN_SERVERS.md`
-- Implementation roadmap: `NEXT_STEPS.md`
+- Implementation plan: `final_implementation.md`
+- Database schema: `backend/scripts/migrate.sql`

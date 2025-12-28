@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middleware/auth');
+const { validateElement } = require('../middleware/validate');
+const { auditLog } = require('../middleware/audit');
 const { query } = require('../db');
 
 // Element type configurations (dimensions in pixels, 1 pixel = 1 inch)
@@ -13,7 +15,7 @@ const ELEMENT_TYPES = {
   arrow: { width: 100, height: 2 }
 };
 
-// GET /api/elements - Fetch warehouse elements for user's layout
+// GET /api/elements - Fetch warehouse elements for user's layout (with pagination)
 router.get('/', authMiddleware, async (req, res, next) => {
   try {
     const userId = req.user.id;
@@ -22,6 +24,11 @@ router.get('/', authMiddleware, async (req, res, next) => {
     if (!layout_id) {
       return res.status(400).json({ error: 'Layout ID is required' });
     }
+
+    // Pagination params
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const offset = (page - 1) * limit;
 
     // Verify layout belongs to user
     const layoutResult = await query(
@@ -33,15 +40,29 @@ router.get('/', authMiddleware, async (req, res, next) => {
       return res.status(404).json({ error: 'Layout not found' });
     }
 
-    // Fetch all elements for the layout
-    const result = await query(
-      `SELECT * FROM warehouse_elements
-       WHERE layout_id = $1
-       ORDER BY created_at ASC`,
-      [layout_id]
-    );
+    // Get count and elements in parallel
+    const [countResult, dataResult] = await Promise.all([
+      query('SELECT COUNT(*) FROM warehouse_elements WHERE layout_id = $1', [layout_id]),
+      query(
+        `SELECT * FROM warehouse_elements
+         WHERE layout_id = $1
+         ORDER BY created_at ASC
+         LIMIT $2 OFFSET $3`,
+        [layout_id, limit, offset]
+      )
+    ]);
 
-    res.json(result.rows);
+    const total = parseInt(countResult.rows[0].count);
+
+    res.json({
+      data: dataResult.rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -49,7 +70,7 @@ router.get('/', authMiddleware, async (req, res, next) => {
 
 // POST /api/elements - Create a new warehouse element
 const { checkElementLimit } = require('../middleware/limits');
-router.post('/', authMiddleware, checkElementLimit, async (req, res, next) => {
+router.post('/', authMiddleware, checkElementLimit, validateElement, auditLog('CREATE', 'element'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const { element_type, label, x_coordinate, y_coordinate, rotation, width: reqWidth, height: reqHeight, layout_id } = req.body;
@@ -94,7 +115,7 @@ router.post('/', authMiddleware, checkElementLimit, async (req, res, next) => {
 });
 
 // PUT /api/elements/:id - Update an existing warehouse element
-router.put('/:id', authMiddleware, async (req, res, next) => {
+router.put('/:id', authMiddleware, validateElement, auditLog('UPDATE', 'element'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const elementId = req.params.id;
@@ -154,7 +175,7 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
 });
 
 // DELETE /api/elements/:id - Delete a warehouse element
-router.delete('/:id', authMiddleware, async (req, res, next) => {
+router.delete('/:id', authMiddleware, auditLog('DELETE', 'element'), async (req, res, next) => {
   try {
     const userId = req.user.id;
     const elementId = req.params.id;

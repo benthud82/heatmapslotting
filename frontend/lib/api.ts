@@ -87,10 +87,24 @@ async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T> 
   }
 }
 
+// Pagination response type
+interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
 // Layout API
 export const layoutApi = {
   // Get all layouts for the authenticated user
-  getLayouts: () => apiFetch<Layout[]>('/api/layouts'),
+  getLayouts: async () => {
+    const response = await apiFetch<PaginatedResponse<Layout>>('/api/layouts');
+    return response.data;
+  },
 
   // Create a new layout
   createLayout: (data: { name: string; canvas_width?: number; canvas_height?: number }) =>

@@ -17,6 +17,8 @@ interface StatusBarProps {
     onToggleGrid: () => void;
     snapToGrid: boolean;
     onToggleSnap: () => void;
+    showDistances: boolean;
+    onToggleDistances: () => void;
 }
 
 export default function StatusBar({
@@ -33,7 +35,9 @@ export default function StatusBar({
     showGrid,
     onToggleGrid,
     snapToGrid,
-    onToggleSnap
+    onToggleSnap,
+    showDistances,
+    onToggleDistances
 }: StatusBarProps) {
     const isNearLimit = elementLimit < Infinity && elementCount >= elementLimit * 0.8;
     const isAtLimit = elementCount >= elementLimit;
@@ -81,7 +85,7 @@ export default function StatusBar({
                 )}
             </div>
 
-            {/* Center: Grid & Snap Toggles */}
+            {/* Center: Grid, Snap, Distances & Fit All */}
             <div className="flex items-center gap-2">
                 <button
                     onClick={onToggleGrid}
@@ -113,6 +117,34 @@ export default function StatusBar({
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
                         </svg>
                         Snap
+                    </span>
+                </button>
+                <button
+                    onClick={onToggleDistances}
+                    className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+                        showDistances
+                            ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
+                            : 'bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400'
+                    }`}
+                    title="Toggle Distances (D)"
+                >
+                    <span className="flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        Distances
+                    </span>
+                </button>
+                <button
+                    onClick={onFit}
+                    className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400 hover:bg-slate-700/50"
+                    title="Fit All Elements (F)"
+                >
+                    <span className="flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                        </svg>
+                        Fit All
                     </span>
                 </button>
             </div>
@@ -148,13 +180,6 @@ export default function StatusBar({
                         title="Zoom In (+)"
                     >
                         +
-                    </button>
-                    <button
-                        onClick={onFit}
-                        className="hover:bg-slate-800 text-slate-400 hover:text-white px-1.5 py-0.5 rounded transition-colors ml-1 text-[10px] font-medium"
-                        title="Fit to Screen (F)"
-                    >
-                        FIT
                     </button>
                 </div>
             </div>

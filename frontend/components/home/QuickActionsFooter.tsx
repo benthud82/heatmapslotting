@@ -1,12 +1,41 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { TemplateSelector } from './TemplateSelector';
 
 interface QuickActionsFooterProps {
   enableKeyboardShortcuts?: boolean;
 }
+
+// CSV Template download helper
+const downloadCSVTemplate = (format: 'item' | 'element') => {
+  let content: string;
+  let filename: string;
+
+  if (format === 'item') {
+    content = `item_id,location_id,element_name,date,pick_count
+SKU-001,LOC-A01,B1,2024-01-15,42
+SKU-002,LOC-A02,B1,2024-01-15,28
+SKU-003,LOC-B01,B2,2024-01-15,15`;
+    filename = 'pick-data-template-item-level.csv';
+  } else {
+    content = `element_name,date,pick_count
+B1,2024-01-15,150
+B2,2024-01-15,89
+B3,2024-01-15,45`;
+    filename = 'pick-data-template-element-level.csv';
+  }
+
+  const blob = new Blob([content], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 interface ActionConfig {
   href: string;
@@ -62,6 +91,7 @@ const actions: ActionConfig[] = [
 
 export function QuickActionsFooter({ enableKeyboardShortcuts = true }: QuickActionsFooterProps) {
   const router = useRouter();
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -154,6 +184,54 @@ export function QuickActionsFooter({ enableKeyboardShortcuts = true }: QuickActi
         ))}
       </div>
 
+      {/* Additional Actions Row */}
+      <div className="mt-4 pt-4 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Create from Template */}
+        <button
+          onClick={() => setShowTemplateSelector(true)}
+          className="flex items-center gap-3 p-3 rounded-lg border border-slate-700 hover:border-cyan-500/50 bg-slate-800/50 hover:bg-slate-800 transition-all duration-200 text-left group"
+        >
+          <div className="w-8 h-8 bg-cyan-500/10 rounded-lg flex items-center justify-center text-cyan-400">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" />
+            </svg>
+          </div>
+          <div>
+            <span className="text-sm font-medium text-white group-hover:text-cyan-400 transition-colors">
+              Create from Template
+            </span>
+            <p className="text-xs text-slate-500">Quick start with pre-built layouts</p>
+          </div>
+        </button>
+
+        {/* CSV Templates */}
+        <div className="flex items-center gap-3 p-3 rounded-lg border border-slate-700 bg-slate-800/50">
+          <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <span className="text-sm font-medium text-white">CSV Templates</span>
+            <div className="flex gap-2 mt-1">
+              <button
+                onClick={() => downloadCSVTemplate('element')}
+                className="text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+              >
+                Element-Level
+              </button>
+              <span className="text-slate-600">|</span>
+              <button
+                onClick={() => downloadCSVTemplate('item')}
+                className="text-xs text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+              >
+                Item-Level
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Shortcut hint */}
       <p className="mt-4 text-center text-xs text-slate-600">
         Press <kbd className="px-1 py-0.5 bg-slate-800 text-slate-500 rounded text-[10px]">H</kbd>{' '}
@@ -161,6 +239,11 @@ export function QuickActionsFooter({ enableKeyboardShortcuts = true }: QuickActi
         <kbd className="px-1 py-0.5 bg-slate-800 text-slate-500 rounded text-[10px]">U</kbd>{' '}
         to navigate quickly
       </p>
+
+      {/* Template Selector Modal */}
+      {showTemplateSelector && (
+        <TemplateSelector onClose={() => setShowTemplateSelector(false)} />
+      )}
     </div>
   );
 }

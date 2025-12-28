@@ -4,13 +4,15 @@ import { ValidationResult, ItemValidationResult } from '@/lib/csvValidation';
 interface ValidationSummaryProps {
     validationResult?: ValidationResult;
     itemValidationResult?: ItemValidationResult;
+    onApplySuggestions?: (suggestions: Map<string, string>) => void;
 }
 
-export default function ValidationSummary({ validationResult, itemValidationResult }: ValidationSummaryProps) {
+export default function ValidationSummary({ validationResult, itemValidationResult, onApplySuggestions }: ValidationSummaryProps) {
     // Use item-level if available, otherwise element-level
     const isItemLevel = !!itemValidationResult;
     const stats = isItemLevel ? itemValidationResult!.stats : validationResult?.stats;
     const isValid = isItemLevel ? itemValidationResult!.isValid : validationResult?.isValid;
+    const suggestions = isItemLevel ? itemValidationResult?.suggestions : validationResult?.suggestions;
 
     if (!stats || stats.totalRows === 0) return null;
 
@@ -55,8 +57,48 @@ export default function ValidationSummary({ validationResult, itemValidationResu
                 )}
             </div>
 
-            {/* Unmatched Elements Warning */}
-            {stats.unmatchedElements.length > 0 && (
+            {/* Suggestions for Unmatched Elements */}
+            {suggestions && suggestions.size > 0 && onApplySuggestions && (
+                <div className="p-4 border-l-4 border-cyan-500 bg-cyan-500/10 rounded-r-lg">
+                    <div className="flex">
+                        <div className="flex-shrink-0">
+                            <svg className="w-5 h-5 text-cyan-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
+                            </svg>
+                        </div>
+                        <div className="ml-3 flex-1">
+                            <h3 className="text-sm font-medium text-cyan-300">
+                                Smart Name Matching Found Suggestions
+                            </h3>
+                            <div className="mt-2 text-sm text-cyan-200/80">
+                                <p className="mb-3">
+                                    Some element names in your CSV don&apos;t exactly match your layout. We found likely matches:
+                                </p>
+                                <div className="space-y-2 mb-4">
+                                    {Array.from(suggestions.entries()).map(([original, suggested], i) => (
+                                        <div key={i} className="flex items-center gap-2 font-mono text-xs">
+                                            <span className="text-red-400 line-through bg-red-500/10 px-2 py-1 rounded">{original}</span>
+                                            <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                            </svg>
+                                            <span className="text-green-400 bg-green-500/10 px-2 py-1 rounded">{suggested}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => onApplySuggestions(suggestions)}
+                                    className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium rounded-lg transition-colors"
+                                >
+                                    Apply All Fixes
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Unmatched Elements Warning (only if no suggestions or not all have suggestions) */}
+            {stats.unmatchedElements.length > 0 && (!suggestions || suggestions.size < stats.unmatchedElements.length) && (
                 <div className="p-4 border-l-4 border-amber-500 bg-amber-500/10 rounded-r-lg">
                     <div className="flex">
                         <div className="flex-shrink-0">
@@ -70,14 +112,16 @@ export default function ValidationSummary({ validationResult, itemValidationResu
                             </h3>
                             <div className="mt-2 text-sm text-amber-200/80">
                                 <p className="mb-2">
-                                    The following element names don&apos;t match your warehouse layout. Rows with these elements will be skipped during upload.
+                                    The following element names don&apos;t match your warehouse layout{suggestions && suggestions.size > 0 ? ' and we couldn\'t find suggestions' : ''}. Rows with these elements will be skipped during upload.
                                 </p>
                                 <div className="flex flex-wrap gap-2 mt-3">
-                                    {stats.unmatchedElements.map((name, i) => (
-                                        <span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                                            {name}
-                                        </span>
-                                    ))}
+                                    {stats.unmatchedElements
+                                        .filter(name => !suggestions || !suggestions.has(name))
+                                        .map((name, i) => (
+                                            <span key={i} className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                                {name}
+                                            </span>
+                                        ))}
                                 </div>
                             </div>
                         </div>

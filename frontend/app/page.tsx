@@ -13,6 +13,7 @@ import {
   AnalyticsSidebar,
   RecentLayouts,
   QuickActionsFooter,
+  TemplateSelector,
 } from '@/components/home';
 
 interface LayoutWithStats extends Layout {
@@ -29,6 +30,7 @@ export default function Home() {
   const [pickDataByLayout, setPickDataByLayout] = useState<
     Record<string, { totalPicks: number; lastUpload?: string }>
   >({});
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
 
   // Computed values
   const totalPicks = useMemo(() => {
@@ -164,15 +166,31 @@ export default function Home() {
               visualizing heatmaps, and analyzing velocity zones.
             </p>
 
-            <Link
-              href="/designer"
-              className="inline-flex items-center gap-3 px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-white font-mono font-bold text-lg rounded-xl shadow-xl shadow-cyan-900/50 hover:shadow-2xl hover:shadow-cyan-900/70 transition-all duration-200 hover:scale-105"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              Create First Layout
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <button
+                onClick={() => setShowTemplateSelector(true)}
+                className="inline-flex items-center gap-3 px-8 py-4 bg-cyan-500 hover:bg-cyan-400 text-white font-mono font-bold text-lg rounded-xl shadow-xl shadow-cyan-900/50 hover:shadow-2xl hover:shadow-cyan-900/70 transition-all duration-200 hover:scale-105"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h4a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM14 5a1 1 0 011-1h4a1 1 0 011 1v7a1 1 0 01-1 1h-4a1 1 0 01-1-1V5z" />
+                </svg>
+                Use Template
+              </button>
+              <Link
+                href="/designer"
+                className="inline-flex items-center gap-3 px-8 py-4 bg-slate-700 hover:bg-slate-600 text-white font-mono font-medium text-lg rounded-xl transition-all duration-200"
+              >
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Start from Scratch
+              </Link>
+            </div>
+
+            {/* Template Selector Modal */}
+            {showTemplateSelector && (
+              <TemplateSelector onClose={() => setShowTemplateSelector(false)} />
+            )}
 
             <div className="mt-12 grid grid-cols-3 gap-6 text-center">
               <div>
