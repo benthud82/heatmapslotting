@@ -23,71 +23,96 @@ export default function Heatmap() {
   // ... (existing state)
 
   // Helper to calculate and add round trip distance to data
+  // Uses element and marker CENTERS to match the canvas distance calculations exactly
   const enrichDataWithDistance = (data: AggregatedPickData[], markers: RouteMarker[], elementsList: WarehouseElement[]): AggregatedPickData[] => {
-    if (!data.length || !markers.length) return data;
+    if (!data.length || !markers.length || !elementsList.length) return data;
 
-    // Extract parking spots (prioritize cart_parking, fallback to start_point)
-    let parkingSpots = markers
+    // Cart parking dimensions from ROUTE_MARKER_CONFIGS: 40x24
+    const CART_PARKING_WIDTH = 40;
+    const CART_PARKING_HEIGHT = 24;
+
+    // Extract cart parking spots only, using CENTER coordinates
+    const cartParkingSpots = markers
       .filter(m => m.marker_type === 'cart_parking')
-      .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+      .map(m => ({
+        x: Number(m.x_coordinate) + CART_PARKING_WIDTH / 2,
+        y: Number(m.y_coordinate) + CART_PARKING_HEIGHT / 2
+      }));
 
-    // Fallback to start point if no cart parking
-    if (parkingSpots.length === 0) {
-      parkingSpots = markers
-        .filter(m => m.marker_type === 'start_point')
-        .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
-    }
+    if (cartParkingSpots.length === 0) return data;
 
-    if (parkingSpots.length === 0) return data;
+    // Build element center lookup (matches getElementCenter in distanceCalculation.ts)
+    const elementCenters = new Map<string, { x: number; y: number }>();
+    elementsList.forEach(el => {
+      elementCenters.set(el.id, {
+        x: Number(el.x_coordinate) + el.width / 2,
+        y: Number(el.y_coordinate) + el.height / 2
+      });
+    });
 
-    // Map elements for analysis
-    const elementsForAnalysis = elementsList.map(el => ({
-      id: el.id,
-      x: Number(el.x_coordinate),
-      y: Number(el.y_coordinate)
-    }));
-
-    // Run analysis to get distances
-    const analysis = analyzeVelocity(data, undefined, elementsForAnalysis, parkingSpots);
-
-    // Merge back
+    // Calculate distance for each element (matching WarehouseCanvas.tsx elementDistances logic exactly)
     return data.map(item => {
-      const analyzed = analysis.find(a => a.elementId === item.element_id);
-      if (analyzed) {
-        // currentDistance is in pixels. Round trip = dist * 2. Feet = pixels / 12.
-        // Even if distance is 0, we can define it
-        const distPx = analyzed.currentDistance || 0;
-        return {
-          ...item,
-          roundTripDistanceFeet: Math.round((distPx * 2) / 12)
-        };
-      }
-      return item;
+      const elementCenter = elementCenters.get(item.element_id);
+      if (!elementCenter) return item;
+
+      // Find nearest cart parking using Manhattan distance
+      let minDistance = Infinity;
+      cartParkingSpots.forEach(parking => {
+        const dist = Math.abs(elementCenter.x - parking.x) + Math.abs(elementCenter.y - parking.y);
+        if (dist < minDistance) minDistance = dist;
+      });
+
+      if (minDistance === Infinity) return item;
+
+      // Round trip = 2x one-way distance, convert pixels to feet (12 pixels = 1 foot)
+      // Use Math.round to match the canvas display which uses .toFixed(0)
+      const roundTripFeet = Math.round((minDistance * 2) / 12);
+
+      return {
+        ...item,
+        roundTripDistanceFeet: roundTripFeet
+      };
     });
   };
 
   // Helper to calculate and add round trip distance to item-level data
+  // Uses marker and element CENTERS to match the canvas distance calculations
   const enrichItemDataWithDistance = (
     data: AggregatedItemPickData[],
-    markers: RouteMarker[]
+    markers: RouteMarker[],
+    elementsList?: WarehouseElement[]
   ): AggregatedItemPickData[] => {
     if (!data.length || !markers.length) return data;
 
-    // Get parking spots (prioritize cart_parking, fallback to start_point)
-    let parkingSpots = markers
-      .filter(m => m.marker_type === 'cart_parking')
-      .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    // Cart parking dimensions from ROUTE_MARKER_CONFIGS: 40x24
+    const CART_PARKING_WIDTH = 40;
+    const CART_PARKING_HEIGHT = 24;
 
-    if (parkingSpots.length === 0) {
-      parkingSpots = markers
-        .filter(m => m.marker_type === 'start_point')
-        .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
-    }
+    // Get parking spots using CENTER coordinates (prioritize cart_parking only)
+    const parkingSpots = markers
+      .filter(m => m.marker_type === 'cart_parking')
+      .map(m => ({
+        x: Number(m.x_coordinate) + CART_PARKING_WIDTH / 2,
+        y: Number(m.y_coordinate) + CART_PARKING_HEIGHT / 2
+      }));
 
     if (parkingSpots.length === 0) return data;
 
+    // Build element dimension lookup
+    const elementDimensions = new Map<string, { width: number; height: number }>();
+    if (elementsList) {
+      elementsList.forEach(el => {
+        elementDimensions.set(el.id, { width: el.width, height: el.height });
+      });
+    }
+
     return data.map(item => {
-      const itemPos = { x: Number(item.x_coordinate), y: Number(item.y_coordinate) };
+      // Use element dimensions to calculate center (item inherits element position)
+      const dims = elementDimensions.get(item.element_id) || { width: 0, height: 0 };
+      const itemPos = {
+        x: Number(item.x_coordinate) + dims.width / 2,
+        y: Number(item.y_coordinate) + dims.height / 2
+      };
       // Calculate Manhattan distance to nearest parking
       let minDist = Infinity;
       parkingSpots.forEach(parking => {
@@ -285,7 +310,7 @@ export default function Heatmap() {
         setItemDataLoading(true);
         try {
           const itemLevelData = await picksApi.getItemsAggregated(layoutId, formattedDate, formattedDate);
-          setItemData(enrichItemDataWithDistance(itemLevelData, markersData));
+          setItemData(enrichItemDataWithDistance(itemLevelData, markersData, elementsData));
         } catch (itemErr) {
           console.error('Failed to load item-level data:', itemErr);
           setItemData([]);
@@ -335,7 +360,7 @@ export default function Heatmap() {
           startDate || undefined,
           endDate || undefined
         );
-        setItemData(enrichItemDataWithDistance(itemLevelData, routeMarkers));
+        setItemData(enrichItemDataWithDistance(itemLevelData, routeMarkers, elements));
       } catch (itemErr) {
         console.error('Failed to load item-level data:', itemErr);
         setItemData([]);

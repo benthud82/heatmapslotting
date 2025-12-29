@@ -32,7 +32,13 @@
       "Bash(findstr:*)",
       "Bash(ls:*)",
       "Bash(npm run build:*)",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(dir:*)",
+      "Bash(del C:xampphtdocsheatmapslottinglms.md)",
+      "Bash(del C:xampphtdocsheatmapslottinglms-implementation.md)",
+      "Bash(pushd:*)",
+      "Bash(popd)",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit\")"
     ],
     "deny": [],
     "ask": []

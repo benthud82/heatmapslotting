@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { ElementType, RouteMarkerType } from '@/lib/types';
 
 interface SidebarProps {
@@ -17,24 +17,6 @@ interface Tool {
 }
 
 export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
-    // Easy mode state - persisted to sessionStorage
-    const [easyMode, setEasyMode] = useState(true);
-
-    // Load easy mode preference from sessionStorage on mount
-    useEffect(() => {
-        const stored = sessionStorage.getItem('designer-easy-mode');
-        if (stored !== null) {
-            setEasyMode(stored === 'true');
-        }
-    }, []);
-
-    // Save easy mode preference to sessionStorage
-    const toggleEasyMode = () => {
-        const newValue = !easyMode;
-        setEasyMode(newValue);
-        sessionStorage.setItem('designer-easy-mode', String(newValue));
-    };
-
     // Tool definitions with keyboard shortcuts
     const selectTool: Tool = { id: 'select', label: 'Select', shortcut: 'V', type: 'select' };
 
@@ -143,25 +125,6 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
 
     return (
         <aside className="w-14 bg-slate-900 border-r border-slate-800 flex flex-col items-center py-3 gap-0.5 z-30">
-            {/* Easy/Advanced Mode Toggle */}
-            <button
-                onClick={toggleEasyMode}
-                className={`w-10 h-6 rounded-full flex items-center transition-all mb-2 relative group ${
-                    easyMode
-                        ? 'bg-emerald-600 justify-start'
-                        : 'bg-slate-700 justify-end'
-                }`}
-                title={easyMode ? 'Easy Mode - Click for Advanced' : 'Advanced Mode - Click for Easy'}
-            >
-                <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-all ${
-                    easyMode ? 'ml-1' : 'mr-1'
-                }`} />
-                {/* Tooltip */}
-                <div className="absolute left-full ml-2 px-2 py-1.5 bg-slate-800 text-white text-[10px] rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 border border-slate-700 shadow-xl transition-opacity duration-100">
-                    {easyMode ? 'Easy Mode' : 'Advanced'}
-                </div>
-            </button>
-
             {/* Select Tool - Always at top */}
             <ToolButton tool={selectTool} />
 
@@ -176,21 +139,16 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                 ))}
             </div>
 
-            {/* Annotation Tools - Hidden in Easy Mode */}
-            {!easyMode && (
-                <>
-                    {/* Divider */}
-                    <div className="w-8 h-px bg-slate-700 my-2" />
+            {/* Divider */}
+            <div className="w-8 h-px bg-slate-700 my-2" />
 
-                    {/* Annotation Tools */}
-                    <SectionHeader label="Annotate" />
-                    <div className="flex flex-col items-center gap-0.5">
-                        {annotationTools.map((tool) => (
-                            <ToolButton key={tool.id} tool={tool} />
-                        ))}
-                    </div>
-                </>
-            )}
+            {/* Annotation Tools */}
+            <SectionHeader label="Annotate" />
+            <div className="flex flex-col items-center gap-0.5">
+                {annotationTools.map((tool) => (
+                    <ToolButton key={tool.id} tool={tool} />
+                ))}
+            </div>
 
             {/* Divider */}
             <div className="w-8 h-px bg-slate-700 my-2" />
@@ -202,15 +160,6 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                     <ToolButton key={tool.id} tool={tool} isRouteMarker />
                 ))}
             </div>
-
-            {/* Easy mode hint */}
-            {easyMode && (
-                <div className="mt-auto pt-4 text-center">
-                    <span className="text-[8px] text-slate-600 font-mono">
-                        Toggle for<br/>more tools
-                    </span>
-                </div>
-            )}
         </aside>
     );
 }

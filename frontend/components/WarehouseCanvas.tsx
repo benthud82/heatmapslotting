@@ -476,7 +476,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     };
   }, [hoveredParkingId, routeDistanceResult]);
 
-  // Calculate round-trip distance for each pickable element to nearest start/parking
+  // Calculate round-trip distance for each pickable element to nearest cart parking
+  // Note: Only considers cart parking spots (not start point) to match assignElementsToParking logic
   const elementDistances = useMemo(() => {
     if (!showDistances) return new Map<string, { distanceFeet: number; nearestLabel: string }>();
 
@@ -487,12 +488,11 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
     if (pickableElements.length === 0) return new Map<string, { distanceFeet: number; nearestLabel: string }>();
 
-    // Find start point and parking spots
-    const startPoint = routeMarkers.find(m => m.marker_type === 'start_point');
+    // Find cart parking spots only (not start point - pickers walk from parking, not from start)
     const cartParkingSpots = routeMarkers.filter(m => m.marker_type === 'cart_parking');
 
-    // Need at least a start point to calculate distances
-    if (!startPoint && cartParkingSpots.length === 0) {
+    // Need at least one cart parking spot to calculate distances
+    if (cartParkingSpots.length === 0) {
       return new Map<string, { distanceFeet: number; nearestLabel: string }>();
     }
 
@@ -502,16 +502,6 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       const elementCenter = getElementCenter(element);
       let minDistance = Infinity;
       let nearestLabel = '';
-
-      // Check distance to start point
-      if (startPoint) {
-        const startCenter = getMarkerCenter(startPoint);
-        const dist = calculateManhattanDistance(elementCenter, startCenter);
-        if (dist < minDistance) {
-          minDistance = dist;
-          nearestLabel = 'Start';
-        }
-      }
 
       // Check distance to each parking spot
       cartParkingSpots.forEach((parking, idx) => {
@@ -1591,8 +1581,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                     }
                     setValidationError(null);
                   }}
-                  onDragMove={marker.marker_type === 'cart_parking' && snappingEnabled ? (e) => {
-                    // Show snap preview lines for cart parking
+                  onDragMove={snappingEnabled ? (e) => {
+                    // Show snap preview lines for route markers
                     const node = e.target;
                     const currentX = node.x() - config.width / 2;
                     const currentY = node.y() - config.height / 2;

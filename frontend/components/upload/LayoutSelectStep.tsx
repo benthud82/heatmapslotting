@@ -42,9 +42,9 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
 
             if (!response.ok) throw new Error('Failed to fetch layouts');
 
-            const data = await response.json();
-            // Ensure data is an array - if API returns a single object, wrap it
-            const layoutsArray = Array.isArray(data) ? data : [data];
+            const result = await response.json();
+            // Handle paginated response format from API
+            const layoutsArray = result.data || (Array.isArray(result) ? result : [result]);
             setLayouts(layoutsArray);
 
             // Auto-select if only one layout
@@ -214,7 +214,7 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
                 >
                     <option value="" className="text-slate-500">Select a layout...</option>
                     {layouts.map((layout) => (
-                        <option key={layout.id} value={layout.id} className="text-white bg-slate-800">
+                        <option key={`layout-${layout.id}`} value={layout.id} className="text-white bg-slate-800">
                             {layout.name}
                         </option>
                     ))}

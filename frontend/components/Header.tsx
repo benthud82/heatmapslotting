@@ -69,6 +69,7 @@ export default function Header({ title = 'Warehouse Heatmap Slotting', subtitle,
         { name: 'Heatmap', href: '/heatmap' },
         { name: 'Upload', href: '/upload' },
         { name: 'Dashboard', href: '/dashboard' },
+        { name: 'Labor', href: '/labor' },
     ];
 
     // Helper to check if link is active
