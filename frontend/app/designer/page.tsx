@@ -17,6 +17,7 @@ import PatternGeneratorModal, { GeneratedElementData } from '@/components/design
 import ResequenceModal from '@/components/designer/ResequenceModal';
 import TemplateLibrary from '@/components/designer/TemplateLibrary';
 import DxfImportModal from '@/components/designer/DxfImportModal';
+import DimensionsModal from '@/components/designer/DimensionsModal';
 import { layoutApi, elementsApi, routeMarkersApi, API_URL } from '@/lib/api';
 import { WarehouseTemplate } from '@/lib/templates';
 import { ImportedElement } from '@/lib/dxfImporter';
@@ -24,6 +25,8 @@ import { supabase } from '@/lib/supabase';
 import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
 import { useHistory } from '@/hooks/useHistory';
 import { alignElements, AlignmentType } from '@/lib/alignment';
+import { detectPatterns, generateCorrectionPlan, correctionsToUpdates, correctionsToMarkerUpdates, CorrectionPlan, ElementCorrection } from '@/lib/autoAlign';
+import AutoAlignModal from '@/components/designer/AutoAlignModal';
 
 export default function Home() {
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -94,6 +97,19 @@ export default function Home() {
   const [showResequenceModal, setShowResequenceModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [showDxfImport, setShowDxfImport] = useState(false);
+  const [showAutoAlignModal, setShowAutoAlignModal] = useState(false);
+  const [autoAlignCorrectionPlan, setAutoAlignCorrectionPlan] = useState<CorrectionPlan | null>(null);
+
+  // First-element dimension modal state
+  const [showFirstElementModal, setShowFirstElementModal] = useState(false);
+  const [pendingElementPlacement, setPendingElementPlacement] = useState<{
+    x: number;
+    y: number;
+    type: ElementType;
+  } | null>(null);
+  const [customElementDefaults, setCustomElementDefaults] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
 
   const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
   const [copiedMarkers, setCopiedMarkers] = useState<RouteMarker[]>([]);
@@ -273,12 +289,38 @@ export default function Home() {
     }
   };
 
+  // Check if this is the first element of a pickable type
+  const isFirstOfType = useCallback((type: ElementType): boolean => {
+    const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
+    if (!pickableTypes.includes(type)) return false;
+    return !elements.some(el => el.element_type === type);
+  }, [elements]);
+
+  // Get effective dimensions for an element type (custom or default)
+  const getEffectiveDimensions = useCallback((type: ElementType): { width: number; height: number } => {
+    if (customElementDefaults[type]) {
+      return customElementDefaults[type];
+    }
+    return { width: ELEMENT_CONFIGS[type].width, height: ELEMENT_CONFIGS[type].height };
+  }, [customElementDefaults]);
+
   // Create new element
   const handleElementCreate = useCallback(
     async (x: number, y: number) => {
       if (activeTool === 'select') return;
 
       const selectedType = activeTool as ElementType;
+
+      // Check if first of pickable type - show dimension modal
+      const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
+      if (pickableTypes.includes(selectedType) && isFirstOfType(selectedType)) {
+        setPendingElementPlacement({ x, y, type: selectedType });
+        setShowFirstElementModal(true);
+        return;
+      }
+
+      // Use custom defaults if set, otherwise use ELEMENT_CONFIGS
+      const dimensions = getEffectiveDimensions(selectedType);
       const tempId = nanoid();
       const config = ELEMENT_CONFIGS[selectedType];
 
@@ -301,8 +343,8 @@ export default function Home() {
         label: abbreviatedLabel,
         x_coordinate: x,
         y_coordinate: y,
-        width: config.width,
-        height: config.height,
+        width: dimensions.width,
+        height: dimensions.height,
         rotation: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -321,8 +363,8 @@ export default function Home() {
           x_coordinate: x,
           y_coordinate: y,
           rotation: 0,
-          width: config.width,
-          height: config.height,
+          width: dimensions.width,
+          height: dimensions.height,
         });
 
         // Replace temp element with real one
@@ -336,7 +378,7 @@ export default function Home() {
         setSaving(false);
       }
     },
-    [activeTool, layout, elements, setElements]
+    [activeTool, layout, elements, setElements, isFirstOfType, getEffectiveDimensions, currentLayoutId]
   );
 
   // Update element
@@ -405,6 +447,170 @@ export default function Home() {
     },
     [elements, setElements]
   );
+
+  // Handle first-element modal apply - creates element with custom dimensions and stores as default
+  const handleFirstElementModalApply = useCallback(
+    async (dimensions: { width: number; height: number }) => {
+      if (!pendingElementPlacement) return;
+
+      const { x, y, type } = pendingElementPlacement;
+
+      // Store as custom default for this type
+      setCustomElementDefaults(prev => ({
+        ...prev,
+        [type]: dimensions
+      }));
+
+      // Create the element with the specified dimensions
+      const tempId = nanoid();
+      const config = ELEMENT_CONFIGS[type];
+
+      // Generate abbreviated label
+      const typeCount = elements.filter(el => el.element_type === type).length + 1;
+      const abbreviations: Record<ElementType, string> = {
+        bay: 'B',
+        flow_rack: 'FR',
+        full_pallet: 'P',
+        text: 'T',
+        line: 'L',
+        arrow: 'A',
+      };
+      const abbreviatedLabel = `${abbreviations[type]}${typeCount}`;
+
+      const tempElement: WarehouseElement = {
+        id: tempId,
+        layout_id: layout?.id || '',
+        element_type: type,
+        label: abbreviatedLabel,
+        x_coordinate: x,
+        y_coordinate: y,
+        width: dimensions.width,
+        height: dimensions.height,
+        rotation: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      // Update state via history
+      const newElements = [...elements, tempElement];
+      setElements(newElements);
+
+      // Clear pending state and close modal
+      setPendingElementPlacement(null);
+      setShowFirstElementModal(false);
+
+      try {
+        setSaving(true);
+        const created = await elementsApi.create({
+          layout_id: layout?.id || currentLayoutId || '',
+          element_type: type,
+          label: tempElement.label,
+          x_coordinate: x,
+          y_coordinate: y,
+          rotation: 0,
+          width: dimensions.width,
+          height: dimensions.height,
+        });
+
+        // Replace temp element with real one
+        setElements(newElements.map((el) => (el.id === tempId ? created : el)));
+        setToast({ message: `Created ${config.displayName} (${dimensions.width}" × ${dimensions.height}")`, type: 'success', duration: 2000 });
+      } catch (err) {
+        setElements(elements); // Revert to previous state
+        // @ts-expect-error - dynamic error access
+        const message = err.data?.message || err.message || 'Failed to create element';
+        setError(message);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [pendingElementPlacement, elements, layout, currentLayoutId, setElements]
+  );
+
+  // Handle first-element modal cancel
+  const handleFirstElementModalCancel = useCallback(() => {
+    setPendingElementPlacement(null);
+    setShowFirstElementModal(false);
+  }, []);
+
+  // Helper to validate UUID format (filters out nanoid temp IDs)
+  const isValidUUID = (id: string): boolean =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+  // Batch update dimensions for all elements of a specific type
+  const handleBatchDimensionUpdate = useCallback(
+    async (type: ElementType, dimensions: { width: number; height: number }) => {
+      // Get all elements of this type
+      const allElementsOfType = elements.filter(el => el.element_type === type);
+      // Filter to only elements with valid UUIDs (exclude temp nanoid IDs)
+      const elementsWithValidIds = allElementsOfType.filter(el => isValidUUID(el.id));
+
+      if (allElementsOfType.length === 0) return;
+
+      // Update local state optimistically (all elements, including temp)
+      const updatedElements = elements.map((el) =>
+        el.element_type === type
+          ? { ...el, width: dimensions.width, height: dimensions.height }
+          : el
+      );
+
+      setElements(updatedElements);
+
+      // Also update custom defaults for future elements
+      setCustomElementDefaults(prev => ({
+        ...prev,
+        [type]: dimensions
+      }));
+
+      // Only send backend updates for elements with valid UUIDs
+      if (elementsWithValidIds.length > 0) {
+        try {
+          setSaving(true);
+          // Update all elements of this type in parallel
+          await Promise.all(
+            elementsWithValidIds.map(el =>
+              elementsApi.update(el.id, { width: dimensions.width, height: dimensions.height })
+            )
+          );
+
+          const typeName = ELEMENT_CONFIGS[type]?.displayName || type;
+          setToast({
+            message: `Updated ${allElementsOfType.length} ${typeName.toLowerCase()}${allElementsOfType.length > 1 ? 's' : ''} to ${dimensions.width}" × ${dimensions.height}"`,
+            type: 'success',
+            duration: 2500
+          });
+        } catch (err) {
+          setElements(elements); // Revert
+          setError(err instanceof Error ? err.message : 'Failed to update elements');
+        } finally {
+          setSaving(false);
+        }
+      } else {
+        // All elements are pending creation, just show success for local update
+        const typeName = ELEMENT_CONFIGS[type]?.displayName || type;
+        setToast({
+          message: `Updated ${allElementsOfType.length} ${typeName.toLowerCase()}${allElementsOfType.length > 1 ? 's' : ''} to ${dimensions.width}" × ${dimensions.height}"`,
+          type: 'success',
+          duration: 2500
+        });
+      }
+    },
+    [elements, setElements]
+  );
+
+  // Auto-Align Handlers
+  const handleAutoAlign = useCallback(() => {
+    const detection = detectPatterns(elements, routeMarkers);
+    const plan = generateCorrectionPlan(detection);
+    setAutoAlignCorrectionPlan(plan);
+    setShowAutoAlignModal(true);
+  }, [elements, routeMarkers]);
+
+  // Calculate misaligned count for status bar badge
+  const misalignedCount = (() => {
+    const detection = detectPatterns(elements, routeMarkers);
+    return detection.totalMisaligned;
+  })();
 
   // Route Marker Handlers
   const handleMarkerCreate = useCallback(
@@ -486,6 +692,39 @@ export default function Home() {
     },
     [routeMarkers]
   );
+
+  // Auto-Align Apply (must be after handleMarkerUpdate)
+  const handleAutoAlignApply = useCallback(async (corrections: ElementCorrection[]) => {
+    // Apply element corrections
+    const elementUpdates = correctionsToUpdates(corrections);
+    if (elementUpdates.length > 0) {
+      await handleMultiElementUpdate(elementUpdates);
+    }
+
+    // Apply marker corrections
+    const markerUpdates = correctionsToMarkerUpdates(corrections);
+    for (const update of markerUpdates) {
+      await handleMarkerUpdate(update.id, {
+        x_coordinate: update.x_coordinate,
+        y_coordinate: update.y_coordinate,
+      });
+    }
+
+    const elementCount = elementUpdates.length;
+    const markerCount = markerUpdates.length;
+    const totalCount = elementCount + markerCount;
+
+    let message = `Aligned ${totalCount} item${totalCount !== 1 ? 's' : ''}`;
+    if (elementCount > 0 && markerCount > 0) {
+      message = `Aligned ${elementCount} element${elementCount !== 1 ? 's' : ''} and ${markerCount} marker${markerCount !== 1 ? 's' : ''}`;
+    }
+
+    setToast({
+      message,
+      type: 'success',
+      duration: 3000,
+    });
+  }, [handleMultiElementUpdate, handleMarkerUpdate]);
 
   const handleMarkerDelete = useCallback(async () => {
     if (selectedMarkerIds.length === 0) return;
@@ -991,6 +1230,16 @@ export default function Home() {
   // Direct element creation for drag-drop (bypasses activeTool state)
   const handleDirectElementCreate = useCallback(
     async (x: number, y: number, elementType: ElementType) => {
+      // Check if first of pickable type - show dimension modal
+      const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
+      if (pickableTypes.includes(elementType) && isFirstOfType(elementType)) {
+        setPendingElementPlacement({ x, y, type: elementType });
+        setShowFirstElementModal(true);
+        return;
+      }
+
+      // Use custom defaults if set, otherwise use ELEMENT_CONFIGS
+      const dimensions = getEffectiveDimensions(elementType);
       const tempId = nanoid();
       const config = ELEMENT_CONFIGS[elementType];
 
@@ -1013,8 +1262,8 @@ export default function Home() {
         label: abbreviatedLabel,
         x_coordinate: x,
         y_coordinate: y,
-        width: config.width,
-        height: config.height,
+        width: dimensions.width,
+        height: dimensions.height,
         rotation: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -1033,8 +1282,8 @@ export default function Home() {
           x_coordinate: x,
           y_coordinate: y,
           rotation: 0,
-          width: config.width,
-          height: config.height,
+          width: dimensions.width,
+          height: dimensions.height,
         });
 
         // Replace temp element with real one
@@ -1049,7 +1298,7 @@ export default function Home() {
         setSaving(false);
       }
     },
-    [layout, elements, setElements, currentLayoutId]
+    [layout, elements, setElements, currentLayoutId, isFirstOfType, getEffectiveDimensions]
   );
 
   // Apply template - bulk create elements and route markers from template
@@ -1272,13 +1521,20 @@ export default function Home() {
               setShowResequenceModal(true);
             }
             break;
+          case 'a':
+            // Shift+A - Auto-Align
+            if (e.shiftKey) {
+              e.preventDefault();
+              handleAutoAlign();
+            }
+            break;
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, handleMarkerDelete, selectedElementIds, selectedMarkerIds]);
+  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, handleMarkerDelete, selectedElementIds, selectedMarkerIds, handleAutoAlign]);
 
   if (loading) {
     return (
@@ -1396,7 +1652,7 @@ export default function Home() {
             onMultiElementUpdate={handleMultiElementUpdate}
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
-
+            customElementDefaults={customElementDefaults}
           />
 
           {error && (
@@ -1440,6 +1696,7 @@ export default function Home() {
             labelDisplayMode={labelDisplayMode}
             onLabelDisplayModeChange={setLabelDisplayMode}
             onAlign={handleAlign}
+            onBatchUpdateDimensions={handleBatchDimensionUpdate}
           />
           {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>
@@ -1462,6 +1719,8 @@ export default function Home() {
         onToggleSnap={() => setSnapToGrid(prev => !prev)}
         showDistances={showDistances}
         onToggleDistances={() => setShowDistances(prev => !prev)}
+        onAutoAlign={handleAutoAlign}
+        misalignedCount={misalignedCount}
       />
 
       {
@@ -1529,7 +1788,24 @@ export default function Home() {
         elementLimit={elementLimit}
       />
 
+      <AutoAlignModal
+        isOpen={showAutoAlignModal}
+        onClose={() => setShowAutoAlignModal(false)}
+        onApply={handleAutoAlignApply}
+        correctionPlan={autoAlignCorrectionPlan}
+      />
 
+      {/* First Element Dimensions Modal */}
+      {showFirstElementModal && pendingElementPlacement && (
+        <DimensionsModal
+          mode="create"
+          elementType={pendingElementPlacement.type as 'bay' | 'flow_rack' | 'full_pallet'}
+          initialWidth={ELEMENT_CONFIGS[pendingElementPlacement.type].width}
+          initialHeight={ELEMENT_CONFIGS[pendingElementPlacement.type].height}
+          onApply={(dimensions) => handleFirstElementModalApply(dimensions)}
+          onCancel={handleFirstElementModalCancel}
+        />
+      )}
 
       {
         toast && (

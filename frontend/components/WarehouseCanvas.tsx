@@ -281,6 +281,8 @@ interface WarehouseCanvasProps {
   walkBurdenData?: Map<string, number>;
   minBurden?: number;
   maxBurden?: number;
+  // Custom element defaults for ghost preview dimensions
+  customElementDefaults?: Record<string, { width: number; height: number }>;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -316,6 +318,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   walkBurdenData,
   minBurden = 0,
   maxBurden = 0,
+  customElementDefaults,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -687,19 +690,24 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
           // Guard: only process if config exists
           if (config) {
+            // Use custom dimensions if available, otherwise default
+            const customDims = customElementDefaults?.[selectedType as ElementType];
+            const ghostWidth = customDims?.width ?? config.width;
+            const ghostHeight = customDims?.height ?? config.height;
+
             // Calculate potential snap points
             const ghostElement = {
-              x: pos.x - Number(config.width) / 2,
-              y: pos.y - Number(config.height) / 2,
-              width: Number(config.width),
-              height: Number(config.height),
+              x: pos.x - Number(ghostWidth) / 2,
+              y: pos.y - Number(ghostHeight) / 2,
+              width: Number(ghostWidth),
+              height: Number(ghostHeight),
               rotation: 0,
             };
 
             const snapResult = findSnapPoints(ghostElement, elements);
 
-            const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(config.width) / 2 : pos.x;
-            const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(config.height) / 2 : pos.y;
+            const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(ghostWidth) / 2 : pos.x;
+            const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(ghostHeight) / 2 : pos.y;
 
             setCursorCanvasPos({ x: snappedX, y: snappedY });
             // For warehouse elements, findSnapPoints doesn't return snappedElementIds, so clear it
@@ -823,8 +831,13 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
           const config = ELEMENT_CONFIGS[selectedType as ElementType];
           if (!config) return;
 
-          const placeX = canvasPosition.x - Number(config.width) / 2;
-          const placeY = canvasPosition.y - Number(config.height) / 2;
+          // Use custom dimensions if available (same as ghost preview)
+          const customDims = customElementDefaults?.[selectedType as ElementType];
+          const placeWidth = customDims?.width ?? config.width;
+          const placeHeight = customDims?.height ?? config.height;
+
+          const placeX = canvasPosition.x - Number(placeWidth) / 2;
+          const placeY = canvasPosition.y - Number(placeHeight) / 2;
 
           onElementCreate(placeX, placeY);
         }
@@ -923,36 +936,39 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       let currentX = node.x();
       let currentY = node.y();
 
-      // --- SNAPPING LOGIC FOR GROUP DRAG ---
-      // Snap the "leader" element (the one being dragged) to anything NOT in the selection
-      const nonSelectedElements = elements.filter(el => !selectedElementIds.includes(el.id));
-
-      // Convert center position to top-left for snap calculations
+      // --- SNAPPING LOGIC FOR GROUP DRAG (only when enabled) ---
       const halfWidth = Number(element.width) / 2;
       const halfHeight = Number(element.height) / 2;
-      const topLeftX = currentX - halfWidth;
-      const topLeftY = currentY - halfHeight;
 
-      const snapResult = findSnapPoints(
-        {
-          x: topLeftX,
-          y: topLeftY,
-          width: Number(element.width),
-          height: Number(element.height),
-          rotation: node.rotation(),
-        },
-        nonSelectedElements
-      );
+      if (snappingEnabled) {
+        // Snap the "leader" element (the one being dragged) to anything NOT in the selection
+        const nonSelectedElements = elements.filter(el => !selectedElementIds.includes(el.id));
 
-      // Apply snap if found (converting back to center coordinates)
-      if (snapResult.snapX !== null) {
-        currentX = snapResult.snapX + halfWidth;
-        // Force the node to the snapped position so the user feels it
-        node.x(currentX);
-      }
-      if (snapResult.snapY !== null) {
-        currentY = snapResult.snapY + halfHeight;
-        node.y(currentY);
+        // Convert center position to top-left for snap calculations
+        const topLeftX = currentX - halfWidth;
+        const topLeftY = currentY - halfHeight;
+
+        const snapResult = findSnapPoints(
+          {
+            x: topLeftX,
+            y: topLeftY,
+            width: Number(element.width),
+            height: Number(element.height),
+            rotation: node.rotation(),
+          },
+          nonSelectedElements
+        );
+
+        // Apply snap if found (converting back to center coordinates)
+        if (snapResult.snapX !== null) {
+          currentX = snapResult.snapX + halfWidth;
+          // Force the node to the snapped position so the user feels it
+          node.x(currentX);
+        }
+        if (snapResult.snapY !== null) {
+          currentY = snapResult.snapY + halfHeight;
+          node.y(currentY);
+        }
       }
       // -------------------------------------
 
@@ -989,36 +1005,42 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       return;
     }
 
-    // Single element drag with snapping
-    // Get other elements (exclude current element being dragged)
-    const otherElements = elements.filter(el => el.id !== element.id);
-
-    // Convert center position to top-left for snap calculations
+    // Single element drag with snapping (only when enabled)
+    // Convert center position to top-left for calculations
     const halfWidth = Number(element.width) / 2;
     const halfHeight = Number(element.height) / 2;
-    const topLeftX = node.x() - halfWidth;
-    const topLeftY = node.y() - halfHeight;
+    let topLeftX = node.x() - halfWidth;
+    let topLeftY = node.y() - halfHeight;
 
-    // Find snap points for current position (using top-left coordinates)
-    const snapResult = findSnapPoints(
-      {
-        x: topLeftX,
-        y: topLeftY,
-        width: Number(element.width),
-        height: Number(element.height),
-        rotation: node.rotation(),
-      },
-      otherElements
-    );
+    if (snappingEnabled) {
+      // Get other elements (exclude current element being dragged)
+      const otherElements = elements.filter(el => el.id !== element.id);
 
-    // Apply snap if found (converting back to center coordinates)
-    const newTopLeftX = snapResult.snapX !== null ? snapResult.snapX : topLeftX;
-    const newTopLeftY = snapResult.snapY !== null ? snapResult.snapY : topLeftY;
+      // Find snap points for current position (using top-left coordinates)
+      const snapResult = findSnapPoints(
+        {
+          x: topLeftX,
+          y: topLeftY,
+          width: Number(element.width),
+          height: Number(element.height),
+          rotation: node.rotation(),
+        },
+        otherElements
+      );
+
+      // Apply snap if found
+      if (snapResult.snapX !== null) {
+        topLeftX = snapResult.snapX;
+      }
+      if (snapResult.snapY !== null) {
+        topLeftY = snapResult.snapY;
+      }
+    }
 
     // No canvas bounds clamping - elements can be placed anywhere on infinite grid
     // Convert back to center coordinates for node position
-    node.x(newTopLeftX + halfWidth);
-    node.y(newTopLeftY + halfHeight);
+    node.x(topLeftX + halfWidth);
+    node.y(topLeftY + halfHeight);
   };
 
   const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
@@ -1827,12 +1849,18 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
 
               const config = ELEMENT_CONFIGS[selectedType as ElementType];
               if (!config) return null;
+
+              // Use custom dimensions if available, otherwise default
+              const customDims = customElementDefaults?.[selectedType as ElementType];
+              const ghostWidth = customDims?.width ?? config.width;
+              const ghostHeight = customDims?.height ?? config.height;
+
               return (
                 <Rect
-                  x={cursorCanvasPos.x - Number(config.width) / 2}
-                  y={cursorCanvasPos.y - Number(config.height) / 2}
-                  width={Number(config.width)}
-                  height={Number(config.height)}
+                  x={cursorCanvasPos.x - Number(ghostWidth) / 2}
+                  y={cursorCanvasPos.y - Number(ghostHeight) / 2}
+                  width={Number(ghostWidth)}
+                  height={Number(ghostHeight)}
                   fill={config.color}
                   opacity={0.3}
                   stroke={config.color}

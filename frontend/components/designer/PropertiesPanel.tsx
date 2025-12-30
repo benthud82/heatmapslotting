@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
-import { WarehouseElement, RouteMarker, ROUTE_MARKER_CONFIGS, LabelDisplayMode } from '@/lib/types';
+import React, { useState } from 'react';
+import { WarehouseElement, RouteMarker, ROUTE_MARKER_CONFIGS, LabelDisplayMode, ElementType } from '@/lib/types';
 import { AlignmentType } from '@/lib/alignment';
+import DimensionsModal from './DimensionsModal';
 
 interface PropertiesPanelProps {
     element: WarehouseElement | null;
@@ -21,6 +22,8 @@ interface PropertiesPanelProps {
     onLabelDisplayModeChange?: (mode: LabelDisplayMode) => void;
     // Alignment
     onAlign?: (type: AlignmentType) => void;
+    // Batch dimension update
+    onBatchUpdateDimensions?: (type: ElementType, dimensions: { width: number; height: number }) => void;
 }
 
 export default function PropertiesPanel({
@@ -36,8 +39,29 @@ export default function PropertiesPanel({
     routeMarkers = [],
     labelDisplayMode = 'all',
     onLabelDisplayModeChange,
-    onAlign
+    onAlign,
+    onBatchUpdateDimensions
 }: PropertiesPanelProps) {
+    const [showDimensionsModal, setShowDimensionsModal] = useState(false);
+
+    // Check if element is a pickable type (for dimension editing)
+    const isPickableType = element && ['bay', 'flow_rack', 'full_pallet'].includes(element.element_type);
+
+    // Count elements of the same type for batch update option
+    const sameTypeCount = element ? elements.filter(e => e.element_type === element.element_type).length : 0;
+
+    // Handle dimension apply from modal
+    const handleDimensionApply = (dimensions: { width: number; height: number }, applyToAll: boolean) => {
+        if (!element) return;
+
+        if (applyToAll && onBatchUpdateDimensions) {
+            onBatchUpdateDimensions(element.element_type as ElementType, dimensions);
+        } else {
+            onUpdate(element.id, dimensions);
+        }
+        setShowDimensionsModal(false);
+    };
+
     // Route marker is selected
     if (selectedMarker) {
         const config = ROUTE_MARKER_CONFIGS[selectedMarker.marker_type];
@@ -492,6 +516,23 @@ export default function PropertiesPanel({
                             </div>
                         )}
                     </div>
+                    {/* Edit Dimensions button for pickable types */}
+                    {isPickableType && (
+                        <button
+                            onClick={() => setShowDimensionsModal(true)}
+                            className="w-full px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 rounded text-xs font-mono text-slate-400 hover:text-white transition-colors flex items-center justify-center gap-2"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                            </svg>
+                            Edit Dimensions
+                            {sameTypeCount > 1 && (
+                                <span className="text-[10px] text-slate-500">
+                                    ({sameTypeCount} {element.element_type.replace('_', ' ')}s)
+                                </span>
+                            )}
+                        </button>
+                    )}
                 </div>
 
                 {/* ID Section (for reference) */}
@@ -503,6 +544,19 @@ export default function PropertiesPanel({
                     </div>
                 </div>
             </div>
+
+            {/* Dimensions Modal */}
+            {showDimensionsModal && isPickableType && (
+                <DimensionsModal
+                    mode="edit"
+                    elementType={element.element_type as 'bay' | 'flow_rack' | 'full_pallet'}
+                    initialWidth={element.width}
+                    initialHeight={element.height}
+                    sameTypeCount={sameTypeCount}
+                    onApply={handleDimensionApply}
+                    onCancel={() => setShowDimensionsModal(false)}
+                />
+            )}
         </div>
     );
 }

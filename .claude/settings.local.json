@@ -38,7 +38,10 @@
       "Bash(del C:xampphtdocsheatmapslottinglms-implementation.md)",
       "Bash(pushd:*)",
       "Bash(popd)",
-      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit\")"
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit\")",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint\")",
+      "Bash(del C:xampphtdocsheatmapslottingfrontendtest-autoalign.js)",
+      "Bash(cmd /c \"del C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend\\\\test-autoalign.js\")"
     ],
     "deny": [],
     "ask": []

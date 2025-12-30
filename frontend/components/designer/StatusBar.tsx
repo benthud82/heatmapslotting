@@ -19,6 +19,8 @@ interface StatusBarProps {
     onToggleSnap: () => void;
     showDistances: boolean;
     onToggleDistances: () => void;
+    onAutoAlign?: () => void;
+    misalignedCount?: number;
 }
 
 export default function StatusBar({
@@ -37,7 +39,9 @@ export default function StatusBar({
     snapToGrid,
     onToggleSnap,
     showDistances,
-    onToggleDistances
+    onToggleDistances,
+    onAutoAlign,
+    misalignedCount = 0,
 }: StatusBarProps) {
     const isNearLimit = elementLimit < Infinity && elementCount >= elementLimit * 0.8;
     const isAtLimit = elementCount >= elementLimit;
@@ -135,6 +139,29 @@ export default function StatusBar({
                         Distances
                     </span>
                 </button>
+                {onAutoAlign && (
+                    <button
+                        onClick={onAutoAlign}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors relative ${
+                            misalignedCount > 0
+                                ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30 hover:bg-purple-600/30'
+                                : 'bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400 hover:bg-slate-700/50'
+                        }`}
+                        title="Auto-Align Layout (Shift+A)"
+                    >
+                        <span className="flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
+                            </svg>
+                            Auto-Align
+                            {misalignedCount > 0 && (
+                                <span className="ml-1 px-1 py-0.5 bg-purple-500 text-white text-[9px] rounded-full min-w-[16px] text-center">
+                                    {misalignedCount}
+                                </span>
+                            )}
+                        </span>
+                    </button>
+                )}
                 <button
                     onClick={onFit}
                     className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400 hover:bg-slate-700/50"
