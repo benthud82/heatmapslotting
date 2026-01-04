@@ -1,7 +1,17 @@
 // Dashboard Analytics Utility Functions
 // Provides calculations for velocity tiers, zone classification, efficiency metrics, and trend analysis
 
-import { AggregatedPickData, PickTransaction, ItemReslottingOpportunity, ElementType } from './types';
+import {
+  AggregatedPickData,
+  PickTransaction,
+  ItemReslottingOpportunity,
+  ElementType,
+  AggregatedItemPickData,
+  ElementCapacityInfo,
+  SwapSuggestion,
+  CapacityAwareReslottingOpportunity,
+  CapacityAwareTargetElement,
+} from './types';
 
 // ============================================================================
 // TYPES
@@ -1183,26 +1193,155 @@ export function getItemReslottingRecommendations(
   };
 }
 
+// =============================================================================
+// CAPACITY-AWARE RESLOTTING HELPERS
+// =============================================================================
+
+/**
+ * Calculate element capacity information based on item counts and threshold.
+ *
+ * Formula: estimatedCapacity = itemCount / (1 - threshold)
+ * Example: 10 items + 15% threshold -> 10 / 0.85 = ~12 total -> ~2 empty
+ *
+ * @param itemData - Aggregated item pick data
+ * @param capacityThreshold - Percentage of slots assumed empty (0-1, e.g., 0.15 for 15%)
+ */
+export function calculateElementCapacity(
+  itemData: AggregatedItemPickData[],
+  capacityThreshold: number = 0.15
+): Map<string, ElementCapacityInfo> {
+  const capacityMap = new Map<string, ElementCapacityInfo>();
+
+  // Group items by element
+  const itemsByElement = new Map<string, AggregatedItemPickData[]>();
+  itemData.forEach(item => {
+    const existing = itemsByElement.get(item.element_id) || [];
+    existing.push(item);
+    itemsByElement.set(item.element_id, existing);
+  });
+
+  // Calculate capacity for each element
+  itemsByElement.forEach((items, elementId) => {
+    const itemCount = items.length;
+    const elementName = items[0]?.element_name || elementId;
+
+    // Avoid division by zero; clamp threshold between 0.01 and 0.99
+    const clampedThreshold = Math.max(0.01, Math.min(0.99, capacityThreshold));
+
+    // estimatedCapacity = itemCount / (1 - threshold)
+    const estimatedCapacity = Math.round(itemCount / (1 - clampedThreshold));
+    const estimatedEmpty = Math.max(0, estimatedCapacity - itemCount);
+    const occupancyRate = estimatedCapacity > 0 ? itemCount / estimatedCapacity : 1;
+
+    capacityMap.set(elementId, {
+      elementId,
+      elementName,
+      itemCount,
+      estimatedCapacity,
+      estimatedEmpty,
+      occupancyRate,
+    });
+  });
+
+  return capacityMap;
+}
+
+/**
+ * Find cold items in an element that could be swapped with a hot item.
+ * Returns the best swap candidate (coldest item with lowest picks).
+ */
+export function findSwapCandidate(
+  targetElementId: string,
+  itemAnalysis: ItemVelocityAnalysis[],
+  excludeItemIds: Set<string> = new Set()
+): SwapSuggestion | undefined {
+  // Find cold items in the target element
+  const coldItems = itemAnalysis
+    .filter(item =>
+      item.elementId === targetElementId &&
+      item.velocityTier === 'cold' &&
+      !excludeItemIds.has(item.itemId)
+    )
+    .sort((a, b) => a.totalPicks - b.totalPicks); // Lowest picks first
+
+  if (coldItems.length === 0) {
+    // Try warm items as fallback (bottom 40% of warm)
+    const warmItems = itemAnalysis
+      .filter(item =>
+        item.elementId === targetElementId &&
+        item.velocityTier === 'warm' &&
+        item.percentile < 40 &&
+        !excludeItemIds.has(item.itemId)
+      )
+      .sort((a, b) => a.totalPicks - b.totalPicks);
+
+    if (warmItems.length === 0) return undefined;
+
+    const candidate = warmItems[0];
+    return {
+      coldItem: {
+        itemId: candidate.itemId,
+        externalItemId: candidate.externalItemId,
+        itemDescription: candidate.itemDescription,
+        velocityTier: candidate.velocityTier,
+        totalPicks: candidate.totalPicks,
+        avgDailyPicks: candidate.avgDailyPicks,
+      },
+      reason: `Low-velocity warm item (${candidate.avgDailyPicks.toFixed(1)} picks/day) can relocate`,
+    };
+  }
+
+  const candidate = coldItems[0];
+  return {
+    coldItem: {
+      itemId: candidate.itemId,
+      externalItemId: candidate.externalItemId,
+      itemDescription: candidate.itemDescription,
+      velocityTier: candidate.velocityTier,
+      totalPicks: candidate.totalPicks,
+      avgDailyPicks: candidate.avgDailyPicks,
+    },
+    reason: `Cold item (${candidate.avgDailyPicks.toFixed(1)} picks/day) can free prime space`,
+  };
+}
+
 /**
  * Find reslotting opportunities for items based on walk burden reduction.
  * Returns target elements that could reduce walk burden if items were moved there.
+ * Now with capacity awareness and swap suggestions.
  *
  * @param itemAnalysis - Item velocity analysis results from analyzeItemVelocity()
  * @param elements - All warehouse elements with their types and positions
  * @param cartParkingSpots - Cart parking locations for distance calculations
  * @param sameElementTypeOnly - If true, only suggest moves to same element type
+ * @param itemData - Optional: raw item data for capacity calculation
+ * @param capacityThreshold - Assumed % of empty slots (0-1, default 0.15)
  */
 export function findItemReslottingOpportunities(
   itemAnalysis: ItemVelocityAnalysis[],
   elements: Array<{ id: string; label: string; x: number; y: number; element_type: ElementType }>,
   cartParkingSpots: Array<{ x: number; y: number }>,
-  sameElementTypeOnly: boolean = true
-): ItemReslottingOpportunity[] {
+  sameElementTypeOnly: boolean = true,
+  itemData?: AggregatedItemPickData[],
+  capacityThreshold: number = 0.15
+): CapacityAwareReslottingOpportunity[] {
   if (!itemAnalysis.length || !elements.length || !cartParkingSpots.length) {
     return [];
   }
 
-  const opportunities: ItemReslottingOpportunity[] = [];
+  // Calculate element capacities if item data is provided
+  const capacityMap = itemData
+    ? calculateElementCapacity(itemData, capacityThreshold)
+    : new Map<string, ElementCapacityInfo>();
+
+  // Track remaining slots per element (decremented as we assign items)
+  const remainingSlots = new Map<string, number>();
+  capacityMap.forEach((info, elementId) => {
+    remainingSlots.set(elementId, info.estimatedEmpty);
+  });
+
+  // Track which items have been suggested for swaps (to avoid double-booking)
+  const usedSwapItems = new Set<string>();
 
   // Create element distance map from nearest parking (Manhattan distance)
   const elementDistances = new Map<string, number>();
@@ -1224,64 +1363,108 @@ export function findItemReslottingOpportunities(
     (elementDistances.get(a.id) || 0) - (elementDistances.get(b.id) || 0)
   );
 
-  // For each item with move-closer recommendation, find target elements
-  itemAnalysis
+  // Sort items by priority (highest savings potential first - hot items far from parking)
+  const sortedItems = itemAnalysis
     .filter(item => item.recommendation === 'move-closer')
-    .forEach(item => {
-      const currentElement = elementMap.get(item.elementId);
-      if (!currentElement) return;
+    .sort((a, b) => b.priorityScore - a.priorityScore);
 
-      const currentDistance = elementDistances.get(item.elementId) || item.currentDistance;
+  const opportunities: CapacityAwareReslottingOpportunity[] = [];
 
-      // Find potential target elements
-      const targetElements = sortedElements
-        .filter(el => {
-          // Skip current element
-          if (el.id === item.elementId) return false;
+  // For each item with move-closer recommendation, find target elements
+  sortedItems.forEach(item => {
+    const currentElement = elementMap.get(item.elementId);
+    if (!currentElement) return;
 
-          // Filter by element type if required
-          if (sameElementTypeOnly && el.element_type !== currentElement.element_type) {
-            return false;
-          }
+    const currentDistance = elementDistances.get(item.elementId) || item.currentDistance;
 
-          // Only pickable element types (exclude text, line, arrow)
-          if (['text', 'line', 'arrow'].includes(el.element_type)) {
-            return false;
-          }
+    // Find potential target elements with capacity awareness
+    const targetElements: CapacityAwareTargetElement[] = sortedElements
+      .filter(el => {
+        // Skip current element
+        if (el.id === item.elementId) return false;
 
-          // Only suggest elements that are closer
-          const targetDist = elementDistances.get(el.id) || 0;
-          return targetDist < currentDistance;
-        })
-        .slice(0, 3) // Top 3 suggestions
-        .map(el => {
-          const targetDist = elementDistances.get(el.id) || 0;
-          const walkSavingsPerPickPixels = (currentDistance - targetDist) * 2; // Round trip
-          const walkSavingsFeetPerDay = Math.round((walkSavingsPerPickPixels * item.avgDailyPicks) / 12); // Convert to feet/day
-          return {
-            id: el.id,
-            name: el.label,
-            type: el.element_type,
-            distance: targetDist,
-            walkSavings: walkSavingsFeetPerDay,
-          };
-        });
+        // Filter by element type if required
+        if (sameElementTypeOnly && el.element_type !== currentElement.element_type) {
+          return false;
+        }
 
-      if (targetElements.length > 0) {
-        opportunities.push({
-          item,
-          currentElement: {
-            id: currentElement.id,
-            name: currentElement.label,
-            type: currentElement.element_type,
-            distance: currentDistance,
-          },
-          targetElements,
-          totalDailyWalkSavings: targetElements[0].walkSavings,
-          recommendation: 'move-closer',
-        });
+        // Only pickable element types (exclude text, line, arrow)
+        if (['text', 'line', 'arrow'].includes(el.element_type)) {
+          return false;
+        }
+
+        // Only suggest elements that are closer
+        const targetDist = elementDistances.get(el.id) || 0;
+        return targetDist < currentDistance;
+      })
+      .map(el => {
+        const targetDist = elementDistances.get(el.id) || 0;
+        const walkSavingsPerPickPixels = (currentDistance - targetDist) * 2; // Round trip
+        const walkSavingsFeetPerDay = Math.round((walkSavingsPerPickPixels * item.avgDailyPicks) / 12); // Convert to feet/day
+
+        // Check REMAINING capacity for this element (not original capacity)
+        const remaining = remainingSlots.get(el.id) ?? 0;
+        const hasEmptySlot = itemData ? remaining > 0 : true; // Assume available if no data
+
+        // Find swap candidate if no empty slots
+        let swapSuggestion: SwapSuggestion | undefined;
+        if (!hasEmptySlot && itemData) {
+          swapSuggestion = findSwapCandidate(el.id, itemAnalysis, usedSwapItems);
+        }
+
+        return {
+          id: el.id,
+          name: el.label,
+          type: el.element_type,
+          distance: targetDist,
+          walkSavings: walkSavingsFeetPerDay,
+          hasEmptySlot,
+          estimatedEmpty: remaining,
+          swapSuggestion,
+        };
+      })
+      // Sort: empty slots first, then by distance (closest first for same availability)
+      .sort((a, b) => {
+        if (a.hasEmptySlot && !b.hasEmptySlot) return -1;
+        if (!a.hasEmptySlot && b.hasEmptySlot) return 1;
+        // Both have or don't have slots - prefer closer elements
+        return a.distance - b.distance;
+      })
+      .slice(0, 3); // Top 3 suggestions
+
+    if (targetElements.length > 0) {
+      // Determine move type based on primary target
+      const primaryTarget = targetElements[0];
+      const moveType = primaryTarget.hasEmptySlot
+        ? 'empty-slot'
+        : primaryTarget.swapSuggestion
+          ? 'swap'
+          : 'unknown';
+
+      // Reserve the slot: decrement remaining slots for the primary target
+      if (primaryTarget.hasEmptySlot) {
+        const currentRemaining = remainingSlots.get(primaryTarget.id) ?? 0;
+        remainingSlots.set(primaryTarget.id, Math.max(0, currentRemaining - 1));
+      } else if (primaryTarget.swapSuggestion) {
+        // Mark the swap item as used
+        usedSwapItems.add(primaryTarget.swapSuggestion.coldItem.itemId);
       }
-    });
+
+      opportunities.push({
+        item,
+        currentElement: {
+          id: currentElement.id,
+          name: currentElement.label,
+          type: currentElement.element_type,
+          distance: currentDistance,
+        },
+        targetElements,
+        totalDailyWalkSavings: targetElements[0].walkSavings,
+        recommendation: 'move-closer',
+        moveType,
+      });
+    }
+  });
 
   // Sort by potential savings (highest first)
   return opportunities.sort((a, b) => b.totalDailyWalkSavings - a.totalDailyWalkSavings);

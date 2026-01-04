@@ -347,18 +347,18 @@ export default function HeatmapSidebar({
                         {sortMode === 'burden' ? 'Highest Walk Burden' : 'Top Hotspots'}
                     </h3>
                     {/* Sort Toggle */}
-                    <div className="flex bg-slate-800 rounded text-[10px] font-mono">
+                    <div className="flex bg-slate-700 rounded border border-slate-600 text-[10px] font-mono">
                         <button
                             onClick={() => setSortMode('picks')}
-                            className={`px-2 py-1 rounded-l transition-colors ${sortMode === 'picks' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                            className={`px-2 py-1 rounded-l transition-colors ${sortMode === 'picks' ? 'bg-slate-600 text-white' : 'text-slate-300 hover:text-white'}`}
                         >
                             Picks
                         </button>
                         <button
                             onClick={() => setSortMode('burden')}
-                            className={`px-2 py-1 rounded-r transition-colors ${sortMode === 'burden' ? 'bg-amber-600/30 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
+                            className={`px-2 py-1 rounded-r transition-colors ${sortMode === 'burden' ? 'bg-amber-600/40 text-amber-200' : 'text-slate-300 hover:text-white'}`}
                         >
-                            Burden
+                            Walk
                         </button>
                     </div>
                 </div>

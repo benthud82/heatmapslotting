@@ -380,3 +380,48 @@ export interface ItemReslottingOpportunity {
   totalDailyWalkSavings: number;
   recommendation: 'move-closer' | 'move-further';
 }
+
+// =============================================================================
+// CAPACITY-AWARE RESLOTTING TYPES
+// =============================================================================
+
+// Element capacity tracking based on item counts
+export interface ElementCapacityInfo {
+  elementId: string;
+  elementName: string;
+  itemCount: number;           // Number of unique items currently in element
+  estimatedCapacity: number;   // Total estimated slots
+  estimatedEmpty: number;      // Estimated empty slots
+  occupancyRate: number;       // itemCount / estimatedCapacity (0-1)
+}
+
+// Swap suggestion when no empty slots available
+export interface SwapSuggestion {
+  coldItem: {
+    itemId: string;
+    externalItemId: string;
+    itemDescription?: string;
+    velocityTier: VelocityTier;
+    totalPicks: number;
+    avgDailyPicks: number;
+  };
+  reason: string;  // e.g., "Cold item (2 picks/day) can free prime space"
+}
+
+// Extended target element with capacity info
+export interface CapacityAwareTargetElement {
+  id: string;
+  name: string;
+  type: ElementType;
+  distance: number;           // pixels
+  walkSavings: number;        // feet/day
+  hasEmptySlot: boolean;      // true if estimated empty slots > 0
+  estimatedEmpty: number;     // number of estimated empty slots
+  swapSuggestion?: SwapSuggestion;  // populated when hasEmptySlot is false
+}
+
+// Updated reslotting opportunity with capacity awareness
+export interface CapacityAwareReslottingOpportunity extends Omit<ItemReslottingOpportunity, 'targetElements'> {
+  targetElements: CapacityAwareTargetElement[];
+  moveType: 'empty-slot' | 'swap' | 'unknown';  // Primary move strategy
+}

@@ -1,19 +1,20 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
 import HeatmapElementModal from '@/components/heatmap/HeatmapElementModal';
-import SlottingAlertBanner from '@/components/heatmap/SlottingAlertBanner';
+import ReslotHUD from '@/components/heatmap/ReslotHUD';
+import OptimizationSummaryCard from '@/components/heatmap/OptimizationSummaryCard';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Header from '@/components/Header';
 import DateRangePicker from '@/components/DateRangePicker';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { WarehouseElement, Layout, AggregatedPickData, RouteMarker, AggregatedItemPickData, ItemReslottingOpportunity } from '@/lib/types';
+import { WarehouseElement, Layout, AggregatedPickData, RouteMarker, AggregatedItemPickData, CapacityAwareReslottingOpportunity } from '@/lib/types';
 import LayoutManager from '@/components/designer/LayoutManager';
-import { analyzeVelocity, analyzeItemVelocity, findItemReslottingOpportunities } from '@/lib/dashboardUtils';
-import { exportElementDataCSV, exportItemDataCSV } from '@/lib/exportData';
+import { analyzeItemVelocity, findItemReslottingOpportunities } from '@/lib/dashboardUtils';
+import { exportElementDataCSV, exportItemDataCSV, exportReslottingPlan } from '@/lib/exportData';
 import { useRef } from 'react';
 import SkuDetailModal from '@/components/heatmap/SkuDetailModal';
 
@@ -177,6 +178,14 @@ export default function Heatmap() {
   // Export dropdown state
   const [showExportMenu, setShowExportMenu] = useState(false);
 
+  // Reslot HUD state
+  const [showReslotHUD, setShowReslotHUD] = useState(false);
+  const [activeReslotIndex, setActiveReslotIndex] = useState(0);
+  const [approvedMoves, setApprovedMoves] = useState<CapacityAwareReslottingOpportunity[]>([]);
+  const [autoTourEnabled, setAutoTourEnabled] = useState(false);
+  const [capacityThreshold, setCapacityThreshold] = useState(0.15);
+  const [reslotDeepLinkProcessed, setReslotDeepLinkProcessed] = useState(false);
+
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
     if (!dateString) return '';
@@ -191,6 +200,17 @@ export default function Heatmap() {
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   };
+
+  // Sync date params to URL (for dashboard sync)
+  const syncDateParamsToUrl = useCallback((start: string, end: string) => {
+    const params = new URLSearchParams(window.location.search);
+    if (start) params.set('startDate', start);
+    else params.delete('startDate');
+    if (end) params.set('endDate', end);
+    else params.delete('endDate');
+
+    router.replace(`/heatmap?${params.toString()}`, { scroll: false });
+  }, [router]);
 
   // Load initial layouts
   useEffect(() => {
@@ -253,6 +273,8 @@ export default function Heatmap() {
   const loadLayoutDetails = async (layoutId: string) => {
     try {
       setLoading(true);
+      // Reset deep-link state to allow re-processing for new layout
+      setReslotDeepLinkProcessed(false);
 
       // Fetch elements for active layout
       const elementsData = await layoutApi.getElements(layoutId);
@@ -282,22 +304,32 @@ export default function Heatmap() {
           console.error('Failed to fetch available dates:', err);
         }
 
-        // Find the most recent date across all elements
-        // Since dates are now strings YYYY-MM-DD, we can compare them directly
-        const mostRecentDate = allAggregatedData.reduce((latest, item) => {
-          return item.last_date > latest ? item.last_date : latest;
-        }, allAggregatedData[0].last_date);
+        // Check for URL params first (for dashboard sync)
+        const urlStartDate = searchParams.get('startDate');
+        const urlEndDate = searchParams.get('endDate');
 
-        const formattedDate = formatDateForInput(mostRecentDate);
+        let effectiveStartDate: string;
+        let effectiveEndDate: string;
 
-        // Only update dates if they are not already set (to preserve user selection during switching if possible, 
-        // but usually we want to reset to latest for the new layout)
-        // For now, let's reset to latest for the new layout
-        setStartDate(formattedDate);
-        setEndDate(formattedDate);
+        if (urlStartDate && urlEndDate) {
+          // Use URL params if provided (from dashboard sync)
+          effectiveStartDate = urlStartDate;
+          effectiveEndDate = urlEndDate;
+        } else {
+          // Find the most recent date across all elements
+          // Since dates are now strings YYYY-MM-DD, we can compare them directly
+          const mostRecentDate = allAggregatedData.reduce((latest, item) => {
+            return item.last_date > latest ? item.last_date : latest;
+          }, allAggregatedData[0].last_date);
+          effectiveStartDate = formatDateForInput(mostRecentDate);
+          effectiveEndDate = effectiveStartDate;
+        }
 
-        // Load pick data for the most recent day
-        const recentDayData = await picksApi.getAggregated(layoutId, formattedDate, formattedDate);
+        setStartDate(effectiveStartDate);
+        setEndDate(effectiveEndDate);
+
+        // Load pick data for the date range
+        const recentDayData = await picksApi.getAggregated(layoutId, effectiveStartDate, effectiveEndDate);
         const pickMap = new Map<string, number>();
         recentDayData.forEach(item => {
           pickMap.set(item.element_id, item.total_picks);
@@ -309,7 +341,7 @@ export default function Heatmap() {
         // Load item-level data
         setItemDataLoading(true);
         try {
-          const itemLevelData = await picksApi.getItemsAggregated(layoutId, formattedDate, formattedDate);
+          const itemLevelData = await picksApi.getItemsAggregated(layoutId, effectiveStartDate, effectiveEndDate);
           setItemData(enrichItemDataWithDistance(itemLevelData, markersData, elementsData));
         } catch (itemErr) {
           console.error('Failed to load item-level data:', itemErr);
@@ -453,9 +485,9 @@ export default function Heatmap() {
     };
   }, [heatmapColorMode, itemData, aggregatedData]);
 
-  // Calculate item-level slotting recommendations for alert banner
+  // Calculate item-level slotting recommendations (always calculates when data exists)
   const itemSlottingRecommendations = useMemo((): { opportunities: ItemReslottingOpportunity[]; totalDailySavingsFeet: number } => {
-    if (!showDistances || !itemData.length || !routeMarkers.length) {
+    if (!itemData.length || !routeMarkers.length) {
       return { opportunities: [], totalDailySavingsFeet: 0 };
     }
 
@@ -488,12 +520,14 @@ export default function Heatmap() {
     // Run item-level velocity analysis
     const itemAnalysis = analyzeItemVelocity(itemData, undefined, parkingSpots);
 
-    // Find reslotting opportunities with element type matching
+    // Find reslotting opportunities with capacity awareness
     const opportunities = findItemReslottingOpportunities(
       itemAnalysis,
       elementsWithTypes,
       parkingSpots,
-      sameElementTypeOnly
+      sameElementTypeOnly,
+      itemData,
+      capacityThreshold
     );
 
     // Calculate total potential savings
@@ -503,7 +537,115 @@ export default function Heatmap() {
     );
 
     return { opportunities, totalDailySavingsFeet };
-  }, [showDistances, itemData, routeMarkers, elements, sameElementTypeOnly]);
+  }, [itemData, routeMarkers, elements, sameElementTypeOnly, capacityThreshold]);
+
+  // Computed active reslot move for canvas visualization
+  const activeReslotMove = useMemo(() => {
+    if (!showReslotHUD || !itemSlottingRecommendations.opportunities.length) return null;
+
+    const opp = itemSlottingRecommendations.opportunities[activeReslotIndex];
+    if (!opp || !opp.targetElements[0]) return null;
+
+    return {
+      fromId: opp.currentElement.id,
+      toId: opp.targetElements[0].id,
+    };
+  }, [showReslotHUD, itemSlottingRecommendations.opportunities, activeReslotIndex]);
+
+  // Handler for approving a reslot move
+  const handleReslotApprove = useCallback((opp: CapacityAwareReslottingOpportunity) => {
+    setApprovedMoves(prev => [...prev, opp]);
+    // Auto-advance to next
+    if (activeReslotIndex < itemSlottingRecommendations.opportunities.length - 1) {
+      setActiveReslotIndex(prev => prev + 1);
+    }
+  }, [activeReslotIndex, itemSlottingRecommendations.opportunities.length]);
+
+  // Handler for ignoring/skipping a reslot move
+  const handleReslotIgnore = useCallback(() => {
+    if (activeReslotIndex < itemSlottingRecommendations.opportunities.length - 1) {
+      setActiveReslotIndex(prev => prev + 1);
+    }
+  }, [activeReslotIndex, itemSlottingRecommendations.opportunities.length]);
+
+  // Handler for exporting approved moves
+  const handleExportApproved = useCallback(() => {
+    const currentLayout = layouts.find(l => l.id === currentLayoutId);
+    exportReslottingPlan(approvedMoves, currentLayout?.name || 'warehouse');
+  }, [approvedMoves, layouts, currentLayoutId]);
+
+  // Camera sync effect - center on elements when active reslot move changes
+  useEffect(() => {
+    if (!showReslotHUD || !activeReslotMove) return;
+
+    canvasRef.current?.centerOnElements([activeReslotMove.fromId, activeReslotMove.toId]);
+  }, [showReslotHUD, activeReslotMove]);
+
+  // Auto-tour effect
+  useEffect(() => {
+    if (!autoTourEnabled || !showReslotHUD) return;
+
+    const interval = setInterval(() => {
+      setActiveReslotIndex(prev => {
+        const opportunities = itemSlottingRecommendations.opportunities;
+        return prev < opportunities.length - 1 ? prev + 1 : 0;
+      });
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [autoTourEnabled, showReslotHUD, itemSlottingRecommendations.opportunities.length]);
+
+  // Deep-link handler for ?reslot= and ?index= parameters from dashboard
+  useEffect(() => {
+    const reslotItemId = searchParams.get('reslot');
+    const reslotIndex = searchParams.get('index');
+
+    // Early exit conditions
+    if (!reslotItemId) return;
+    if (reslotDeepLinkProcessed) return;
+    if (itemSlottingRecommendations.opportunities.length === 0 && !itemData.length) return;
+
+    // Mark as processed to prevent re-running
+    setReslotDeepLinkProcessed(true);
+
+    const opportunities = itemSlottingRecommendations.opportunities;
+
+    // Fast path: If index is provided and matches, use it directly (guaranteed congruency)
+    if (reslotIndex !== null) {
+      const idx = parseInt(reslotIndex, 10);
+      if (!isNaN(idx) && idx >= 0 && idx < opportunities.length) {
+        // Verify the item at this index matches (for safety)
+        if (opportunities[idx]?.item.externalItemId === reslotItemId) {
+          setShowReslotHUD(true);
+          setActiveReslotIndex(idx);
+          return;
+        }
+      }
+    }
+
+    // Fallback: Find the opportunity index by searching
+    const opportunityIndex = opportunities.findIndex(
+      opp => opp.item.externalItemId === reslotItemId
+    );
+
+    if (opportunityIndex !== -1) {
+      // Found the item in opportunities - open HUD and navigate to it
+      setShowReslotHUD(true);
+      setActiveReslotIndex(opportunityIndex);
+    } else {
+      // Item not in opportunities - try fallback behaviors
+      // Fallback 1: Try to find the item in itemData and select its element
+      const itemMatch = itemData.find(item => item.external_item_id === reslotItemId);
+      if (itemMatch) {
+        setSelectedElementId(itemMatch.element_id);
+      }
+      // Fallback 2: If opportunities exist, open HUD at start
+      if (opportunities.length > 0) {
+        setShowReslotHUD(true);
+        setActiveReslotIndex(0);
+      }
+    }
+  }, [searchParams, itemSlottingRecommendations.opportunities, itemData, reslotDeepLinkProcessed]);
 
   if (loading && !layouts.length) {
     return (
@@ -571,6 +713,10 @@ export default function Heatmap() {
                   onChange={(start, end) => {
                     setStartDate(start);
                     setEndDate(end);
+                    // Sync to URL for dashboard sync
+                    if (start && end) {
+                      syncDateParamsToUrl(start, end);
+                    }
                   }}
                   availableDates={availableDates}
                 />
@@ -580,6 +726,7 @@ export default function Heatmap() {
                     onClick={() => {
                       setStartDate('');
                       setEndDate('');
+                      syncDateParamsToUrl('', '');
                     }}
                     className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-mono text-sm rounded transition-colors"
                   >
@@ -594,8 +741,8 @@ export default function Heatmap() {
                 <button
                   onClick={() => setShowRouteMarkers(!showRouteMarkers)}
                   className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showRouteMarkers
-                    ? 'bg-purple-600/20 border-purple-500/50 text-purple-300'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                    ? 'bg-purple-600/30 border-purple-500/60 text-purple-200'
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:text-white'
                     }`}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -609,8 +756,8 @@ export default function Heatmap() {
                 <button
                   onClick={() => setShowDistances(!showDistances)}
                   className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-2 border ${showDistances
-                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
-                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-300'
+                    ? 'bg-blue-600/30 border-blue-500/60 text-blue-200'
+                    : 'bg-slate-700 border-slate-600 text-slate-300 hover:bg-slate-600 hover:text-white'
                     }`}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -621,16 +768,16 @@ export default function Heatmap() {
 
                 {/* Color Mode Toggle */}
                 {hasPickData && (
-                  <div className="flex bg-slate-800 rounded border border-slate-700 text-[11px] font-mono">
+                  <div className="flex bg-slate-700 rounded border border-slate-600 text-[11px] font-mono">
                     <button
                       onClick={() => setHeatmapColorMode('picks')}
-                      className={`px-2.5 py-1.5 rounded-l transition-colors ${heatmapColorMode === 'picks' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-300'}`}
+                      className={`px-2.5 py-1.5 rounded-l transition-colors ${heatmapColorMode === 'picks' ? 'bg-slate-600 text-white' : 'text-slate-300 hover:text-white'}`}
                     >
                       Picks
                     </button>
                     <button
                       onClick={() => setHeatmapColorMode('burden')}
-                      className={`px-2.5 py-1.5 rounded-r transition-colors ${heatmapColorMode === 'burden' ? 'bg-amber-600/30 text-amber-300' : 'text-slate-400 hover:text-slate-300'}`}
+                      className={`px-2.5 py-1.5 rounded-r transition-colors ${heatmapColorMode === 'burden' ? 'bg-amber-600/40 text-amber-200' : 'text-slate-300 hover:text-white'}`}
                       title="Color by Walk Burden (picks × distance)"
                     >
                       Burden
@@ -719,14 +866,24 @@ export default function Heatmap() {
         </div>
       )}
 
-      {/* Slotting Recommendations Alert */}
-      {showDistances && hasPickData && (
-        <SlottingAlertBanner
+      {/* Reslot HUD - Floating Optimization Navigator */}
+      {showReslotHUD && itemSlottingRecommendations.opportunities.length > 0 && (
+        <ReslotHUD
           opportunities={itemSlottingRecommendations.opportunities}
-          totalDailySavingsFeet={itemSlottingRecommendations.totalDailySavingsFeet}
-          sameElementTypeOnly={sameElementTypeOnly}
-          onToggleSameType={() => setSameElementTypeOnly(prev => !prev)}
-          onItemClick={(itemId, elementId) => setSelectedElementId(elementId)}
+          activeIndex={activeReslotIndex}
+          onIndexChange={setActiveReslotIndex}
+          onApprove={handleReslotApprove}
+          onIgnore={handleReslotIgnore}
+          onClose={() => {
+            setShowReslotHUD(false);
+            setAutoTourEnabled(false);
+          }}
+          onExportApproved={handleExportApproved}
+          approvedCount={approvedMoves.length}
+          autoTourEnabled={autoTourEnabled}
+          onAutoTourToggle={() => setAutoTourEnabled(prev => !prev)}
+          capacityThreshold={capacityThreshold}
+          onCapacityThresholdChange={setCapacityThreshold}
         />
       )}
 
@@ -758,7 +915,24 @@ export default function Heatmap() {
             walkBurdenData={walkBurdenData.burdenMap}
             minBurden={walkBurdenData.minBurden}
             maxBurden={walkBurdenData.maxBurden}
+            activeReslotMove={activeReslotMove}
           />
+
+          {/* Optimization Summary Card Overlay */}
+          {itemSlottingRecommendations.opportunities.length > 0 && (
+            <div className="absolute top-4 right-4 z-40">
+              <OptimizationSummaryCard
+                totalDailySavingsFeet={itemSlottingRecommendations.totalDailySavingsFeet}
+                opportunityCount={itemSlottingRecommendations.opportunities.length}
+                timeSavingsMinutes={Math.round(itemSlottingRecommendations.totalDailySavingsFeet / 264)}
+                onStartTour={() => {
+                  setShowReslotHUD(true);
+                  setActiveReslotIndex(0);
+                }}
+                isActive={showReslotHUD}
+              />
+            </div>
+          )}
         </div>
 
         {/* Sidebar - Fixed width on right */}
@@ -846,8 +1020,8 @@ export default function Heatmap() {
             onClick={() => setShowDistances(prev => !prev)}
             className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
               showDistances
-                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                : 'bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400'
+                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+                : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-white hover:bg-slate-700'
             }`}
             title="Toggle Distances (D)"
           >
@@ -860,7 +1034,7 @@ export default function Heatmap() {
           </button>
           <button
             onClick={() => canvasRef.current?.fitToElements()}
-            className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors bg-slate-800/50 text-slate-500 border border-slate-700/50 hover:text-slate-400 hover:bg-slate-700/50"
+            className="px-2 py-0.5 rounded text-[10px] font-medium transition-colors bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-white hover:bg-slate-700"
             title="Fit All Elements (F)"
           >
             <span className="flex items-center gap-1">
@@ -870,6 +1044,29 @@ export default function Heatmap() {
               Fit All
             </span>
           </button>
+          {/* Optimize HUD Button - only show when opportunities exist */}
+          {hasPickData && itemSlottingRecommendations.opportunities.length > 0 && (
+            <button
+              onClick={() => {
+                setShowReslotHUD(!showReslotHUD);
+                if (!showReslotHUD) {
+                  setActiveReslotIndex(0);
+                  setApprovedMoves([]);
+                }
+              }}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors flex items-center gap-1 ${
+                showReslotHUD
+                  ? 'bg-amber-600/40 text-amber-200 border border-amber-500/70'
+                  : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-amber-300 hover:border-amber-500/50'
+              }`}
+              title="Optimization Navigator"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Optimize ({itemSlottingRecommendations.opportunities.length})
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

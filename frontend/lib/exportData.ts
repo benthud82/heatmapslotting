@@ -1,4 +1,4 @@
-import { AggregatedPickData, AggregatedItemPickData } from './types';
+import { AggregatedPickData, AggregatedItemPickData, CapacityAwareReslottingOpportunity } from './types';
 
 /**
  * Export element-level aggregated pick data as CSV
@@ -173,4 +173,79 @@ function downloadCSV(content: string, filename: string): void {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+}
+
+/**
+ * Export approved reslotting moves as a CSV plan
+ * Walking speed: 264 ft/min (3 mph)
+ */
+export function exportReslottingPlan(
+    approvedMoves: CapacityAwareReslottingOpportunity[],
+    layoutName: string
+): void {
+    if (!approvedMoves.length) {
+        alert('No approved moves to export');
+        return;
+    }
+
+    const headers = [
+        'item_id',
+        'item_description',
+        'current_location',
+        'current_element_type',
+        'current_distance_ft',
+        'target_location',
+        'target_element_type',
+        'target_distance_ft',
+        'daily_savings_ft',
+        'daily_savings_min',
+        'total_picks',
+        'avg_daily_picks',
+        'velocity_tier',
+        'velocity_percentile',
+        'move_type',
+        'swap_with_item_id',
+        'swap_item_picks_per_day'
+    ];
+
+    const rows = approvedMoves.map(move => {
+        const target = move.targetElements[0];
+        const currentDistFt = Math.round(move.currentElement.distance / 12);
+        const targetDistFt = target ? Math.round(target.distance / 12) : '';
+        const dailySavingsFt = move.totalDailyWalkSavings;
+        const dailySavingsMin = (dailySavingsFt / 264).toFixed(2);
+
+        // Swap info
+        const moveType = move.moveType || 'unknown';
+        const swapWithItemId = target?.swapSuggestion?.coldItem.externalItemId || '';
+        const swapItemPicksPerDay = target?.swapSuggestion?.coldItem.avgDailyPicks?.toFixed(1) || '';
+
+        return [
+            escapeCSVField(move.item.externalItemId),
+            escapeCSVField(move.item.itemDescription || ''),
+            escapeCSVField(move.currentElement.name),
+            move.currentElement.type,
+            currentDistFt,
+            escapeCSVField(target?.name || ''),
+            target?.type || '',
+            targetDistFt,
+            dailySavingsFt.toFixed(1),
+            dailySavingsMin,
+            move.item.totalPicks,
+            move.item.avgDailyPicks.toFixed(1),
+            move.item.velocityTier,
+            move.item.percentile.toFixed(0),
+            moveType,
+            escapeCSVField(swapWithItemId),
+            swapItemPicksPerDay
+        ];
+    });
+
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.join(','))
+    ].join('\n');
+
+    const filename = `reslotting-plan_${sanitizeFilename(layoutName)}_${new Date().toISOString().split('T')[0]}.csv`;
+    downloadCSV(csvContent, filename);
 }

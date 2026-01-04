@@ -241,6 +241,7 @@ export interface WarehouseCanvasRef {
   exportAsPNG: () => void;
   exportAsPDF: () => void;
   fitToElements: () => void;
+  centerOnElements: (elementIds: string[]) => void;
 }
 
 interface WarehouseCanvasProps {
@@ -283,6 +284,11 @@ interface WarehouseCanvasProps {
   maxBurden?: number;
   // Custom element defaults for ghost preview dimensions
   customElementDefaults?: Record<string, { width: number; height: number }>;
+  // Reslot move visualization
+  activeReslotMove?: {
+    fromId: string;
+    toId: string;
+  } | null;
 }
 
 const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProps>(function WarehouseCanvas({
@@ -319,6 +325,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   minBurden = 0,
   maxBurden = 0,
   customElementDefaults,
+  activeReslotMove,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -431,6 +438,104 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     setStagePosition(newPosition);
   }, [elements, containerSize]);
 
+  // Animation state for reslot visualization
+  const [pulsePhase, setPulsePhase] = useState(0);
+  const animationRef = useRef<number | null>(null);
+
+  // Pulse animation for reslot move visualization
+  useEffect(() => {
+    if (!activeReslotMove) {
+      setPulsePhase(0);
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      return;
+    }
+
+    const animate = () => {
+      setPulsePhase(prev => (prev + 0.08) % (Math.PI * 2));
+      animationRef.current = requestAnimationFrame(animate);
+    };
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [activeReslotMove]);
+
+  // Center on specific elements with smooth animation
+  const centerOnElements = useCallback((elementIds: string[]) => {
+    if (elementIds.length === 0) return;
+
+    const targetElements = elements.filter(el => elementIds.includes(el.id));
+    if (targetElements.length === 0) return;
+
+    // Calculate bounding box of target elements
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    targetElements.forEach(el => {
+      const x = Number(el.x_coordinate);
+      const y = Number(el.y_coordinate);
+      const width = Number(el.width);
+      const height = Number(el.height);
+
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + width);
+      maxY = Math.max(maxY, y + height);
+    });
+
+    // Add padding
+    const padding = 150;
+    const contentWidth = maxX - minX + padding * 2;
+    const contentHeight = maxY - minY + padding * 2;
+
+    // Calculate target scale (with max limit)
+    const scaleX = containerSize.width / contentWidth;
+    const scaleY = containerSize.height / contentHeight;
+    const targetScale = Math.min(scaleX, scaleY, 1.5);
+
+    // Calculate target position
+    const contentCenterX = minX + (maxX - minX) / 2;
+    const contentCenterY = minY + (maxY - minY) / 2;
+    const targetPosition = {
+      x: containerSize.width / 2 - contentCenterX * targetScale,
+      y: containerSize.height / 2 - contentCenterY * targetScale,
+    };
+
+    // Animate to target position
+    const startScale = stageScale;
+    const startPosition = { ...stagePosition };
+    const duration = 300;
+    const startTime = performance.now();
+
+    const animateCamera = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+
+      // Ease-out cubic for smooth deceleration
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setStageScale(startScale + (targetScale - startScale) * eased);
+      setStagePosition({
+        x: startPosition.x + (targetPosition.x - startPosition.x) * eased,
+        y: startPosition.y + (targetPosition.y - startPosition.y) * eased,
+      });
+
+      if (progress < 1) {
+        requestAnimationFrame(animateCamera);
+      }
+    };
+
+    requestAnimationFrame(animateCamera);
+  }, [elements, containerSize, stageScale, stagePosition]);
+
   // Distance Calculation Logic - Using Manhattan distance (industry standard for warehouses)
   const routeDistanceResult = useMemo<DistanceCalculationResult | null>(() => {
     if (!showDistances || !routeMarkers.length) return null;
@@ -541,7 +646,10 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     fitToElements: () => {
       fitToElements();
     },
-  }), [fitToElements]);
+    centerOnElements: (elementIds: string[]) => {
+      centerOnElements(elementIds);
+    },
+  }), [fitToElements, centerOnElements]);
 
   // Update transformer when selection changes (only for single selection)
   useEffect(() => {
@@ -1421,6 +1529,11 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               // Check if this element is highlighted (belongs to hovered parking spot)
               const isZoneHighlighted = highlightedElementIds.has(element.id);
 
+              // Dim elements not involved in active reslot move
+              const isDimmed = activeReslotMove
+                ? element.id !== activeReslotMove.fromId && element.id !== activeReslotMove.toId
+                : false;
+
               return (
                 <ElementShape
                   key={element.id}
@@ -1471,9 +1584,110 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                   heatmapColor={heatmapColor}
                   isHeatmap={isHeatmap}
                   draggable={!isReadOnly}
+                  dimmed={isDimmed}
                 />
               );
             })}
+
+            {/* Reslot Move Visualization - Pulsing Rings and Curved Arrow */}
+            {activeReslotMove && (() => {
+              const fromElement = elements.find(e => e.id === activeReslotMove.fromId);
+              const toElement = elements.find(e => e.id === activeReslotMove.toId);
+
+              if (!fromElement || !toElement) return null;
+
+              // Calculate centers
+              const fromCenter = {
+                x: Number(fromElement.x_coordinate) + Number(fromElement.width) / 2,
+                y: Number(fromElement.y_coordinate) + Number(fromElement.height) / 2,
+              };
+              const toCenter = {
+                x: Number(toElement.x_coordinate) + Number(toElement.width) / 2,
+                y: Number(toElement.y_coordinate) + Number(toElement.height) / 2,
+              };
+
+              // Calculate pulse animation values
+              const pulseScale = 1 + Math.sin(pulsePhase) * 0.15;
+              const pulseOpacity = 0.5 + Math.sin(pulsePhase) * 0.3;
+
+              // Ring sizes based on element dimensions
+              const fromRingSize = Math.max(Number(fromElement.width), Number(fromElement.height)) + 20;
+              const toRingSize = Math.max(Number(toElement.width), Number(toElement.height)) + 20;
+
+              // Calculate bezier control point for curved arrow
+              const midX = (fromCenter.x + toCenter.x) / 2;
+              const midY = (fromCenter.y + toCenter.y) / 2;
+              const distance = Math.sqrt(
+                Math.pow(toCenter.x - fromCenter.x, 2) + Math.pow(toCenter.y - fromCenter.y, 2)
+              );
+              const curveHeight = Math.min(distance * 0.3, 100);
+
+              // Control point is perpendicular to the line, offset upward
+              const dx = toCenter.x - fromCenter.x;
+              const dy = toCenter.y - fromCenter.y;
+              const perpX = -dy / distance * curveHeight;
+              const perpY = dx / distance * curveHeight;
+              const controlX = midX + perpX;
+              const controlY = midY + perpY;
+
+              return (
+                <Group key="reslot-visualization">
+                  {/* Source Element - Red Pulsing Ring */}
+                  <Rect
+                    x={fromCenter.x - (fromRingSize * pulseScale) / 2}
+                    y={fromCenter.y - (fromRingSize * pulseScale) / 2}
+                    width={fromRingSize * pulseScale}
+                    height={fromRingSize * pulseScale}
+                    stroke="#ef4444"
+                    strokeWidth={3}
+                    cornerRadius={8}
+                    fill="transparent"
+                    opacity={pulseOpacity}
+                    shadowColor="#ef4444"
+                    shadowBlur={20}
+                    shadowOpacity={0.6}
+                    listening={false}
+                  />
+
+                  {/* Target Element - Green Pulsing Ring */}
+                  <Rect
+                    x={toCenter.x - (toRingSize * pulseScale) / 2}
+                    y={toCenter.y - (toRingSize * pulseScale) / 2}
+                    width={toRingSize * pulseScale}
+                    height={toRingSize * pulseScale}
+                    stroke="#10b981"
+                    strokeWidth={3}
+                    cornerRadius={8}
+                    fill="transparent"
+                    opacity={pulseOpacity}
+                    shadowColor="#10b981"
+                    shadowBlur={20}
+                    shadowOpacity={0.6}
+                    listening={false}
+                  />
+
+                  {/* Curved Arrow from Source to Target */}
+                  <Arrow
+                    points={[
+                      fromCenter.x, fromCenter.y,
+                      controlX, controlY,
+                      toCenter.x, toCenter.y
+                    ]}
+                    bezier={true}
+                    stroke="#f59e0b"
+                    strokeWidth={3}
+                    fill="#f59e0b"
+                    pointerLength={15}
+                    pointerWidth={12}
+                    dash={[10, 5]}
+                    shadowColor="#f59e0b"
+                    shadowBlur={10}
+                    shadowOpacity={0.5}
+                    listening={false}
+                  />
+                </Group>
+              );
+            })()}
 
             {/* Cart Route Path Visualization */}
             {showDistances && distanceLines.map((line, i) => (
@@ -2211,6 +2425,7 @@ interface ElementShapeProps {
 
   isHeatmap?: boolean;
   draggable?: boolean;
+  dimmed?: boolean; // For reslot visualization - dims non-involved elements
 }
 
 const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
@@ -2238,6 +2453,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
 
       isHeatmap,
       draggable,
+      dimmed,
     },
     ref
   ) => {
@@ -2299,6 +2515,7 @@ const ElementShape = React.forwardRef<Konva.Group, ElementShapeProps>(
         onMouseEnter={onMouseEnter}
         onMouseMove={onMouseMove}
         onMouseLeave={onMouseLeave}
+        opacity={dimmed ? 0.3 : 1}
       >
         {/* Render based on element type */}
         {element.element_type === 'text' ? (

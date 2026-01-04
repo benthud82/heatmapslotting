@@ -41,7 +41,13 @@
       "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit\")",
       "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint\")",
       "Bash(del C:xampphtdocsheatmapslottingfrontendtest-autoalign.js)",
-      "Bash(cmd /c \"del C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend\\\\test-autoalign.js\")"
+      "Bash(cmd /c \"del C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend\\\\test-autoalign.js\")",
+      "Bash(cat:*)",
+      "Bash(del \"C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend\\\\components\\\\heatmap\\\\SlottingAlertBanner.tsx\")",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit 2>&1 | head -50\")",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint 2>&1 | head -50\")",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit 2>&1 | head -30\")",
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint 2>&1 | head -30\")"
     ],
     "deny": [],
     "ask": []

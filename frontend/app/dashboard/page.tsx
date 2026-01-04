@@ -1,19 +1,23 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
-import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData, RouteMarker, AggregatedItemPickData } from '@/lib/types';
+import { Layout, AggregatedPickData, PickTransaction, WarehouseElement, WalkDistanceData, RouteMarker, AggregatedItemPickData, ItemVelocityAnalysis, CapacityAwareReslottingOpportunity } from '@/lib/types';
 import {
     analyzeVelocity,
+    analyzeItemVelocity,
     getZoneBreakdown,
     calculateKPIs,
     comparePeriods,
     getDateRangeForPeriod,
     calculateEfficiencyMetrics,
     getTopMoveRecommendations,
+    getItemReslottingRecommendations,
+    findItemReslottingOpportunities,
     getParetoDistribution,
     identifyCongestionZones,
     VelocityAnalysis,
@@ -36,11 +40,16 @@ import ParetoChart from '@/components/dashboard/ParetoChart';
 import CongestionMap from '@/components/dashboard/CongestionMap';
 import TrendWatch from '@/components/dashboard/TrendWatch';
 import ElementDetailModal from '@/components/dashboard/ElementDetailModal';
+import DashboardFilterBar from '@/components/dashboard/DashboardFilterBar';
 import ConfirmModal from '@/components/ConfirmModal';
 
 type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
 export default function Dashboard() {
+    // URL Params for date sync
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
     // Layout State
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -60,9 +69,16 @@ export default function Dashboard() {
     const [previousItemData, setPreviousItemData] = useState<AggregatedItemPickData[]>([]);
 
     // Period Selection
-    const [selectedPeriod, setSelectedPeriod] = useState<ComparisonPeriod>('week');
+    const [selectedPeriod, setSelectedPeriod] = useState<ComparisonPeriod>(() => {
+        const urlPeriod = searchParams.get('period');
+        return (urlPeriod as ComparisonPeriod) || 'week';
+    });
     const [currentPeriodDates, setCurrentPeriodDates] = useState<{ start: string; end: string } | null>(null);
     const [previousPeriodDates, setPreviousPeriodDates] = useState<{ start: string; end: string } | null>(null);
+
+    // Custom date range (for syncing with heatmap)
+    const [customStartDate, setCustomStartDate] = useState<string>(() => searchParams.get('startDate') || '');
+    const [customEndDate, setCustomEndDate] = useState<string>(() => searchParams.get('endDate') || '');
 
     // Walk Distance State
     const [walkDistanceData, setWalkDistanceData] = useState<WalkDistanceData | null>(null);
@@ -76,11 +92,25 @@ export default function Dashboard() {
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [isClearing, setIsClearing] = useState(false);
 
-    // Derived: Cart Parking Spots for distance calculations
+    // Cart parking dimensions (must match heatmap constants)
+    const CART_PARKING_WIDTH = 40;
+    const CART_PARKING_HEIGHT = 24;
+
+    // Derived: Cart Parking Spots for distance calculations (using CENTER coordinates like heatmap)
     const cartParkingSpots = useMemo(() => {
         return routeMarkers
             .filter(m => m.marker_type === 'cart_parking')
             .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+    }, [routeMarkers]);
+
+    // Cart parking spots with CENTER coordinates (for reslotting analysis - matches heatmap exactly)
+    const cartParkingCenters = useMemo(() => {
+        return routeMarkers
+            .filter(m => m.marker_type === 'cart_parking')
+            .map(m => ({
+                x: Number(m.x_coordinate) + CART_PARKING_WIDTH / 2,
+                y: Number(m.y_coordinate) + CART_PARKING_HEIGHT / 2
+            }));
     }, [routeMarkers]);
 
     // Derived: Element positions for distance calculations
@@ -92,10 +122,61 @@ export default function Dashboard() {
         }));
     }, [elements]);
 
-    // Derived analytics data - now uses ITEM-level data for SKU-centric analysis
+    // Helper to enrich item data with distance (same logic as heatmap)
+    const enrichItemDataWithDistance = (
+        data: AggregatedItemPickData[],
+        elementsList: WarehouseElement[],
+        parkingCenters: { x: number; y: number }[]
+    ): AggregatedItemPickData[] => {
+        if (!data.length || !parkingCenters.length) return data;
+
+        // Build element dimension lookup
+        const elementDimensions = new Map<string, { width: number; height: number }>();
+        elementsList.forEach(el => {
+            elementDimensions.set(el.id, { width: el.width, height: el.height });
+        });
+
+        return data.map(item => {
+            // Use element dimensions to calculate center
+            const dims = elementDimensions.get(item.element_id) || { width: 0, height: 0 };
+            const itemPos = {
+                x: Number(item.x_coordinate) + dims.width / 2,
+                y: Number(item.y_coordinate) + dims.height / 2
+            };
+
+            // Calculate Manhattan distance to nearest parking
+            let minDist = Infinity;
+            parkingCenters.forEach(parking => {
+                const dist = Math.abs(itemPos.x - parking.x) + Math.abs(itemPos.y - parking.y);
+                if (dist < minDist) minDist = dist;
+            });
+
+            // Round trip feet = (distance * 2) / 12 (pixels to feet)
+            const roundTripFeet = Math.round((minDist * 2) / 12);
+
+            return {
+                ...item,
+                roundTripDistanceFeet: roundTripFeet,
+            };
+        });
+    };
+
+    // Enriched item data with distance (same as heatmap)
+    const enrichedItemData = useMemo(() => {
+        return enrichItemDataWithDistance(itemAggregatedData, elements, cartParkingCenters);
+    }, [itemAggregatedData, elements, cartParkingCenters]);
+
+    // Derived analytics data - legacy element-level analysis for backwards compatibility
     const velocityAnalysis = useMemo<VelocityAnalysis[]>(() => {
         return analyzeVelocity(itemAggregatedData, previousItemData as any, elementPositions, cartParkingSpots);
     }, [itemAggregatedData, previousItemData, elementPositions, cartParkingSpots]);
+
+    // Item-level velocity analysis with CORRECT walk burden calculations
+    // Uses analyzeItemVelocity which properly calculates dailyWalkSavingsFeet = avgDailyPicks × distance
+    const itemVelocityAnalysis = useMemo<ItemVelocityAnalysis[]>(() => {
+        if (itemAggregatedData.length === 0) return [];
+        return analyzeItemVelocity(itemAggregatedData, previousItemData, cartParkingSpots);
+    }, [itemAggregatedData, previousItemData, cartParkingSpots]);
 
     const zoneBreakdown = useMemo<ZoneBreakdown[]>(() => {
         return getZoneBreakdown(velocityAnalysis);
@@ -117,47 +198,71 @@ export default function Dashboard() {
         return getTopMoveRecommendations(velocityAnalysis, 3);
     }, [velocityAnalysis]);
 
-    // Item-level move recommendations for SKU-centric ActionBoard
+    // Item-level reslotting opportunities - EXACTLY mirrors heatmap calculation for congruency
+    // This ensures dashboard top 3 items match heatmap ReslotHUD items 1-3
+    const itemReslottingOpportunities = useMemo<CapacityAwareReslottingOpportunity[]>(() => {
+        if (!enrichedItemData.length || !routeMarkers.length) return [];
+
+        // Use same parking spots calculation as heatmap (non-centered, the function handles it)
+        const parkingSpots = routeMarkers
+            .filter(m => m.marker_type === 'cart_parking')
+            .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+
+        if (parkingSpots.length === 0) return [];
+
+        const elementsWithTypes = elements
+            .filter(el => !['text', 'line', 'arrow'].includes(el.element_type))
+            .map(el => ({
+                id: el.id,
+                label: el.label || '',
+                x: Number(el.x_coordinate),
+                y: Number(el.y_coordinate),
+                element_type: el.element_type,
+            }));
+
+        // Run velocity analysis on ENRICHED data (same as heatmap line 500)
+        // Use undefined for previousData to match heatmap behavior
+        const itemAnalysis = analyzeItemVelocity(enrichedItemData, undefined, parkingSpots);
+
+        return findItemReslottingOpportunities(
+            itemAnalysis,
+            elementsWithTypes,
+            parkingSpots,
+            true, // sameElementTypeOnly (heatmap default)
+            enrichedItemData,
+            0.15  // capacityThreshold (heatmap default)
+        );
+    }, [enrichedItemData, routeMarkers, elements]);
+
+    // Extract top 3 move-closer items from opportunities (same order as heatmap)
     const itemMoveRecommendations = useMemo(() => {
-        // Map VelocityAnalysis to ItemVelocityAnalysis format
-        const toItemVelocity = (v: VelocityAnalysis) => ({
-            itemId: v.itemId || v.elementId,
-            externalItemId: v.externalItemId || v.elementName,
-            itemDescription: v.itemDescription,
-            locationId: v.locationId || '',
-            externalLocationId: v.externalLocationId || '',
-            elementId: v.elementId,
-            elementName: v.elementName,
-            totalPicks: v.totalPicks,
-            avgDailyPicks: v.avgDailyPicks,
-            daysActive: v.daysActive,
-            velocityTier: v.velocityTier,
-            percentile: v.percentile,
-            currentDistance: v.currentDistance,
-            optimalDistance: v.optimalDistance || 0,
-            walkSavingsPerPick: v.walkSavingsPerPick || 0,
-            dailyWalkSavingsFeet: v.dailyWalkSavingsFeet,
-            dailyTimeSavingsMinutes: v.dailyTimeSavingsMinutes,
-            recommendation: v.recommendation,
-            priorityScore: v.priorityScore || 0,
-            trend: v.trend,
-            trendPercent: v.trendPercent,
-        });
+        const moveCloser = itemReslottingOpportunities.slice(0, 3).map(opp => opp.item);
 
-        const moveCloser = velocityAnalysis
-            .filter(v => v.recommendation === 'move-closer')
-            .sort((a, b) => b.priorityScore - a.priorityScore)
-            .slice(0, 3)
-            .map(toItemVelocity);
+        // For move-further, we still use the legacy function as it's not in the HUD
+        // but use enrichedItemData for consistency
+        const parkingSpots = routeMarkers
+            .filter(m => m.marker_type === 'cart_parking')
+            .map(m => ({ x: Number(m.x_coordinate), y: Number(m.y_coordinate) }));
+        const enrichedAnalysis = enrichedItemData.length > 0 && parkingSpots.length > 0
+            ? analyzeItemVelocity(enrichedItemData, undefined, parkingSpots)
+            : [];
+        const legacyRecs = getItemReslottingRecommendations(enrichedAnalysis, 3);
 
-        const moveFurther = velocityAnalysis
-            .filter(v => v.recommendation === 'move-further')
-            .sort((a, b) => a.priorityScore - b.priorityScore)
-            .slice(0, 3)
-            .map(toItemVelocity);
-
-        return { moveCloser, moveFurther };
-    }, [velocityAnalysis]);
+        return {
+            moveCloser,
+            moveFurther: legacyRecs.moveFurther,
+            summary: {
+                totalItemsAnalyzed: enrichedItemData.length,
+                itemsNeedingReslot: itemReslottingOpportunities.length,
+                potentialDailyWalkSavingsFeet: itemReslottingOpportunities.reduce(
+                    (sum, opp) => sum + opp.totalDailyWalkSavings, 0
+                ),
+                potentialDailyTimeSavingsMinutes: Math.round(
+                    itemReslottingOpportunities.reduce((sum, opp) => sum + opp.totalDailyWalkSavings, 0) / 264
+                )
+            }
+        };
+    }, [itemReslottingOpportunities, enrichedItemData, routeMarkers]);
 
     const paretoData = useMemo<ParetoDataPoint[]>(() => {
         return getParetoDistribution(velocityAnalysis);
@@ -191,12 +296,12 @@ export default function Dashboard() {
         }
     }, [currentLayoutId]);
 
-    // Reload when period changes or available dates change
+    // Reload when period changes, custom dates change, or available dates change
     useEffect(() => {
         if (currentLayoutId && availableDates.length > 0) {
-            loadPeriodData(currentLayoutId, selectedPeriod, availableDates);
+            loadPeriodData(currentLayoutId, selectedPeriod, availableDates, customStartDate, customEndDate);
         }
-    }, [selectedPeriod, currentLayoutId, availableDates]);
+    }, [selectedPeriod, currentLayoutId, availableDates, customStartDate, customEndDate]);
 
     // Track dashboard visit for onboarding
     useEffect(() => {
@@ -264,37 +369,45 @@ export default function Dashboard() {
         }
     };
 
-    const loadPeriodData = async (layoutId: string, period: ComparisonPeriod, dates?: string[]) => {
+    const loadPeriodData = async (layoutId: string, period: ComparisonPeriod, dates?: string[], customStart?: string, customEnd?: string) => {
         try {
-            // Get current and previous period date ranges based on calendar
-            const calendarCurrentRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 0);
-            const calendarPreviousRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 1);
+            let currentRange: { start: string; end: string };
+            let previousRange: { start: string; end: string };
 
-            // Check if available dates overlap with calendar ranges
-            // If not, use the actual available dates instead
-            let currentRange = calendarCurrentRange;
-            let previousRange = calendarPreviousRange;
+            // If custom dates are provided and period is custom, use them directly
+            if (period === 'custom' && customStart && customEnd) {
+                currentRange = { start: customStart, end: customEnd };
+                // For custom range, there's no "previous period" comparison
+                previousRange = { start: customStart, end: customEnd };
+            } else {
+                // Get current and previous period date ranges based on calendar
+                const calendarCurrentRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 0);
+                const calendarPreviousRange = getDateRangeForPeriod(period === 'custom' ? 'week' : period, 1);
 
-            // Use passed dates or fall back to state
-            const datesToUse = dates || availableDates;
+                currentRange = calendarCurrentRange;
+                previousRange = calendarPreviousRange;
 
-            if (datesToUse.length > 0) {
-                const sortedDates = [...datesToUse].sort();
-                const oldestDate = sortedDates[0];
-                const newestDate = sortedDates[sortedDates.length - 1];
+                // Use passed dates or fall back to state
+                const datesToUse = dates || availableDates;
 
-                // If the newest available date is before today's period, use available dates
-                if (newestDate < calendarCurrentRange.start) {
-                    // Use the most recent available dates as "current period"
-                    currentRange = { start: oldestDate, end: newestDate };
+                if (datesToUse.length > 0) {
+                    const sortedDates = [...datesToUse].sort();
+                    const oldestDate = sortedDates[0];
+                    const newestDate = sortedDates[sortedDates.length - 1];
 
-                    // Calculate a "previous period" as the first half of available data
-                    const midIndex = Math.floor(sortedDates.length / 2);
-                    if (midIndex > 0) {
-                        previousRange = { start: sortedDates[0], end: sortedDates[midIndex - 1] };
-                        currentRange = { start: sortedDates[midIndex], end: newestDate };
-                    } else {
-                        previousRange = { start: oldestDate, end: oldestDate };
+                    // If the newest available date is before today's period, use available dates
+                    if (newestDate < calendarCurrentRange.start) {
+                        // Use the most recent available dates as "current period"
+                        currentRange = { start: oldestDate, end: newestDate };
+
+                        // Calculate a "previous period" as the first half of available data
+                        const midIndex = Math.floor(sortedDates.length / 2);
+                        if (midIndex > 0) {
+                            previousRange = { start: sortedDates[0], end: sortedDates[midIndex - 1] };
+                            currentRange = { start: sortedDates[midIndex], end: newestDate };
+                        } else {
+                            previousRange = { start: oldestDate, end: oldestDate };
+                        }
                     }
                 }
             }
@@ -329,9 +442,43 @@ export default function Dashboard() {
         }
     };
 
+    // Sync date params to URL
+    const syncUrlParams = useCallback((start: string, end: string, period: ComparisonPeriod) => {
+        const params = new URLSearchParams(window.location.search);
+        if (start) params.set('startDate', start);
+        else params.delete('startDate');
+        if (end) params.set('endDate', end);
+        else params.delete('endDate');
+        params.set('period', period);
+
+        router.replace(`/dashboard?${params.toString()}`, { scroll: false });
+    }, [router]);
+
     const handlePeriodChange = useCallback((period: ComparisonPeriod) => {
         setSelectedPeriod(period);
-    }, []);
+        if (period !== 'custom') {
+            // Clear custom dates when switching to preset periods
+            setCustomStartDate('');
+            setCustomEndDate('');
+            syncUrlParams('', '', period);
+        }
+    }, [syncUrlParams]);
+
+    const handleCustomDateChange = useCallback((start: string, end: string) => {
+        setCustomStartDate(start);
+        setCustomEndDate(end);
+        if (start && end) {
+            setSelectedPeriod('custom');
+            syncUrlParams(start, end, 'custom');
+        }
+    }, [syncUrlParams]);
+
+    const handleClearCustomDates = useCallback(() => {
+        setCustomStartDate('');
+        setCustomEndDate('');
+        setSelectedPeriod('week');
+        syncUrlParams('', '', 'week');
+    }, [syncUrlParams]);
 
     const handleClearPicks = async () => {
         if (!currentLayoutId) return;
@@ -399,6 +546,19 @@ export default function Dashboard() {
                     readOnly={true}
                 />
             </Header>
+
+            {/* Filter Bar - shown when data exists */}
+            {hasData && (
+                <DashboardFilterBar
+                    startDate={customStartDate}
+                    endDate={customEndDate}
+                    selectedPeriod={selectedPeriod}
+                    availableDates={availableDates}
+                    onPeriodChange={handlePeriodChange}
+                    onDateRangeChange={handleCustomDateChange}
+                    onClear={handleClearCustomDates}
+                />
+            )}
 
             {/* Main Content */}
             <main className="flex-1 p-6 w-full max-w-[1800px] mx-auto">
@@ -500,6 +660,7 @@ export default function Dashboard() {
                             <div className="xl:col-span-2">
                                 <VelocityTable
                                     data={velocityAnalysis}
+                                    itemData={itemVelocityAnalysis}
                                     loading={loading}
                                     onRowClick={(item) => setSelectedElement(item)}
                                 />
@@ -546,7 +707,14 @@ export default function Dashboard() {
                                     Reset Data
                                 </button>
                                 <Link
-                                    href={currentLayoutId ? `/heatmap?layout=${currentLayoutId}` : "/heatmap"}
+                                    href={(() => {
+                                        const params = new URLSearchParams();
+                                        if (currentLayoutId) params.set('layout', currentLayoutId);
+                                        if (customStartDate) params.set('startDate', customStartDate);
+                                        if (customEndDate) params.set('endDate', customEndDate);
+                                        const queryString = params.toString();
+                                        return queryString ? `/heatmap?${queryString}` : '/heatmap';
+                                    })()}
                                     target="_blank"
                                     className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
                                 >
