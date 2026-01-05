@@ -186,6 +186,15 @@ export default function Heatmap() {
   const [capacityThreshold, setCapacityThreshold] = useState(0.15);
   const [reslotDeepLinkProcessed, setReslotDeepLinkProcessed] = useState(false);
 
+  // Reslot pagination state
+  const [reslotOffset, setReslotOffset] = useState(0);
+  const [loadedOpportunities, setLoadedOpportunities] = useState<CapacityAwareReslottingOpportunity[]>([]);
+  const [hasMoreOpportunities, setHasMoreOpportunities] = useState(false);
+  const [totalOpportunities, setTotalOpportunities] = useState(0);
+
+  // Swap suggestions toggle
+  const [showSwapSuggestions, setShowSwapSuggestions] = useState(true);
+
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
     if (!dateString) return '';
@@ -485,10 +494,10 @@ export default function Heatmap() {
     };
   }, [heatmapColorMode, itemData, aggregatedData]);
 
-  // Calculate item-level slotting recommendations (always calculates when data exists)
-  const itemSlottingRecommendations = useMemo((): { opportunities: ItemReslottingOpportunity[]; totalDailySavingsFeet: number } => {
+  // Prepare data for reslotting analysis (memoized to avoid recalculation)
+  const reslotAnalysisData = useMemo(() => {
     if (!itemData.length || !routeMarkers.length) {
-      return { opportunities: [], totalDailySavingsFeet: 0 };
+      return null;
     }
 
     // Get parking spots for distance calculation
@@ -503,7 +512,7 @@ export default function Heatmap() {
     }
 
     if (parkingSpots.length === 0) {
-      return { opportunities: [], totalDailySavingsFeet: 0 };
+      return null;
     }
 
     // Map elements with their types for reslotting analysis
@@ -520,24 +529,70 @@ export default function Heatmap() {
     // Run item-level velocity analysis
     const itemAnalysis = analyzeItemVelocity(itemData, undefined, parkingSpots);
 
-    // Find reslotting opportunities with capacity awareness
-    const opportunities = findItemReslottingOpportunities(
+    return { itemAnalysis, elementsWithTypes, parkingSpots };
+  }, [itemData, routeMarkers, elements]);
+
+  // Load initial opportunities when data or settings change
+  useEffect(() => {
+    if (!reslotAnalysisData) {
+      setLoadedOpportunities([]);
+      setHasMoreOpportunities(false);
+      setTotalOpportunities(0);
+      return;
+    }
+
+    const { itemAnalysis, elementsWithTypes, parkingSpots } = reslotAnalysisData;
+
+    // Find reslotting opportunities with pagination (initial load)
+    const result = findItemReslottingOpportunities(
       itemAnalysis,
       elementsWithTypes,
       parkingSpots,
       sameElementTypeOnly,
       itemData,
-      capacityThreshold
+      capacityThreshold,
+      { limit: 10, offset: 0 }
     );
 
-    // Calculate total potential savings
-    const totalDailySavingsFeet = opportunities.reduce(
+    setLoadedOpportunities(result.opportunities);
+    setHasMoreOpportunities(result.hasMore);
+    setTotalOpportunities(result.totalAvailable);
+    setReslotOffset(0);
+    setActiveReslotIndex(0);
+  }, [reslotAnalysisData, sameElementTypeOnly, capacityThreshold, itemData]);
+
+  // Load more opportunities handler
+  const handleLoadMoreOpportunities = useCallback(() => {
+    if (!reslotAnalysisData || !hasMoreOpportunities) return;
+
+    const { itemAnalysis, elementsWithTypes, parkingSpots } = reslotAnalysisData;
+    const newOffset = loadedOpportunities.length;
+
+    const result = findItemReslottingOpportunities(
+      itemAnalysis,
+      elementsWithTypes,
+      parkingSpots,
+      sameElementTypeOnly,
+      itemData,
+      capacityThreshold,
+      { limit: 10, offset: newOffset }
+    );
+
+    setLoadedOpportunities(prev => [...prev, ...result.opportunities]);
+    setHasMoreOpportunities(result.hasMore);
+    setReslotOffset(newOffset);
+  }, [reslotAnalysisData, hasMoreOpportunities, loadedOpportunities.length, sameElementTypeOnly, itemData, capacityThreshold]);
+
+  // Calculate item-level slotting recommendations (uses loaded opportunities)
+  const itemSlottingRecommendations = useMemo((): { opportunities: CapacityAwareReslottingOpportunity[]; totalDailySavingsFeet: number } => {
+    // Calculate total potential savings from loaded opportunities
+    const totalDailySavingsFeet = loadedOpportunities.reduce(
       (sum, opp) => sum + opp.totalDailyWalkSavings,
       0
     );
 
-    return { opportunities, totalDailySavingsFeet };
-  }, [itemData, routeMarkers, elements, sameElementTypeOnly, capacityThreshold]);
+    return { opportunities: loadedOpportunities, totalDailySavingsFeet };
+  }, [loadedOpportunities]);
 
   // Computed active reslot move for canvas visualization
   const activeReslotMove = useMemo(() => {
@@ -884,6 +939,13 @@ export default function Heatmap() {
           onAutoTourToggle={() => setAutoTourEnabled(prev => !prev)}
           capacityThreshold={capacityThreshold}
           onCapacityThresholdChange={setCapacityThreshold}
+          // Pagination props
+          hasMore={hasMoreOpportunities}
+          totalAvailable={totalOpportunities}
+          onLoadMore={handleLoadMoreOpportunities}
+          // Swap toggle props
+          showSwapSuggestions={showSwapSuggestions}
+          onShowSwapSuggestionsChange={setShowSwapSuggestions}
         />
       )}
 

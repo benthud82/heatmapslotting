@@ -11,6 +11,7 @@ import {
   SwapSuggestion,
   CapacityAwareReslottingOpportunity,
   CapacityAwareTargetElement,
+  PaginatedOpportunitiesResult,
 } from './types';
 
 // ============================================================================
@@ -978,8 +979,14 @@ export function getItemSlottingRecommendation(
     return 'optimal';
   }
 
-  // Warm items with significant walk savings potential should be reviewed
+  // Warm items with significant walk savings potential should move closer
+  // (previously 'review' - now included in reslot opportunities)
   if (velocityTier === 'warm' && walkSavingsPerPick > 200) {
+    return 'move-closer';
+  }
+
+  // Warm items with moderate walk savings could be reviewed
+  if (velocityTier === 'warm' && walkSavingsPerPick > 100) {
     return 'review';
   }
 
@@ -1249,13 +1256,21 @@ export function calculateElementCapacity(
 /**
  * Find cold items in an element that could be swapped with a hot item.
  * Returns the best swap candidate (coldest item with lowest picks).
+ *
+ * With global search enabled, looks for cold items in ANY same-type element
+ * that is closer to parking (occupying prime real estate).
  */
 export function findSwapCandidate(
   targetElementId: string,
   itemAnalysis: ItemVelocityAnalysis[],
-  excludeItemIds: Set<string> = new Set()
+  excludeItemIds: Set<string> = new Set(),
+  globalSearchContext?: {
+    allElements: Array<{ id: string; element_type: ElementType; distance: number }>;
+    targetElementType: ElementType;
+    hotItemCurrentDistance: number;
+  }
 ): SwapSuggestion | undefined {
-  // Find cold items in the target element
+  // Tier 1: Find cold items in the target element
   const coldItems = itemAnalysis
     .filter(item =>
       item.elementId === targetElementId &&
@@ -1264,19 +1279,32 @@ export function findSwapCandidate(
     )
     .sort((a, b) => a.totalPicks - b.totalPicks); // Lowest picks first
 
-  if (coldItems.length === 0) {
-    // Try warm items as fallback (bottom 40% of warm)
-    const warmItems = itemAnalysis
-      .filter(item =>
-        item.elementId === targetElementId &&
-        item.velocityTier === 'warm' &&
-        item.percentile < 40 &&
-        !excludeItemIds.has(item.itemId)
-      )
-      .sort((a, b) => a.totalPicks - b.totalPicks);
+  if (coldItems.length > 0) {
+    const candidate = coldItems[0];
+    return {
+      coldItem: {
+        itemId: candidate.itemId,
+        externalItemId: candidate.externalItemId,
+        itemDescription: candidate.itemDescription,
+        velocityTier: candidate.velocityTier,
+        totalPicks: candidate.totalPicks,
+        avgDailyPicks: candidate.avgDailyPicks,
+      },
+      reason: `Cold item (${candidate.avgDailyPicks.toFixed(1)} picks/day) can free prime space`,
+    };
+  }
 
-    if (warmItems.length === 0) return undefined;
+  // Tier 2: Try warm items as fallback (bottom 40% of warm) in target element
+  const warmItems = itemAnalysis
+    .filter(item =>
+      item.elementId === targetElementId &&
+      item.velocityTier === 'warm' &&
+      item.percentile < 40 &&
+      !excludeItemIds.has(item.itemId)
+    )
+    .sort((a, b) => a.totalPicks - b.totalPicks);
 
+  if (warmItems.length > 0) {
     const candidate = warmItems[0];
     return {
       coldItem: {
@@ -1291,24 +1319,75 @@ export function findSwapCandidate(
     };
   }
 
-  const candidate = coldItems[0];
-  return {
-    coldItem: {
-      itemId: candidate.itemId,
-      externalItemId: candidate.externalItemId,
-      itemDescription: candidate.itemDescription,
-      velocityTier: candidate.velocityTier,
-      totalPicks: candidate.totalPicks,
-      avgDailyPicks: candidate.avgDailyPicks,
-    },
-    reason: `Cold item (${candidate.avgDailyPicks.toFixed(1)} picks/day) can free prime space`,
-  };
+  // Tier 3: Global search - find cold items in prime locations (same type, closer to parking)
+  if (globalSearchContext) {
+    const { allElements, targetElementType, hotItemCurrentDistance } = globalSearchContext;
+
+    // DEBUG: Log global search context
+    console.log('[SWAP DEBUG] Global search for target:', targetElementId, {
+      targetType: targetElementType,
+      hotItemDistance: hotItemCurrentDistance,
+      totalColdItems: itemAnalysis.filter(i => i.velocityTier === 'cold').length,
+      sameTypeElements: allElements.filter(e => e.element_type === targetElementType).length,
+    });
+
+    // Find cold items in same-type elements that are CLOSER to parking than the hot item's current location
+    // These are cold items occupying prime real estate that should be moved
+    const coldItemsInPrimeSpots = itemAnalysis
+      .filter(item => {
+        if (excludeItemIds.has(item.itemId)) return false;
+        if (item.velocityTier !== 'cold') return false;
+
+        const itemElement = allElements.find(e => e.id === item.elementId);
+        if (!itemElement) return false;
+
+        // Must be same element type
+        if (itemElement.element_type !== targetElementType) return false;
+
+        // Must be in a prime spot (closer to parking than the hot item)
+        return itemElement.distance < hotItemCurrentDistance;
+      })
+      .sort((a, b) => {
+        // Sort by: lowest picks first (coldest), then by distance (closest to parking = most wasted)
+        const aElement = allElements.find(e => e.id === a.elementId);
+        const bElement = allElements.find(e => e.id === b.elementId);
+        const aDistance = aElement?.distance || Infinity;
+        const bDistance = bElement?.distance || Infinity;
+
+        // Primary: lowest picks (coldest)
+        if (a.totalPicks !== b.totalPicks) return a.totalPicks - b.totalPicks;
+        // Secondary: closest to parking (worst offender)
+        return aDistance - bDistance;
+      });
+
+    console.log('[SWAP DEBUG] Cold items in prime spots found:', coldItemsInPrimeSpots.length);
+
+    if (coldItemsInPrimeSpots.length > 0) {
+      const candidate = coldItemsInPrimeSpots[0];
+      const candidateElement = allElements.find(e => e.id === candidate.elementId);
+      const distanceFt = candidateElement ? Math.round(candidateElement.distance / 12) : 0;
+
+      return {
+        coldItem: {
+          itemId: candidate.itemId,
+          externalItemId: candidate.externalItemId,
+          itemDescription: candidate.itemDescription,
+          velocityTier: candidate.velocityTier,
+          totalPicks: candidate.totalPicks,
+          avgDailyPicks: candidate.avgDailyPicks,
+        },
+        reason: `Cold item in prime spot (${distanceFt} ft from parking, ${candidate.avgDailyPicks.toFixed(1)} picks/day) should relocate`,
+      };
+    }
+  }
+
+  return undefined;
 }
 
 /**
  * Find reslotting opportunities for items based on walk burden reduction.
  * Returns target elements that could reduce walk burden if items were moved there.
- * Now with capacity awareness and swap suggestions.
+ * Now with capacity awareness, swap suggestions, and pagination support.
  *
  * @param itemAnalysis - Item velocity analysis results from analyzeItemVelocity()
  * @param elements - All warehouse elements with their types and positions
@@ -1316,6 +1395,7 @@ export function findSwapCandidate(
  * @param sameElementTypeOnly - If true, only suggest moves to same element type
  * @param itemData - Optional: raw item data for capacity calculation
  * @param capacityThreshold - Assumed % of empty slots (0-1, default 0.15)
+ * @param paginationOptions - Optional pagination settings (limit, offset)
  */
 export function findItemReslottingOpportunities(
   itemAnalysis: ItemVelocityAnalysis[],
@@ -1323,10 +1403,15 @@ export function findItemReslottingOpportunities(
   cartParkingSpots: Array<{ x: number; y: number }>,
   sameElementTypeOnly: boolean = true,
   itemData?: AggregatedItemPickData[],
-  capacityThreshold: number = 0.15
-): CapacityAwareReslottingOpportunity[] {
+  capacityThreshold: number = 0.15,
+  paginationOptions?: {
+    limit?: number;
+    offset?: number;
+  }
+): PaginatedOpportunitiesResult {
+  const { limit = 10, offset = 0 } = paginationOptions || {};
   if (!itemAnalysis.length || !elements.length || !cartParkingSpots.length) {
-    return [];
+    return { opportunities: [], hasMore: false, totalAvailable: 0 };
   }
 
   // Calculate element capacities if item data is provided
@@ -1367,6 +1452,21 @@ export function findItemReslottingOpportunities(
   const sortedItems = itemAnalysis
     .filter(item => item.recommendation === 'move-closer')
     .sort((a, b) => b.priorityScore - a.priorityScore);
+
+  // DEBUG: Log filtering stats
+  console.log('[RESLOT DEBUG] Total items in analysis:', itemAnalysis.length);
+  console.log('[RESLOT DEBUG] Items with move-closer recommendation:', sortedItems.length);
+  console.log('[RESLOT DEBUG] Velocity tier breakdown:', {
+    hot: itemAnalysis.filter(i => i.velocityTier === 'hot').length,
+    warm: itemAnalysis.filter(i => i.velocityTier === 'warm').length,
+    cold: itemAnalysis.filter(i => i.velocityTier === 'cold').length,
+  });
+  console.log('[RESLOT DEBUG] Recommendation breakdown:', {
+    moveCloser: itemAnalysis.filter(i => i.recommendation === 'move-closer').length,
+    optimal: itemAnalysis.filter(i => i.recommendation === 'optimal').length,
+    moveFurther: itemAnalysis.filter(i => i.recommendation === 'move-further').length,
+    review: itemAnalysis.filter(i => i.recommendation === 'review').length,
+  });
 
   const opportunities: CapacityAwareReslottingOpportunity[] = [];
 
@@ -1409,7 +1509,23 @@ export function findItemReslottingOpportunities(
         // Find swap candidate if no empty slots
         let swapSuggestion: SwapSuggestion | undefined;
         if (!hasEmptySlot && itemData) {
-          swapSuggestion = findSwapCandidate(el.id, itemAnalysis, usedSwapItems);
+          // Build global search context for finding cold items in prime locations
+          const allElementsWithDistance = elements.map(e => ({
+            id: e.id,
+            element_type: e.element_type,
+            distance: elementDistances.get(e.id) || 0
+          }));
+
+          swapSuggestion = findSwapCandidate(
+            el.id,
+            itemAnalysis,
+            usedSwapItems,
+            {
+              allElements: allElementsWithDistance,
+              targetElementType: currentElement.element_type,
+              hotItemCurrentDistance: currentDistance
+            }
+          );
         }
 
         return {
@@ -1467,6 +1583,41 @@ export function findItemReslottingOpportunities(
   });
 
   // Sort by potential savings (highest first)
-  return opportunities.sort((a, b) => b.totalDailyWalkSavings - a.totalDailyWalkSavings);
+  const sortedOpportunities = opportunities.sort((a, b) => b.totalDailyWalkSavings - a.totalDailyWalkSavings);
+
+  // DEBUG: Log final results
+  console.log('[RESLOT DEBUG] Total opportunities created:', opportunities.length);
+  console.log('[RESLOT DEBUG] Move type breakdown:', {
+    emptySlot: opportunities.filter(o => o.moveType === 'empty-slot').length,
+    swap: opportunities.filter(o => o.moveType === 'swap').length,
+    unknown: opportunities.filter(o => o.moveType === 'unknown').length,
+  });
+
+  // DEBUG: Check why items didn't get opportunities
+  const itemsWithOpportunities = new Set(opportunities.map(o => o.item.itemId));
+  const itemsWithoutOpportunities = sortedItems.filter(i => !itemsWithOpportunities.has(i.itemId));
+  console.log('[RESLOT DEBUG] Items that got opportunities:', itemsWithOpportunities.size);
+  console.log('[RESLOT DEBUG] Items WITHOUT opportunities (no closer target found):', itemsWithoutOpportunities.length);
+  if (itemsWithoutOpportunities.length > 0) {
+    console.log('[RESLOT DEBUG] Sample items without targets:', itemsWithoutOpportunities.slice(0, 3).map(i => ({
+      id: i.externalItemId,
+      elementId: i.elementId,
+      distance: i.currentDistance,
+      velocityTier: i.velocityTier,
+    })));
+  }
+
+  // Apply pagination
+  const totalAvailable = sortedOpportunities.length;
+  const paginatedOpportunities = sortedOpportunities.slice(offset, offset + limit);
+  const hasMore = offset + limit < totalAvailable;
+
+  console.log('[RESLOT DEBUG] Pagination:', { offset, limit, totalAvailable, hasMore, returned: paginatedOpportunities.length });
+
+  return {
+    opportunities: paginatedOpportunities,
+    hasMore,
+    totalAvailable
+  };
 }
 

@@ -224,7 +224,7 @@ export default function Dashboard() {
         // Use undefined for previousData to match heatmap behavior
         const itemAnalysis = analyzeItemVelocity(enrichedItemData, undefined, parkingSpots);
 
-        return findItemReslottingOpportunities(
+        const result = findItemReslottingOpportunities(
             itemAnalysis,
             elementsWithTypes,
             parkingSpots,
@@ -232,6 +232,7 @@ export default function Dashboard() {
             enrichedItemData,
             0.15  // capacityThreshold (heatmap default)
         );
+        return result.opportunities;
     }, [enrichedItemData, routeMarkers, elements]);
 
     // Extract top 3 move-closer items from opportunities (same order as heatmap)

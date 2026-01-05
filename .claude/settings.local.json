@@ -47,7 +47,9 @@
       "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit 2>&1 | head -50\")",
       "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint 2>&1 | head -50\")",
       "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx tsc --noEmit 2>&1 | head -30\")",
-      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint 2>&1 | head -30\")"
+      "Bash(cmd /c \"cd /d C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend && npx next lint 2>&1 | head -30\")",
+      "Bash(del C:xampphtdocsheatmapslottingfrontendtest-reslot-debug.js)",
+      "Bash(cmd /c \"del C:\\\\xampp\\\\htdocs\\\\heatmapslotting\\\\frontend\\\\test-reslot-debug.js\")"
     ],
     "deny": [],
     "ask": []

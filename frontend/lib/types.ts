@@ -425,3 +425,10 @@ export interface CapacityAwareReslottingOpportunity extends Omit<ItemReslottingO
   targetElements: CapacityAwareTargetElement[];
   moveType: 'empty-slot' | 'swap' | 'unknown';  // Primary move strategy
 }
+
+// Paginated result for reslotting opportunities
+export interface PaginatedOpportunitiesResult {
+  opportunities: CapacityAwareReslottingOpportunity[];
+  hasMore: boolean;
+  totalAvailable: number;
+}

@@ -1665,26 +1665,6 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                     shadowOpacity={0.6}
                     listening={false}
                   />
-
-                  {/* Curved Arrow from Source to Target */}
-                  <Arrow
-                    points={[
-                      fromCenter.x, fromCenter.y,
-                      controlX, controlY,
-                      toCenter.x, toCenter.y
-                    ]}
-                    bezier={true}
-                    stroke="#f59e0b"
-                    strokeWidth={3}
-                    fill="#f59e0b"
-                    pointerLength={15}
-                    pointerWidth={12}
-                    dash={[10, 5]}
-                    shadowColor="#f59e0b"
-                    shadowBlur={10}
-                    shadowOpacity={0.5}
-                    listening={false}
-                  />
                 </Group>
               );
             })()}

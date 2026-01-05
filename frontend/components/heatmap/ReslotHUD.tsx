@@ -16,6 +16,13 @@ interface ReslotHUDProps {
   onAutoTourToggle: () => void;
   capacityThreshold: number;
   onCapacityThresholdChange: (value: number) => void;
+  // Pagination props
+  hasMore?: boolean;
+  totalAvailable?: number;
+  onLoadMore?: () => void;
+  // Swap toggle props
+  showSwapSuggestions?: boolean;
+  onShowSwapSuggestionsChange?: (value: boolean) => void;
 }
 
 export default function ReslotHUD({
@@ -31,6 +38,11 @@ export default function ReslotHUD({
   onAutoTourToggle,
   capacityThreshold,
   onCapacityThresholdChange,
+  hasMore = false,
+  totalAvailable,
+  onLoadMore,
+  showSwapSuggestions = true,
+  onShowSwapSuggestionsChange,
 }: ReslotHUDProps) {
   const currentOpp = opportunities[activeIndex];
   const target = currentOpp?.targetElements[0];
@@ -158,6 +170,26 @@ export default function ReslotHUD({
               />
               <span className="font-mono text-xs text-amber-400 w-8 text-right">{Math.round(capacityThreshold * 100)}%</span>
             </div>
+
+            {/* Swap Suggestions Toggle */}
+            {onShowSwapSuggestionsChange && (
+              <div className="flex items-center gap-2 px-2 py-1 bg-slate-800/80 rounded-lg border border-slate-700/50">
+                <span className="text-[9px] text-slate-500 uppercase tracking-wide whitespace-nowrap">Swaps</span>
+                <button
+                  onClick={() => onShowSwapSuggestionsChange(!showSwapSuggestions)}
+                  className={`w-8 h-4 rounded-full transition-colors relative ${
+                    showSwapSuggestions ? 'bg-amber-500' : 'bg-slate-600'
+                  }`}
+                  title={showSwapSuggestions ? 'Hide swap suggestions' : 'Show swap suggestions'}
+                >
+                  <span
+                    className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                      showSwapSuggestions ? 'left-[18px]' : 'left-0.5'
+                    }`}
+                  />
+                </button>
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -236,7 +268,7 @@ export default function ReslotHUD({
             </div>
 
             {/* Swap Suggestion */}
-            {target?.swapSuggestion && (
+            {showSwapSuggestions && target?.swapSuggestion && (
               <div className="mt-2 p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
                 <div className="flex items-center gap-1.5 text-[10px] text-amber-400 font-medium">
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -287,7 +319,7 @@ export default function ReslotHUD({
             </button>
             <button
               onClick={handleNext}
-              disabled={activeIndex === opportunities.length - 1}
+              disabled={activeIndex === opportunities.length - 1 && !hasMore}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed text-slate-200 font-mono text-xs rounded transition-colors flex items-center gap-1"
             >
               Next
@@ -295,6 +327,19 @@ export default function ReslotHUD({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
+
+            {/* Load More Button - shown when at end and more items available */}
+            {activeIndex === opportunities.length - 1 && hasMore && onLoadMore && (
+              <button
+                onClick={onLoadMore}
+                className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 border border-amber-500/50 text-amber-200 font-mono text-xs rounded transition-colors flex items-center gap-1.5"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Load More{totalAvailable && totalAvailable > opportunities.length && ` (${totalAvailable - opportunities.length})`}
+              </button>
+            )}
           </div>
 
           {/* Primary Actions */}
