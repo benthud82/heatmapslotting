@@ -59,7 +59,7 @@ export default function OptimizationSummaryCard({
 
   // Expanded view
   return (
-    <div className="mb-6 rounded-xl border-2 border-amber-400 bg-gradient-to-br from-amber-600/20 via-slate-800 to-slate-900 overflow-hidden shadow-xl shadow-amber-500/25">
+    <div data-tour="optimization-summary" className="mb-6 rounded-xl border-2 border-amber-400 bg-gradient-to-br from-amber-600/20 via-slate-800 to-slate-900 overflow-hidden shadow-xl shadow-amber-500/25">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-amber-500/20 to-transparent border-b border-amber-500/30">
         <div className="flex items-center gap-2">
@@ -113,6 +113,7 @@ export default function OptimizationSummaryCard({
         <button
           onClick={onStartTour}
           disabled={isActive}
+          data-tour="start-optimization"
           className={`w-full py-3 px-4 rounded-xl font-mono text-sm font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 ${
             isActive
               ? 'bg-amber-500/50 text-slate-900/70 cursor-default'

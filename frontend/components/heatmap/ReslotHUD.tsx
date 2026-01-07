@@ -138,7 +138,7 @@ export default function ReslotHUD({
   };
 
   return (
-    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-3xl px-4">
+    <div data-tour="reslothud-panel" className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 w-full max-w-3xl px-4">
       <div className="bg-slate-900/90 backdrop-blur-md border border-slate-700/50 rounded-2xl shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700/50 bg-slate-800/50">
@@ -205,7 +205,7 @@ export default function ReslotHUD({
         {/* Main Content - Three Columns */}
         <div className="grid grid-cols-3 gap-4 p-4">
           {/* Left: Item Details */}
-          <div className="space-y-2">
+          <div data-tour="reslothud-item" className="space-y-2">
             <div className="text-[10px] text-slate-500 uppercase tracking-wide">Item Details</div>
             <div className="font-mono text-sm text-white font-bold truncate" title={currentOpp.item.externalItemId}>
               {currentOpp.item.externalItemId}
@@ -224,7 +224,7 @@ export default function ReslotHUD({
           </div>
 
           {/* Center: The Move */}
-          <div className="space-y-2 text-center">
+          <div data-tour="reslothud-move" className="space-y-2 text-center">
             <div className="flex items-center justify-center gap-2">
               <span className="text-[10px] text-slate-500 uppercase tracking-wide">The Move</span>
               {getMoveTypeBadge()}
@@ -287,7 +287,7 @@ export default function ReslotHUD({
           </div>
 
           {/* Right: The Gain */}
-          <div className="space-y-2 text-right">
+          <div data-tour="reslothud-savings" className="space-y-2 text-right">
             <div className="text-[10px] text-slate-500 uppercase tracking-wide">Daily Savings</div>
             <div className="font-mono text-lg text-emerald-400 font-bold">
               {Math.round(dailySavingsFt).toLocaleString()} ft
@@ -343,7 +343,7 @@ export default function ReslotHUD({
           </div>
 
           {/* Primary Actions */}
-          <div className="flex items-center gap-2">
+          <div data-tour="reslothud-actions" className="flex items-center gap-2">
             <button
               onClick={() => onApprove(currentOpp)}
               className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs rounded transition-colors flex items-center gap-1.5"
@@ -380,6 +380,7 @@ export default function ReslotHUD({
 
             {/* Export Button */}
             <button
+              data-tour="reslothud-export"
               onClick={onExportApproved}
               disabled={approvedCount === 0}
               className={`px-3 py-1.5 font-mono text-xs rounded transition-colors flex items-center gap-1.5 border ${

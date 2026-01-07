@@ -67,7 +67,7 @@ export default function PropertiesPanel({
         const config = ROUTE_MARKER_CONFIGS[selectedMarker.marker_type];
 
         return (
-            <div className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
+            <div data-tour="properties-panel" className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b border-slate-800">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Route Marker</h3>
@@ -199,7 +199,7 @@ export default function PropertiesPanel({
         const markerCount = routeMarkers.length;
 
         return (
-            <div className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
+            <div data-tour="properties-panel" className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b border-slate-800">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Canvas</h3>
@@ -296,7 +296,7 @@ export default function PropertiesPanel({
     // Multiple elements selected
     if (selectedCount > 1) {
         return (
-            <div className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
+            <div data-tour="properties-panel" className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
                 {/* Header */}
                 <div className="p-4 border-b border-slate-800">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Selection</h3>
@@ -399,7 +399,7 @@ export default function PropertiesPanel({
     if (!element) return null;
 
     return (
-        <div className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
+        <div data-tour="properties-panel" className="h-full bg-slate-900 border-l border-slate-800 flex flex-col">
             {/* Header */}
             <div className="p-4 border-b border-slate-800">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Properties</h3>

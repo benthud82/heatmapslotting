@@ -40,26 +40,24 @@ export default function DashboardFilterBar({
     return (
         <div className="bg-slate-900/50 border-b border-slate-800">
             <div className="w-full max-w-[1800px] mx-auto px-6 py-3">
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                    {/* Left: Period buttons */}
+                <div className="flex items-center gap-8 flex-wrap">
+                    {/* Period selection and Date picker grouped together */}
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-mono text-slate-500 mr-2">Period:</span>
                         {periods.map(({ key, label }) => (
                             <button
                                 key={key}
                                 onClick={() => onPeriodChange(key)}
-                                className={`px-4 py-2 text-sm font-mono rounded-lg transition-colors ${
-                                    selectedPeriod === key
+                                className={`px-4 py-2 text-sm font-mono rounded-lg transition-colors ${selectedPeriod === key
                                         ? 'bg-cyan-600 text-white'
                                         : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                                }`}
+                                    }`}
                             >
                                 {label}
                             </button>
                         ))}
                     </div>
 
-                    {/* Right: Date Range Picker */}
                     <div className="flex items-center gap-3">
                         <span className="text-sm font-mono text-slate-500">Custom Range:</span>
                         <DateRangePicker

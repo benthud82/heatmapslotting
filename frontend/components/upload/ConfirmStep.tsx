@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ValidationResult } from '@/lib/csvValidation';
 import { API_URL } from '@/lib/api';
 import Link from 'next/link';
+import { useJourney } from '@/lib/journey';
 
 interface ConfirmStepProps {
     file: File;
@@ -16,6 +17,7 @@ export default function ConfirmStep({ file, layoutId, validationResult, onBack, 
     const [uploadError, setUploadError] = useState<string | null>(null);
     const [isSuccess, setIsSuccess] = useState(false);
     const [rowsProcessed, setRowsProcessed] = useState(0);
+    const journey = useJourney();
 
     const handleUpload = async () => {
         setIsUploading(true);
@@ -44,6 +46,10 @@ export default function ConfirmStep({ file, layoutId, validationResult, onBack, 
             setRowsProcessed(data.rowsProcessed);
             setIsSuccess(true);
             onUploadComplete();
+            // Track pick_data_uploaded milestone
+            if (journey && !journey.progress.completedMilestones.includes('pick_data_uploaded')) {
+                journey.markMilestone('pick_data_uploaded');
+            }
         } catch (error: any) {
             setUploadError(error.message || 'An unexpected error occurred');
         } finally {
@@ -160,6 +166,7 @@ export default function ConfirmStep({ file, layoutId, validationResult, onBack, 
                 <button
                     onClick={handleUpload}
                     disabled={isUploading}
+                    data-tour="confirm-upload"
                     className="inline-flex items-center px-6 py-2 text-white bg-emerald-600 rounded-md hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:opacity-50 disabled:cursor-wait shadow-lg shadow-emerald-900/20"
                 >
                     {isUploading ? (

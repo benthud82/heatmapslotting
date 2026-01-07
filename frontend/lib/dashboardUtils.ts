@@ -12,6 +12,10 @@ import {
   CapacityAwareReslottingOpportunity,
   CapacityAwareTargetElement,
   PaginatedOpportunitiesResult,
+  ItemVelocityAnalysis,
+  ReslottingSummary,
+  SlottingRecommendation as SlottingRec,
+  VelocityTier as VelTier,
 } from './types';
 
 // ============================================================================
@@ -162,14 +166,28 @@ export function calculateManhattanDistance(
  * Find the nearest cart parking spot and distance to it
  */
 export function findNearestCartParking(
-  element: { x: number; y: number },
+  element: { x: number; y: number; width?: number; height?: number },
   cartParkingSpots: Array<{ x: number; y: number }>
 ): number {
   if (cartParkingSpots.length === 0) return Infinity;
 
+  // Use center of element if dimensions provided, otherwise assume provided point is center
+  const elementCenter = {
+    x: element.x + (element.width ? element.width / 2 : 0),
+    y: element.y + (element.height ? element.height / 2 : 0)
+  };
+
+  // Cart parking spots are 40x24 (centered = +20, +12)
+  const CART_PARKING_WIDTH = 40;
+  const CART_PARKING_HEIGHT = 24;
+
   let minDistance = Infinity;
   for (const cart of cartParkingSpots) {
-    const dist = calculateManhattanDistance(element, cart);
+    const parkingCenter = {
+      x: cart.x + CART_PARKING_WIDTH / 2,
+      y: cart.y + CART_PARKING_HEIGHT / 2
+    };
+    const dist = calculateManhattanDistance(elementCenter, parkingCenter);
     if (dist < minDistance) {
       minDistance = dist;
     }
@@ -689,6 +707,23 @@ export function getDateRangeForPeriod(
 }
 
 /**
+ * Get date range for the last 7 calendar days (slidng window)
+ * Today is excluded as it might be incomplete
+ */
+export function getLast7DaysRange(): { start: string; end: string } {
+  const end = new Date();
+  end.setDate(end.getDate() - 1); // Yesterday
+
+  const start = new Date(end);
+  start.setDate(end.getDate() - 6); // 7 days ago including yesterday
+
+  return {
+    start: formatDateString(start),
+    end: formatDateString(end),
+  };
+}
+
+/**
  * Format date to YYYY-MM-DD string
  */
 export function formatDateString(date: Date): string {
@@ -913,7 +948,6 @@ export function getHotspots(
 // ITEM-LEVEL VELOCITY ANALYSIS
 // ============================================================================
 
-import { AggregatedItemPickData, ItemVelocityAnalysis, ReslottingSummary, SlottingRecommendation as SlottingRec, VelocityTier as VelTier } from './types';
 
 // Walking speed constants
 const WALKING_SPEED_FEET_PER_MINUTE = 264; // 3 mph
@@ -1048,7 +1082,7 @@ export function analyzeItemVelocity(
     });
   }
 
-  // Calculate distances for all items
+  // Calculate distances for all items (as a fallback)
   const distances: number[] = sorted.map(item => {
     if (cartParkingSpots && cartParkingSpots.length > 0) {
       return findNearestCartParking(
@@ -1073,7 +1107,11 @@ export function analyzeItemVelocity(
     const avgDailyPicks = daysCount > 0 ? totalPicks / daysCount : totalPicks;
 
     // Calculate distance and distance percentile
-    const currentDistance = distances[index];
+    // Use pre-calculated distance if available (from enrichItemDataWithDistance in page.tsx)
+    const currentDistance = item.roundTripDistanceFeet !== undefined
+      ? (item.roundTripDistanceFeet * 12) / 2 // Convert feet back to one-way pixels
+      : distances[index];
+
     const distanceRank = sortedDistances.indexOf(currentDistance);
     const distancePercentile = sortedDistances.length > 1
       ? ((distanceRank + 1) / sortedDistances.length) * 100
@@ -1434,13 +1472,12 @@ export function findItemReslottingOpportunities(
 
   elements.forEach(el => {
     elementMap.set(el.id, el);
-    // Calculate Manhattan distance to nearest cart parking
-    let minDist = Infinity;
-    cartParkingSpots.forEach(parking => {
-      const dist = Math.abs(el.x - parking.x) + Math.abs(el.y - parking.y);
-      if (dist < minDist) minDist = dist;
-    });
-    elementDistances.set(el.id, minDist);
+    // Calculate Manhattan distance to nearest cart parking using CENTERS
+    const dist = findNearestCartParking(
+      { x: el.x, y: el.y, width: (el as any).width || 48, height: (el as any).height || 48 }, // Fallback to 4x4ft if missing
+      cartParkingSpots
+    );
+    elementDistances.set(el.id, dist);
   });
 
   // Get sorted elements by distance (closest first)

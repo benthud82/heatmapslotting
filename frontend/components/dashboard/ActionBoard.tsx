@@ -13,22 +13,39 @@ interface ActionBoardProps {
   itemMoveCloser?: ItemVelocityAnalysis[];
   itemMoveFurther?: ItemVelocityAnalysis[];
   itemSummary?: ReslottingSummary;
+  startDate?: string;
+  endDate?: string;
 }
 
 // Premium Move Closer card - large format with savings as hero
 function MoveCloserCard({
   item,
   rank,
-  layoutId
+  layoutId,
+  isFirst = false,
+  startDate,
+  endDate
 }: {
   item: ItemVelocityAnalysis;
   rank: number;
   layoutId?: string;
+  isFirst?: boolean;
+  startDate?: string;
+  endDate?: string;
 }) {
   const tierColor = getVelocityColor(item.velocityTier);
 
+  // Construct URL with date params if they exist
+  const getHref = () => {
+    let url = `/heatmap?layout=${layoutId}&reslot=${encodeURIComponent(item.externalItemId)}&index=${rank - 1}`;
+    if (startDate) url += `&startDate=${startDate}`;
+    if (endDate) url += `&endDate=${endDate}`;
+    return url;
+  };
+
   return (
     <div className="group relative">
+      {/* ... existing card content ... */}
       {/* Card with gradient border effect */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-emerald-500/20 via-transparent to-cyan-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
@@ -113,9 +130,10 @@ function MoveCloserCard({
         {/* Action button - always visible */}
         {layoutId && (
           <Link
-            href={`/heatmap?layout=${layoutId}&reslot=${encodeURIComponent(item.externalItemId)}&index=${rank - 1}`}
+            href={getHref()}
             target="_blank"
             rel="noopener noreferrer"
+            data-tour={isFirst ? 'action-link-first' : undefined}
             className="flex items-center justify-center gap-2 w-full py-3 px-4 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 hover:border-cyan-500/50 rounded-xl text-cyan-400 hover:text-cyan-300 font-medium text-sm transition-all duration-200"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -238,7 +256,9 @@ export default function ActionBoard({
   loading,
   itemMoveCloser,
   itemMoveFurther,
-  itemSummary
+  itemSummary,
+  startDate,
+  endDate
 }: ActionBoardProps) {
   const [showMoveFurther, setShowMoveFurther] = useState(false);
 
@@ -268,7 +288,7 @@ export default function ActionBoard({
     : 0;
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-700/50 rounded-2xl overflow-hidden">
+    <div data-tour="action-board" className="bg-slate-900/80 backdrop-blur-sm border border-slate-700/50 rounded-2xl overflow-hidden">
       {/* Header with gradient accent */}
       <div className="relative px-6 pt-6 pb-4">
         <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-500 via-cyan-500 to-transparent" />
@@ -332,6 +352,9 @@ export default function ActionBoard({
                   item={item}
                   rank={index + 1}
                   layoutId={layoutId}
+                  isFirst={index === 0}
+                  startDate={startDate}
+                  endDate={endDate}
                 />
               ))
             ) : (

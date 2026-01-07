@@ -204,7 +204,7 @@ function HealthScoreCard({
   }
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 p-6 rounded-2xl shadow-xl relative overflow-hidden group hover:border-slate-700 transition-all duration-300">
+    <div data-tour="health-score" className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 p-6 rounded-2xl shadow-xl relative overflow-hidden group hover:border-slate-700 transition-all duration-300">
       {/* Accent gradient */}
       <div
         className="absolute top-0 left-0 right-0 h-1 opacity-80"
@@ -300,7 +300,7 @@ function HealthScoreCard({
 
 export default function HeroKPIs({ data, efficiency, loading }: HeroKPIsProps) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div data-tour="hero-kpis" className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       {/* Total Picks */}
       <KPICard
         title="Total Picks"

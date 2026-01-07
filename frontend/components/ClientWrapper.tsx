@@ -1,12 +1,15 @@
 'use client';
 
-import OnboardingChecklist from './OnboardingChecklist';
+import { JourneyProvider } from '@/lib/journey';
+import { WhatsNextWidget } from './journey';
+import JourneyNudgeModal from './journey/JourneyNudgeModal';
 
 export default function ClientWrapper({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <JourneyProvider>
       {children}
-      <OnboardingChecklist />
-    </>
+      <WhatsNextWidget />
+      <JourneyNudgeModal />
+    </JourneyProvider>
   );
 }

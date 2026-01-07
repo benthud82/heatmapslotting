@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { templates, WarehouseTemplate, getTemplatesByCategory } from '@/lib/templates';
 import { ELEMENT_CONFIGS } from '@/lib/types';
 
@@ -92,13 +92,8 @@ export default function TemplateLibrary({
   const [selectedTemplate, setSelectedTemplate] = useState<WarehouseTemplate | null>(null);
   const [activeCategory, setActiveCategory] = useState<'all' | 'full-warehouse' | 'zone'>('all');
 
-  if (!isOpen) return null;
-
-  const filteredTemplates = activeCategory === 'all'
-    ? templates
-    : getTemplatesByCategory(activeCategory);
-
-  const handleApplyTemplate = () => {
+  // Handle applying template (extracted for reuse)
+  const handleApplyTemplate = useCallback(() => {
     if (!selectedTemplate) return;
 
     // Check element limit
@@ -110,7 +105,41 @@ export default function TemplateLibrary({
 
     onSelectTemplate(selectedTemplate);
     onClose();
-  };
+  }, [selectedTemplate, currentElementCount, elementLimit, onSelectTemplate, onClose]);
+
+  // Tour Event Listeners - auto-select Quick Grid template
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleSelectQuickGrid = () => {
+      // Find the Quick Grid template
+      const quickGridTemplate = templates.find(t => t.id === 'quick-grid');
+      if (quickGridTemplate) {
+        setSelectedTemplate(quickGridTemplate);
+      }
+    };
+
+    const handleApplyTemplateEvent = () => {
+      // Auto-apply the currently selected template
+      if (selectedTemplate) {
+        handleApplyTemplate();
+      }
+    };
+
+    window.addEventListener('tour:select-quick-grid', handleSelectQuickGrid);
+    window.addEventListener('tour:apply-template', handleApplyTemplateEvent);
+
+    return () => {
+      window.removeEventListener('tour:select-quick-grid', handleSelectQuickGrid);
+      window.removeEventListener('tour:apply-template', handleApplyTemplateEvent);
+    };
+  }, [isOpen, selectedTemplate, handleApplyTemplate]);
+
+  if (!isOpen) return null;
+
+  const filteredTemplates = activeCategory === 'all'
+    ? templates
+    : getTemplatesByCategory(activeCategory);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -168,6 +197,7 @@ export default function TemplateLibrary({
               <button
                 key={template.id}
                 onClick={() => setSelectedTemplate(template)}
+                data-tour={template.id === 'quick-grid' ? 'template-quick-grid' : undefined}
                 className={`text-left p-4 rounded-lg border-2 transition-all ${
                   selectedTemplate?.id === template.id
                     ? 'border-blue-500 bg-blue-500/10'

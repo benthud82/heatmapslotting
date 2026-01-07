@@ -27,6 +27,8 @@ import { useHistory } from '@/hooks/useHistory';
 import { alignElements, AlignmentType } from '@/lib/alignment';
 import { detectPatterns, generateCorrectionPlan, correctionsToUpdates, correctionsToMarkerUpdates, CorrectionPlan, ElementCorrection } from '@/lib/autoAlign';
 import AutoAlignModal from '@/components/designer/AutoAlignModal';
+import { useJourney } from '@/lib/journey';
+import { HintsContainer } from '@/components/journey';
 
 export default function Home() {
   const [layouts, setLayouts] = useState<Layout[]>([]);
@@ -121,7 +123,30 @@ export default function Home() {
   // Canvas Ref for exports
   const canvasRef = useRef<WarehouseCanvasRef>(null);
 
+  // Journey/Onboarding
+  const journey = useJourney();
 
+  // Track layout_created milestone when elements exist
+  useEffect(() => {
+    if (elements.length > 0 && journey && !journey.progress.completedMilestones.includes('layout_created')) {
+      journey.markMilestone('layout_created');
+    }
+  }, [elements.length, journey]);
+
+  // Track route_markers_added milestone when cart_parking exists
+  useEffect(() => {
+    const hasCartParking = routeMarkers.some(m => m.marker_type === 'cart_parking');
+    if (hasCartParking && journey && !journey.progress.completedMilestones.includes('route_markers_added')) {
+      journey.markMilestone('route_markers_added');
+    }
+  }, [routeMarkers, journey]);
+
+  // Track distances_viewed milestone when showDistances is enabled
+  useEffect(() => {
+    if (showDistances && journey && !journey.progress.completedMilestones.includes('distances_viewed')) {
+      journey.markMilestone('distances_viewed');
+    }
+  }, [showDistances, journey]);
 
   // Load initial data
   useEffect(() => {
@@ -1536,6 +1561,18 @@ export default function Home() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, handleMarkerDelete, selectedElementIds, selectedMarkerIds, handleAutoAlign]);
 
+  // Journey Event Listeners - respond to contextual hint actions
+  useEffect(() => {
+    const handleOpenTemplates = () => {
+      setShowTemplateLibrary(true);
+    };
+
+    window.addEventListener('journey:open-templates', handleOpenTemplates);
+    return () => {
+      window.removeEventListener('journey:open-templates', handleOpenTemplates);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
@@ -1552,6 +1589,11 @@ export default function Home() {
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
       <Header title="Warehouse Designer" subtitle={`${layout?.name || 'Untitled Layout'} • Layout Editor`} />
+
+      {/* Contextual hints for onboarding */}
+      <div className="px-4 pt-2">
+        <HintsContainer page="/designer" />
+      </div>
 
       <MenuBar
         layoutName={layout?.name || 'Untitled Layout'}

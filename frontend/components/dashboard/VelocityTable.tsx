@@ -278,7 +278,7 @@ export default function VelocityTable({ data, itemData, loading, onRowClick, onI
   }
 
   return (
-    <div className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
+    <div data-tour="velocity-table" className="bg-slate-900/80 backdrop-blur-sm border border-slate-800 rounded-2xl shadow-xl overflow-hidden">
       {/* Header */}
       <div className="p-6 pb-4 border-b border-slate-800">
         <div className="flex items-center justify-between mb-4">

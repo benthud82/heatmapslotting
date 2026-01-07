@@ -70,6 +70,7 @@ app.use('/api/picks', authMiddleware, require('./routes/picks'));
 app.use('/api/locations', authMiddleware, require('./routes/locations'));
 app.use('/api/items', authMiddleware, require('./routes/items'));
 app.use('/api/user', authMiddleware, require('./routes/user'));
+app.use('/api/journey', authMiddleware, require('./routes/journey'));
 app.use('/api', authMiddleware, require('./routes/routeMarkers'));
 app.use('/api/layouts', authMiddleware, require('./routes/labor'));
 

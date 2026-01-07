@@ -69,6 +69,16 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
         const isActive = activeTool === tool.type;
         const markerColor = isRouteMarker ? (tool.color || '#3b82f6') : undefined;
 
+        // Add data-tour attribute for specific tools
+        const getDataTourAttr = (toolId: string) => {
+            switch (toolId) {
+                case 'cart_parking': return 'cart-parking-tool';
+                case 'bay': return 'bay-tool';
+                default: return undefined;
+            }
+        };
+        const dataTourAttr = getDataTourAttr(tool.id);
+
         return (
             <button
                 onClick={() => onSelectTool(tool.type)}
@@ -81,6 +91,7 @@ export default function Sidebar({ activeTool, onSelectTool }: SidebarProps) {
                         }));
                     }
                 }}
+                data-tour={dataTourAttr}
                 className={`w-10 h-10 rounded-lg flex items-center justify-center transition-all group relative ${
                     isActive
                         ? isRouteMarker

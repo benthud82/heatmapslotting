@@ -17,6 +17,8 @@ import { analyzeItemVelocity, findItemReslottingOpportunities } from '@/lib/dash
 import { exportElementDataCSV, exportItemDataCSV, exportReslottingPlan } from '@/lib/exportData';
 import { useRef } from 'react';
 import SkuDetailModal from '@/components/heatmap/SkuDetailModal';
+import { useJourney } from '@/lib/journey';
+import { HintsContainer } from '@/components/journey';
 
 
 export default function Heatmap() {
@@ -194,6 +196,30 @@ export default function Heatmap() {
 
   // Swap suggestions toggle
   const [showSwapSuggestions, setShowSwapSuggestions] = useState(true);
+
+  // Journey/Onboarding
+  const journey = useJourney();
+
+  // Track heatmap_explored milestone when pick data is loaded
+  useEffect(() => {
+    if (hasPickData && journey && !journey.progress.completedMilestones.includes('heatmap_explored')) {
+      journey.markMilestone('heatmap_explored');
+    }
+  }, [hasPickData, journey]);
+
+  // Track distances_viewed milestone when showDistances is enabled
+  useEffect(() => {
+    if (showDistances && journey && !journey.progress.completedMilestones.includes('distances_viewed')) {
+      journey.markMilestone('distances_viewed');
+    }
+  }, [showDistances, journey]);
+
+  // Track optimization_started milestone when ReslotHUD is opened
+  useEffect(() => {
+    if (showReslotHUD && journey && !journey.progress.completedMilestones.includes('optimization_started')) {
+      journey.markMilestone('optimization_started');
+    }
+  }, [showReslotHUD, journey]);
 
   // Helper function to convert date to YYYY-MM-DD format for date inputs
   const formatDateForInput = (dateString: string): string => {
@@ -627,13 +653,20 @@ export default function Heatmap() {
   const handleExportApproved = useCallback(() => {
     const currentLayout = layouts.find(l => l.id === currentLayoutId);
     exportReslottingPlan(approvedMoves, currentLayout?.name || 'warehouse');
-  }, [approvedMoves, layouts, currentLayoutId]);
+    // Track moves_exported milestone
+    if (journey && !journey.progress.completedMilestones.includes('moves_exported')) {
+      journey.markMilestone('moves_exported');
+    }
+  }, [approvedMoves, layouts, currentLayoutId, journey]);
 
-  // Camera sync effect - center on elements when active reslot move changes
+  // Camera and Selection sync effect - center on elements and select source when active reslot move changes
   useEffect(() => {
     if (!showReslotHUD || !activeReslotMove) return;
 
     canvasRef.current?.centerOnElements([activeReslotMove.fromId, activeReslotMove.toId]);
+
+    // Auto-select the source element to show context in sidebar
+    setSelectedElementId(activeReslotMove.fromId);
   }, [showReslotHUD, activeReslotMove]);
 
   // Auto-tour effect
@@ -658,7 +691,19 @@ export default function Heatmap() {
     // Early exit conditions
     if (!reslotItemId) return;
     if (reslotDeepLinkProcessed) return;
-    if (itemSlottingRecommendations.opportunities.length === 0 && !itemData.length) return;
+
+    // WAIT for data to be fully loaded
+    if (loading || itemDataLoading) return;
+
+    // WAIT for opportunities to be calculated if we have item data
+    // (Resolves race condition where itemData is ready but opportunities useEffect hasn't run)
+    if (itemData.length > 0 && itemSlottingRecommendations.opportunities.length === 0) return;
+
+    // If we have no items at all after loading, we can't do anything, so mark processed and exit
+    if (itemData.length === 0 && !loading && !itemDataLoading) {
+      setReslotDeepLinkProcessed(true);
+      return;
+    }
 
     // Mark as processed to prevent re-running
     setReslotDeepLinkProcessed(true);
@@ -670,9 +715,13 @@ export default function Heatmap() {
       const idx = parseInt(reslotIndex, 10);
       if (!isNaN(idx) && idx >= 0 && idx < opportunities.length) {
         // Verify the item at this index matches (for safety)
-        if (opportunities[idx]?.item.externalItemId === reslotItemId) {
+        const opp = opportunities[idx];
+        if (opp?.item.externalItemId === reslotItemId) {
           setShowReslotHUD(true);
           setActiveReslotIndex(idx);
+
+          // Select the source element to highlight it on the canvas and sidebar
+          setSelectedElementId(opp.currentElement.id);
           return;
         }
       }
@@ -685,8 +734,12 @@ export default function Heatmap() {
 
     if (opportunityIndex !== -1) {
       // Found the item in opportunities - open HUD and navigate to it
+      const opp = opportunities[opportunityIndex];
       setShowReslotHUD(true);
       setActiveReslotIndex(opportunityIndex);
+
+      // Select the source element
+      setSelectedElementId(opp.currentElement.id);
     } else {
       // Item not in opportunities - try fallback behaviors
       // Fallback 1: Try to find the item in itemData and select its element
@@ -700,7 +753,7 @@ export default function Heatmap() {
         setActiveReslotIndex(0);
       }
     }
-  }, [searchParams, itemSlottingRecommendations.opportunities, itemData, reslotDeepLinkProcessed]);
+  }, [searchParams, itemSlottingRecommendations.opportunities, itemData, reslotDeepLinkProcessed, loading, itemDataLoading]);
 
   if (loading && !layouts.length) {
     return (
@@ -748,13 +801,18 @@ export default function Heatmap() {
         </div>
       </Header>
 
+      {/* Contextual hints for onboarding */}
+      <div className="px-4 pt-2">
+        <HintsContainer page="/heatmap" />
+      </div>
+
       {/* Date Range & View Controls Bar */}
       {(hasPickData || availableDates.length > 0) && (
         <div className="bg-slate-900 border-b border-slate-800 flex-shrink-0">
           <div className="w-full px-6 py-3">
             <div className="flex items-center justify-between flex-wrap gap-4">
               {/* Left: Date Range */}
-              <div className="flex items-center gap-4 flex-wrap">
+              <div data-tour="date-filter" className="flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -823,7 +881,7 @@ export default function Heatmap() {
 
                 {/* Color Mode Toggle */}
                 {hasPickData && (
-                  <div className="flex bg-slate-700 rounded border border-slate-600 text-[11px] font-mono">
+                  <div data-tour="burden-toggle" className="flex bg-slate-700 rounded border border-slate-600 text-[11px] font-mono">
                     <button
                       onClick={() => setHeatmapColorMode('picks')}
                       className={`px-2.5 py-1.5 rounded-l transition-colors ${heatmapColorMode === 'picks' ? 'bg-slate-600 text-white' : 'text-slate-300 hover:text-white'}`}
@@ -952,7 +1010,7 @@ export default function Heatmap() {
       {/* Main Content - Full Height Flex Container */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Canvas Area - Takes remaining space */}
-        <div className="flex-1 bg-slate-950 relative overflow-hidden">
+        <div data-tour="heatmap-canvas" className="flex-1 bg-slate-950 relative overflow-hidden">
           <WarehouseCanvas
             ref={canvasRef}
             elements={elements}
@@ -1080,11 +1138,10 @@ export default function Heatmap() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowDistances(prev => !prev)}
-            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-              showDistances
-                ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
-                : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-white hover:bg-slate-700'
-            }`}
+            className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${showDistances
+              ? 'bg-amber-600/30 text-amber-300 border border-amber-500/50'
+              : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-white hover:bg-slate-700'
+              }`}
             title="Toggle Distances (D)"
           >
             <span className="flex items-center gap-1">
@@ -1116,11 +1173,10 @@ export default function Heatmap() {
                   setApprovedMoves([]);
                 }
               }}
-              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors flex items-center gap-1 ${
-                showReslotHUD
-                  ? 'bg-amber-600/40 text-amber-200 border border-amber-500/70'
-                  : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-amber-300 hover:border-amber-500/50'
-              }`}
+              className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors flex items-center gap-1 ${showReslotHUD
+                ? 'bg-amber-600/40 text-amber-200 border border-amber-500/70'
+                : 'bg-slate-700/60 text-slate-300 border border-slate-600 hover:text-amber-300 hover:border-amber-500/50'
+                }`}
               title="Optimization Navigator"
             >
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

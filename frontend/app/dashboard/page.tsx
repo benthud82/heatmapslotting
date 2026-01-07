@@ -20,6 +20,7 @@ import {
     findItemReslottingOpportunities,
     getParetoDistribution,
     identifyCongestionZones,
+    getLast7DaysRange,
     VelocityAnalysis,
     KPIData,
     ZoneBreakdown,
@@ -42,6 +43,8 @@ import TrendWatch from '@/components/dashboard/TrendWatch';
 import ElementDetailModal from '@/components/dashboard/ElementDetailModal';
 import DashboardFilterBar from '@/components/dashboard/DashboardFilterBar';
 import ConfirmModal from '@/components/ConfirmModal';
+import { useJourney } from '@/lib/journey';
+import { HintsContainer } from '@/components/journey';
 
 type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
@@ -71,14 +74,24 @@ export default function Dashboard() {
     // Period Selection
     const [selectedPeriod, setSelectedPeriod] = useState<ComparisonPeriod>(() => {
         const urlPeriod = searchParams.get('period');
-        return (urlPeriod as ComparisonPeriod) || 'week';
+        if (urlPeriod) return urlPeriod as ComparisonPeriod;
+        // If we have custom dates from heatmap, use custom, otherwise use 'custom' but it will be our last 7 days
+        return 'custom';
     });
     const [currentPeriodDates, setCurrentPeriodDates] = useState<{ start: string; end: string } | null>(null);
     const [previousPeriodDates, setPreviousPeriodDates] = useState<{ start: string; end: string } | null>(null);
 
-    // Custom date range (for syncing with heatmap)
-    const [customStartDate, setCustomStartDate] = useState<string>(() => searchParams.get('startDate') || '');
-    const [customEndDate, setCustomEndDate] = useState<string>(() => searchParams.get('endDate') || '');
+    // Custom date range (default to last 7 days)
+    const [customStartDate, setCustomStartDate] = useState<string>(() => {
+        const urlDate = searchParams.get('startDate');
+        if (urlDate) return urlDate;
+        return getLast7DaysRange().start;
+    });
+    const [customEndDate, setCustomEndDate] = useState<string>(() => {
+        const urlDate = searchParams.get('endDate');
+        if (urlDate) return urlDate;
+        return getLast7DaysRange().end;
+    });
 
     // Walk Distance State
     const [walkDistanceData, setWalkDistanceData] = useState<WalkDistanceData | null>(null);
@@ -237,7 +250,12 @@ export default function Dashboard() {
 
     // Extract top 3 move-closer items from opportunities (same order as heatmap)
     const itemMoveRecommendations = useMemo(() => {
-        const moveCloser = itemReslottingOpportunities.slice(0, 3).map(opp => opp.item);
+        const moveCloser = itemReslottingOpportunities.slice(0, 3).map(opp => ({
+            ...opp.item,
+            // Override the theoretical max savings with the ACTUAL target move savings
+            dailyWalkSavingsFeet: opp.totalDailyWalkSavings,
+            dailyTimeSavingsMinutes: Math.round(opp.totalDailyWalkSavings / 264 * 10) / 10
+        }));
 
         // For move-further, we still use the legacy function as it's not in the HUD
         // but use enrichedItemData for consistency
@@ -304,12 +322,15 @@ export default function Dashboard() {
         }
     }, [selectedPeriod, currentLayoutId, availableDates, customStartDate, customEndDate]);
 
-    // Track dashboard visit for onboarding
+    // Journey/Onboarding
+    const journey = useJourney();
+
+    // Track dashboard_analyzed milestone when data is loaded
     useEffect(() => {
-        if (aggregatedData.length > 0 || transactions.length > 0) {
-            localStorage.setItem('onboarding_dashboard_visited', 'true');
+        if ((aggregatedData.length > 0 || transactions.length > 0) && journey && !journey.progress.completedMilestones.includes('dashboard_analyzed')) {
+            journey.markMilestone('dashboard_analyzed');
         }
-    }, [aggregatedData, transactions]);
+    }, [aggregatedData, transactions, journey]);
 
     const loadData = async () => {
         try {
@@ -548,6 +569,11 @@ export default function Dashboard() {
                 />
             </Header>
 
+            {/* Contextual hints for onboarding */}
+            <div className="px-6 pt-2">
+                <HintsContainer page="/dashboard" />
+            </div>
+
             {/* Filter Bar - shown when data exists */}
             {hasData && (
                 <DashboardFilterBar
@@ -635,6 +661,8 @@ export default function Dashboard() {
                                     itemMoveFurther={itemMoveRecommendations.moveFurther}
                                     layoutId={currentLayoutId || undefined}
                                     loading={loading}
+                                    startDate={customStartDate}
+                                    endDate={customEndDate}
                                 />
                             </div>
                             <div>

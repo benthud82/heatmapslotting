@@ -177,3 +177,36 @@ CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 
 -- Note: Audit log intentionally does NOT have RLS enabled
 -- It's accessed only by backend service role, not direct user queries
+
+
+-- 7. User Journey Milestones
+-- Track user onboarding progress with timestamps
+CREATE TABLE IF NOT EXISTS user_journey_milestones (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE NOT NULL,
+    milestone VARCHAR(50) NOT NULL,
+    completed_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB DEFAULT '{}',
+    UNIQUE(user_id, milestone)
+);
+
+-- Indexes for journey queries
+CREATE INDEX IF NOT EXISTS idx_journey_user ON user_journey_milestones(user_id);
+CREATE INDEX IF NOT EXISTS idx_journey_milestone ON user_journey_milestones(milestone);
+
+-- Enable RLS for journey milestones
+ALTER TABLE user_journey_milestones ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view their own milestones" ON user_journey_milestones
+    FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert their own milestones" ON user_journey_milestones
+    FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+
+-- 8. Add onboarding columns to user_preferences
+-- Run these as ALTER statements for existing tables
+ALTER TABLE user_preferences
+ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS onboarding_dismissed BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS dismissed_hints JSONB DEFAULT '[]'

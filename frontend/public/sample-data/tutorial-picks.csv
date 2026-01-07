@@ -1,0 +1,43 @@
+pick_date,location_name,item_id,item_description,pick_quantity
+2025-01-02,B13,SKU-001,Fast Moving Widget,95
+2025-01-02,B13,SKU-002,Popular Gadget,88
+2025-01-02,B14,SKU-003,Best Seller Pro,120
+2025-01-02,B14,SKU-004,High Demand Item,105
+2025-01-02,B15,SKU-005,Top Performer,110
+2025-01-02,B15,SKU-006,Hot Product A,98
+2025-01-02,B1,SKU-007,Slow Mover X,8
+2025-01-02,B1,SKU-008,Low Demand Y,5
+2025-01-02,B2,SKU-009,Seasonal Item Z,12
+2025-01-02,B2,SKU-010,Rare Product,6
+2025-01-02,B3,SKU-011,Backup Stock,10
+2025-01-02,B7,SKU-012,Medium Velocity A,35
+2025-01-02,B8,SKU-013,Medium Velocity B,28
+2025-01-02,B9,SKU-014,Average Mover,32
+2025-01-03,B13,SKU-001,Fast Moving Widget,92
+2025-01-03,B13,SKU-002,Popular Gadget,85
+2025-01-03,B14,SKU-003,Best Seller Pro,118
+2025-01-03,B14,SKU-004,High Demand Item,102
+2025-01-03,B15,SKU-005,Top Performer,108
+2025-01-03,B15,SKU-006,Hot Product A,95
+2025-01-03,B1,SKU-007,Slow Mover X,6
+2025-01-03,B1,SKU-008,Low Demand Y,4
+2025-01-03,B2,SKU-009,Seasonal Item Z,10
+2025-01-03,B2,SKU-010,Rare Product,5
+2025-01-03,B3,SKU-011,Backup Stock,8
+2025-01-03,B7,SKU-012,Medium Velocity A,33
+2025-01-03,B8,SKU-013,Medium Velocity B,26
+2025-01-03,B9,SKU-014,Average Mover,30
+2025-01-04,B13,SKU-001,Fast Moving Widget,98
+2025-01-04,B13,SKU-002,Popular Gadget,90
+2025-01-04,B14,SKU-003,Best Seller Pro,125
+2025-01-04,B14,SKU-004,High Demand Item,108
+2025-01-04,B15,SKU-005,Top Performer,112
+2025-01-04,B15,SKU-006,Hot Product A,100
+2025-01-04,B1,SKU-007,Slow Mover X,7
+2025-01-04,B1,SKU-008,Low Demand Y,3
+2025-01-04,B2,SKU-009,Seasonal Item Z,11
+2025-01-04,B2,SKU-010,Rare Product,4
+2025-01-04,B3,SKU-011,Backup Stock,9
+2025-01-04,B7,SKU-012,Medium Velocity A,36
+2025-01-04,B8,SKU-013,Medium Velocity B,29
+2025-01-04,B9,SKU-014,Average Mover,31
