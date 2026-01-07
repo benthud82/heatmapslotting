@@ -12,20 +12,28 @@ interface LaborConfigModalProps {
   onSave: (standards: LaborStandards) => void;
 }
 
-type TabType = 'time' | 'allowances' | 'cost';
+type TabType = 'picking' | 'walk' | 'cost';
 
 const DEFAULT_STANDARDS: LaborStandardsUpdate = {
+  // Legacy field (kept for backward compatibility)
   pick_time_seconds: 15.0,
+  // NEW: Granular picking time elements
+  pick_item_seconds: 12.0,
+  tote_time_seconds: 8.0,
+  scan_time_seconds: 5.0,
+  // Walk and allowances
   walk_speed_fpm: 264.0,
-  pack_time_seconds: 30.0,
-  putaway_time_seconds: 20.0,
   fatigue_allowance_percent: 10.0,
   delay_allowance_percent: 5.0,
+  // Cost and shift settings
   reslot_time_minutes: 12.0,
   hourly_labor_rate: 18.0,
   benefits_multiplier: 1.30,
   shift_hours: 8.0,
   target_efficiency_percent: 85.0,
+  // Legacy fields (kept for backward compatibility)
+  pack_time_seconds: 30.0,
+  putaway_time_seconds: 20.0,
 };
 
 export default function LaborConfigModal({
@@ -35,7 +43,7 @@ export default function LaborConfigModal({
   currentStandards,
   onSave,
 }: LaborConfigModalProps) {
-  const [activeTab, setActiveTab] = useState<TabType>('time');
+  const [activeTab, setActiveTab] = useState<TabType>('picking');
   const [formData, setFormData] = useState<LaborStandardsUpdate>(DEFAULT_STANDARDS);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,17 +52,25 @@ export default function LaborConfigModal({
   useEffect(() => {
     if (isOpen && currentStandards) {
       setFormData({
+        // Legacy field
         pick_time_seconds: currentStandards.pick_time_seconds,
+        // NEW: Granular picking time elements
+        pick_item_seconds: currentStandards.pick_item_seconds ?? 12.0,
+        tote_time_seconds: currentStandards.tote_time_seconds ?? 8.0,
+        scan_time_seconds: currentStandards.scan_time_seconds ?? 5.0,
+        // Walk and allowances
         walk_speed_fpm: currentStandards.walk_speed_fpm,
-        pack_time_seconds: currentStandards.pack_time_seconds,
-        putaway_time_seconds: currentStandards.putaway_time_seconds,
         fatigue_allowance_percent: currentStandards.fatigue_allowance_percent,
         delay_allowance_percent: currentStandards.delay_allowance_percent,
+        // Cost and shift settings
         reslot_time_minutes: currentStandards.reslot_time_minutes,
         hourly_labor_rate: currentStandards.hourly_labor_rate,
         benefits_multiplier: currentStandards.benefits_multiplier,
         shift_hours: currentStandards.shift_hours,
         target_efficiency_percent: currentStandards.target_efficiency_percent,
+        // Legacy fields
+        pack_time_seconds: currentStandards.pack_time_seconds,
+        putaway_time_seconds: currentStandards.putaway_time_seconds,
       });
     } else if (isOpen) {
       setFormData(DEFAULT_STANDARDS);
@@ -91,20 +107,20 @@ export default function LaborConfigModal({
 
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
     {
-      id: 'time',
-      label: 'Time Standards',
+      id: 'picking',
+      label: 'Picking Elements',
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
       ),
     },
     {
-      id: 'allowances',
-      label: 'Allowances',
+      id: 'walk',
+      label: 'Walk & Allowances',
       icon: (
         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
         </svg>
       ),
     },
@@ -185,59 +201,80 @@ export default function LaborConfigModal({
 
       {/* Tab Content */}
       <div className="space-y-4">
-        {activeTab === 'time' && (
+        {activeTab === 'picking' && (
           <>
             <p className="text-sm text-slate-500 mb-4">
-              Configure the engineered time standards for each picking operation.
+              Configure the engineered time standards for each element of the picking process.
             </p>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <InputField
-                label="Pick Time"
-                value={formData.pick_time_seconds || 0}
-                onChange={(v) => handleChange('pick_time_seconds', v)}
+                label="Pick Item Time"
+                value={formData.pick_item_seconds || 0}
+                onChange={(v) => handleChange('pick_item_seconds', v)}
                 unit="seconds"
-                description="Time to pick one item from shelf"
+                description="Reach, grab, retrieve item from slot"
               />
+              <InputField
+                label="Tote Time"
+                value={formData.tote_time_seconds || 0}
+                onChange={(v) => handleChange('tote_time_seconds', v)}
+                unit="seconds"
+                description="Place item in cart/tote, arrange"
+              />
+              <InputField
+                label="Scan Time"
+                value={formData.scan_time_seconds || 0}
+                onChange={(v) => handleChange('scan_time_seconds', v)}
+                unit="seconds"
+                description="Scan barcode, confirm on RF device"
+              />
+            </div>
+
+            <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
+              <p className="text-sm text-slate-400">
+                <span className="font-bold text-white">Base Pick Time (excl. walk): </span>
+                {(
+                  (formData.pick_item_seconds || 0) +
+                  (formData.tote_time_seconds || 0) +
+                  (formData.scan_time_seconds || 0)
+                ).toFixed(1)}
+                &nbsp;seconds
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                This is the time per pick before walk time and allowances are applied.
+              </p>
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <p className="text-xs font-mono text-slate-500 mb-3">ADDITIONAL OPERATIONS</p>
+              <div className="grid grid-cols-2 gap-4">
+                <InputField
+                  label="Reslot Time"
+                  value={formData.reslot_time_minutes || 0}
+                  onChange={(v) => handleChange('reslot_time_minutes', v)}
+                  unit="minutes"
+                  description="Time to relocate one item (for ROI calculations)"
+                />
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'walk' && (
+          <>
+            <p className="text-sm text-slate-500 mb-4">
+              Configure walk speed and time allowances (PFD: Personal, Fatigue, Delay).
+            </p>
+
+            <div className="grid grid-cols-3 gap-4">
               <InputField
                 label="Walk Speed"
                 value={formData.walk_speed_fpm || 0}
                 onChange={(v) => handleChange('walk_speed_fpm', v)}
                 unit="ft/min"
-                description="Walking speed (264 = 3 mph)"
+                description="264 ft/min = 3 mph (industry standard)"
               />
-              <InputField
-                label="Pack Time"
-                value={formData.pack_time_seconds || 0}
-                onChange={(v) => handleChange('pack_time_seconds', v)}
-                unit="seconds"
-                description="Time to pack one item"
-              />
-              <InputField
-                label="Put Away Time"
-                value={formData.putaway_time_seconds || 0}
-                onChange={(v) => handleChange('putaway_time_seconds', v)}
-                unit="seconds"
-                description="Time for put-away operations"
-              />
-              <InputField
-                label="Reslot Time"
-                value={formData.reslot_time_minutes || 0}
-                onChange={(v) => handleChange('reslot_time_minutes', v)}
-                unit="minutes"
-                description="Time to relocate one item (for ROI)"
-              />
-            </div>
-          </>
-        )}
-
-        {activeTab === 'allowances' && (
-          <>
-            <p className="text-sm text-slate-500 mb-4">
-              Configure time allowances that account for non-productive time.
-            </p>
-
-            <div className="grid grid-cols-2 gap-4">
               <InputField
                 label="Fatigue Allowance"
                 value={formData.fatigue_allowance_percent || 0}
@@ -255,18 +292,39 @@ export default function LaborConfigModal({
             </div>
 
             <div className="mt-6 p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-              <p className="text-sm text-slate-400">
-                <span className="font-bold text-white">Total Allowance Multiplier: </span>
-                {(
-                  1 +
-                  (formData.fatigue_allowance_percent || 0) / 100 +
-                  (formData.delay_allowance_percent || 0) / 100
-                ).toFixed(2)}
-                x
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-slate-400">
+                  <span className="font-bold text-white">PFD Allowance Multiplier: </span>
+                  {(
+                    1 +
+                    (formData.fatigue_allowance_percent || 0) / 100 +
+                    (formData.delay_allowance_percent || 0) / 100
+                  ).toFixed(2)}x
+                </p>
+                <span className="text-xs text-slate-500">
+                  {(
+                    (formData.fatigue_allowance_percent || 0) +
+                    (formData.delay_allowance_percent || 0)
+                  ).toFixed(0)}% total allowance
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                Standard time is multiplied by this factor to account for breaks, fatigue, and delays.
               </p>
-              <p className="text-xs text-slate-500 mt-1">
-                Standard time is multiplied by this factor to account for breaks and delays.
-              </p>
+            </div>
+
+            <div className="mt-4 p-4 bg-amber-900/20 border border-amber-700/30 rounded-lg">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-amber-400">Walk Time Calculation</p>
+                  <p className="text-xs text-amber-400/70 mt-1">
+                    Walk time = (Round-trip distance in feet ÷ {formData.walk_speed_fpm || 264} ft/min) × 60 seconds
+                  </p>
+                </div>
+              </div>
             </div>
           </>
         )}

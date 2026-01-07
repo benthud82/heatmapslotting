@@ -13,12 +13,19 @@ import { supabase } from './supabase';
 export interface LaborStandards {
   id: string;
   layout_id: string;
+  // Legacy fields
   pick_time_seconds: number;
-  walk_speed_fpm: number;
   pack_time_seconds: number;
   putaway_time_seconds: number;
+  // NEW: Granular picking time elements
+  pick_item_seconds?: number;
+  tote_time_seconds?: number;
+  scan_time_seconds?: number;
+  // Walk and allowances
+  walk_speed_fpm: number;
   fatigue_allowance_percent: number;
   delay_allowance_percent: number;
+  // Cost and shift settings
   reslot_time_minutes: number;
   hourly_labor_rate: number;
   benefits_multiplier: number;
@@ -29,12 +36,19 @@ export interface LaborStandards {
 }
 
 export interface LaborStandardsUpdate {
+  // Legacy fields
   pick_time_seconds?: number;
-  walk_speed_fpm?: number;
   pack_time_seconds?: number;
   putaway_time_seconds?: number;
+  // NEW: Granular picking time elements
+  pick_item_seconds?: number;
+  tote_time_seconds?: number;
+  scan_time_seconds?: number;
+  // Walk and allowances
+  walk_speed_fpm?: number;
   fatigue_allowance_percent?: number;
   delay_allowance_percent?: number;
+  // Cost and shift settings
   reslot_time_minutes?: number;
   hourly_labor_rate?: number;
   benefits_multiplier?: number;
@@ -161,6 +175,100 @@ export interface ROISimulation extends ROICalculation {
   simulation_name: string;
   simulation_date: string;
   created_at: string;
+}
+
+// =============================================================================
+// NEW: TIME BREAKDOWN TYPES
+// =============================================================================
+
+export interface TimeElement {
+  hours: number;
+  percent: number;
+  label: string;
+}
+
+export interface TimeBreakdownData {
+  hasData: boolean;
+  message?: string;
+  totalPicks: number;
+  totalWalkDistanceFeet: number;
+  totalEstimatedHours: number;
+  estimatedLaborCost: number;
+  elements: {
+    walk: TimeElement;
+    pick: TimeElement;
+    tote: TimeElement;
+    scan: TimeElement;
+    allowance: TimeElement;
+  } | null;
+  standards: {
+    pickItemSeconds: number;
+    toteTimeSeconds: number;
+    scanTimeSeconds: number;
+    walkSpeedFpm: number;
+    pfdAllowancePercent: number;
+  } | null;
+}
+
+// =============================================================================
+// NEW: WALK BURDEN TYPES
+// =============================================================================
+
+export interface WalkBurdenData {
+  hasData: boolean;
+  message?: string;
+  totalPicks?: number;
+  current: {
+    distanceFeet: number;
+    distanceMiles: number;
+    timeMinutes: number;
+    timeHours: number;
+    percentOfShift: number;
+    avgDistPerPick: number;
+    dailyCost: number;
+  } | null;
+  optimal: {
+    distanceFeet: number;
+    distanceMiles: number;
+    avgDistPerPick: number;
+  } | null;
+  potentialSavings: {
+    distanceFeet: number;
+    distanceMiles: number;
+    timeMinutes: number;
+    dailyDollars: number;
+    annualDollars: number;
+  } | null;
+  targetWalkPercent: number;
+}
+
+// =============================================================================
+// NEW: TREND ANALYSIS TYPES
+// =============================================================================
+
+export interface ChartDataPoint {
+  date: string;
+  efficiency: number | null;
+  picks: number;
+}
+
+export interface TrendData {
+  hasData: boolean;
+  rollingAvg7Day: number | null;
+  weekOverWeekChange: number | null;
+  bestDay: {
+    date: string;
+    efficiency: number;
+    picks: number;
+  } | null;
+  worstDay: {
+    date: string;
+    efficiency: number;
+    picks: number;
+  } | null;
+  trend: 'improving' | 'declining' | 'stable' | null;
+  dataPoints: number;
+  chartData: ChartDataPoint[];
 }
 
 // =============================================================================
@@ -374,5 +482,60 @@ export const roiApi = {
     a.click();
     document.body.removeChild(a);
     window.URL.revokeObjectURL(url);
+  },
+};
+
+// =============================================================================
+// TIME BREAKDOWN API (NEW)
+// =============================================================================
+
+export const timeBreakdownApi = {
+  /**
+   * Get time element breakdown for picking operations
+   */
+  get: (layoutId: string, startDate?: string, endDate?: string): Promise<TimeBreakdownData> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const queryString = params.toString();
+    return laborFetch<TimeBreakdownData>(
+      `/api/layouts/${layoutId}/labor/time-breakdown${queryString ? `?${queryString}` : ''}`
+    );
+  },
+};
+
+// =============================================================================
+// WALK BURDEN API (NEW)
+// =============================================================================
+
+export const walkBurdenApi = {
+  /**
+   * Get walk burden analysis for a layout
+   */
+  get: (layoutId: string, startDate?: string, endDate?: string): Promise<WalkBurdenData> => {
+    const params = new URLSearchParams();
+    if (startDate) params.append('start_date', startDate);
+    if (endDate) params.append('end_date', endDate);
+    const queryString = params.toString();
+    return laborFetch<WalkBurdenData>(
+      `/api/layouts/${layoutId}/labor/walk-burden${queryString ? `?${queryString}` : ''}`
+    );
+  },
+};
+
+// =============================================================================
+// TREND ANALYSIS API (NEW)
+// =============================================================================
+
+export const trendsApi = {
+  /**
+   * Get efficiency trend analysis
+   */
+  get: (layoutId: string, days: number = 30): Promise<TrendData> => {
+    const params = new URLSearchParams();
+    params.append('days', days.toString());
+    return laborFetch<TrendData>(
+      `/api/layouts/${layoutId}/labor/trends?${params.toString()}`
+    );
   },
 };

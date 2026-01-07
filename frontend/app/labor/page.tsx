@@ -2,28 +2,36 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi } from '@/lib/api';
 import { Layout, AggregatedPickData } from '@/lib/types';
 import {
   laborStandardsApi,
-  efficiencyApi,
   performanceApi,
+  timeBreakdownApi,
+  walkBurdenApi,
+  trendsApi,
   LaborStandards,
-  EfficiencyMetrics,
+  TimeBreakdownData,
+  WalkBurdenData,
+  TrendData,
+  PerformanceRecord,
+  ROIRecommendation,
 } from '@/lib/laborApi';
 import LaborConfigModal from '@/components/labor/LaborConfigModal';
-import EfficiencyOverviewCard from '@/components/labor/EfficiencyOverviewCard';
-import PerformanceInputForm from '@/components/labor/PerformanceInputForm';
-import EfficiencyHistoryChart from '@/components/labor/EfficiencyHistoryChart';
-import { PerformanceRecord } from '@/lib/laborApi';
+import TimeElementBreakdown from '@/components/labor/TimeElementBreakdown';
+import WalkBurdenCard from '@/components/labor/WalkBurdenCard';
+import TrendAnalysisCard from '@/components/labor/TrendAnalysisCard';
+import ActualVsEstimatedCard from '@/components/labor/ActualVsEstimatedCard';
 import StaffingCalculatorCard from '@/components/labor/StaffingCalculatorCard';
 import ROISimulatorCard from '@/components/labor/ROISimulatorCard';
 import ROIDetailModal from '@/components/labor/ROIDetailModal';
-import { ROIRecommendation } from '@/lib/laborApi';
 
 export default function LaborPage() {
+  const router = useRouter();
+
   // Layout state
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +42,12 @@ export default function LaborPage() {
   // Data state
   const [aggregatedData, setAggregatedData] = useState<AggregatedPickData[]>([]);
   const [laborStandards, setLaborStandards] = useState<LaborStandards | null>(null);
-  const [efficiencyData, setEfficiencyData] = useState<EfficiencyMetrics | null>(null);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+
+  // New productivity data
+  const [timeBreakdown, setTimeBreakdown] = useState<TimeBreakdownData | null>(null);
+  const [walkBurden, setWalkBurden] = useState<WalkBurdenData | null>(null);
+  const [trendData, setTrendData] = useState<TrendData | null>(null);
 
   // Modal state
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -88,19 +100,28 @@ export default function LaborPage() {
       setError(null);
 
       // Fetch data in parallel
-      const [dates, picks, standards, efficiency, performance] = await Promise.all([
+      const [dates, picks, standards, performance] = await Promise.all([
         picksApi.getDates(layoutId),
         picksApi.getAggregated(layoutId),
         laborStandardsApi.get(layoutId).catch(() => null),
-        efficiencyApi.calculate(layoutId).catch(() => null),
         performanceApi.getHistory(layoutId).catch(() => []),
       ]);
 
       setAvailableDates(Array.isArray(dates) ? dates : []);
       setAggregatedData(Array.isArray(picks) ? picks : []);
       setLaborStandards(standards);
-      setEfficiencyData(efficiency);
       setPerformanceRecords(Array.isArray(performance) ? performance : []);
+
+      // Fetch new productivity data
+      const [breakdown, burden, trends] = await Promise.all([
+        timeBreakdownApi.get(layoutId).catch(() => null),
+        walkBurdenApi.get(layoutId).catch(() => null),
+        trendsApi.get(layoutId).catch(() => null),
+      ]);
+
+      setTimeBreakdown(breakdown);
+      setWalkBurden(burden);
+      setTrendData(trends);
     } catch (err) {
       console.error('Failed to load layout data:', err);
       setError('Failed to load labor data for this layout');
@@ -115,37 +136,57 @@ export default function LaborPage() {
 
   const handleStandardsSaved = useCallback((newStandards: LaborStandards) => {
     setLaborStandards(newStandards);
-    // Recalculate efficiency with new standards
+    // Reload productivity data with new standards
     if (currentLayoutId) {
-      efficiencyApi.calculate(currentLayoutId).then(setEfficiencyData).catch(console.error);
+      Promise.all([
+        timeBreakdownApi.get(currentLayoutId).catch(() => null),
+        walkBurdenApi.get(currentLayoutId).catch(() => null),
+      ]).then(([breakdown, burden]) => {
+        setTimeBreakdown(breakdown);
+        setWalkBurden(burden);
+      });
     }
   }, [currentLayoutId]);
 
-  const handlePerformanceRecorded = useCallback((record: PerformanceRecord) => {
-    setPerformanceRecords((prev) => {
-      const safePrev = Array.isArray(prev) ? prev : [];
-      // Replace if same date exists, otherwise add
-      const existing = safePrev.findIndex((r) => r.performance_date === record.performance_date);
-      if (existing >= 0) {
-        const updated = [...safePrev];
-        updated[existing] = record;
-        return updated;
-      }
-      return [...safePrev, record];
-    });
-  }, []);
+  const handleRecordPerformance = useCallback(async (data: { date: string; actualPicks: number; actualHours: number }) => {
+    if (!currentLayoutId) return;
 
-  const handlePerformanceDeleted = useCallback((date: string) => {
-    setPerformanceRecords((prev) => {
-      const safePrev = Array.isArray(prev) ? prev : [];
-      return safePrev.filter((r) => r.performance_date !== date);
-    });
-  }, []);
+    try {
+      const record = await performanceApi.create(currentLayoutId, {
+        performance_date: data.date,
+        actual_picks: data.actualPicks,
+        actual_hours: data.actualHours,
+      });
+
+      setPerformanceRecords((prev) => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        const existing = safePrev.findIndex((r) => r.performance_date === record.performance_date);
+        if (existing >= 0) {
+          const updated = [...safePrev];
+          updated[existing] = record;
+          return updated;
+        }
+        return [...safePrev, record];
+      });
+
+      // Refresh trend data
+      const trends = await trendsApi.get(currentLayoutId).catch(() => null);
+      setTrendData(trends);
+    } catch (err) {
+      throw err;
+    }
+  }, [currentLayoutId]);
 
   const handleViewROIDetails = useCallback((recommendations: ROIRecommendation[]) => {
     setRoiRecommendations(recommendations);
     setShowROIModal(true);
   }, []);
+
+  const handleViewReslotting = useCallback(() => {
+    if (currentLayoutId) {
+      router.push(`/heatmap?layout=${currentLayoutId}&tab=reslot`);
+    }
+  }, [currentLayoutId, router]);
 
   const hasData = aggregatedData.length > 0;
 
@@ -155,14 +196,14 @@ export default function LaborPage() {
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">
           <div className="relative w-20 h-20 mx-auto mb-6">
-            <div className="w-20 h-20 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-900/50 animate-pulse">
+            <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-cyan-900/50 animate-pulse">
               <svg className="w-10 h-10 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
             </div>
           </div>
-          <p className="text-lg font-mono font-bold text-slate-400 tracking-wider">LOADING LABOR DATA</p>
-          <p className="text-sm text-slate-600 mt-2">Preparing your labor management dashboard...</p>
+          <p className="text-lg font-mono font-bold text-slate-400 tracking-wider">LOADING PRODUCTIVITY DATA</p>
+          <p className="text-sm text-slate-600 mt-2">Preparing your picking productivity dashboard...</p>
         </div>
       </div>
     );
@@ -172,8 +213,8 @@ export default function LaborPage() {
     <div className="min-h-screen bg-slate-950 flex flex-col">
       {/* Header */}
       <Header
-        title="Labor Management"
-        subtitle="Efficiency & Staffing"
+        title="Picking Productivity"
+        subtitle="Time Elements & Efficiency"
       >
         <LayoutManager
           layouts={layouts}
@@ -212,11 +253,11 @@ export default function LaborPage() {
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">No Layout Selected</h2>
             <p className="text-slate-400 text-center max-w-md mb-8">
-              Create a warehouse layout first to access labor management features.
+              Create a warehouse layout first to access picking productivity features.
             </p>
             <Link
               href="/designer"
-              className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-emerald-900/30"
+              className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-cyan-900/30"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -229,18 +270,18 @@ export default function LaborPage() {
           <div className="flex flex-col items-center justify-center py-24">
             <div className="w-24 h-24 bg-slate-900 rounded-3xl flex items-center justify-center mb-6 border border-slate-800">
               <svg className="w-12 h-12 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">No Pick Data Yet</h2>
             <p className="text-slate-400 text-center max-w-md mb-8">
-              Upload pick data to unlock labor management features including efficiency tracking,
-              staffing calculations, and ROI projections.
+              Upload pick data to unlock productivity features including time element analysis,
+              walk burden tracking, and efficiency trends.
             </p>
             <div className="flex gap-4">
               <Link
                 href="/upload"
-                className="px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-emerald-900/30"
+                className="px-6 py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-mono font-bold rounded-xl transition-colors flex items-center gap-2 shadow-lg shadow-cyan-900/30"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -259,37 +300,41 @@ export default function LaborPage() {
             </div>
           </div>
         ) : (
-          /* Labor Dashboard Content */
+          /* ===== REDESIGNED PRODUCTIVITY DASHBOARD ===== */
           <div className="space-y-6">
-            {/* Row 1: Efficiency Overview */}
-            <EfficiencyOverviewCard
-              efficiency={efficiencyData}
-              standards={laborStandards}
+
+            {/* Row 1: Time Element Breakdown (Hero Section) */}
+            <TimeElementBreakdown
+              data={timeBreakdown}
               loading={loading}
               onConfigure={() => setShowConfigModal(true)}
             />
 
-            {/* Row 2: Performance Tracking */}
-            {currentLayoutId && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <PerformanceInputForm
-                  layoutId={currentLayoutId}
-                  onSubmit={handlePerformanceRecorded}
-                  onError={setError}
-                />
-                <EfficiencyHistoryChart
-                  records={performanceRecords}
-                  targetEfficiency={laborStandards?.target_efficiency_percent || 85}
-                  layoutId={currentLayoutId}
-                  onDelete={handlePerformanceDeleted}
-                  loading={loading}
-                />
-              </div>
-            )}
-
-            {/* Row 3: Staffing Calculator + ROI Simulator */}
+            {/* Row 2: Actual vs Estimated + Efficiency Trend */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Staffing Calculator */}
+              <ActualVsEstimatedCard
+                estimatedHours={timeBreakdown?.totalEstimatedHours ?? null}
+                totalPicks={timeBreakdown?.totalPicks ?? null}
+                targetEfficiency={laborStandards?.target_efficiency_percent || 85}
+                loading={loading}
+                onRecordPerformance={handleRecordPerformance}
+              />
+              <TrendAnalysisCard
+                data={trendData}
+                targetEfficiency={laborStandards?.target_efficiency_percent || 85}
+                loading={loading}
+              />
+            </div>
+
+            {/* Row 3: Walk Burden Analysis (Full Width) */}
+            <WalkBurdenCard
+              data={walkBurden}
+              loading={loading}
+              onViewReslotting={handleViewReslotting}
+            />
+
+            {/* Row 4: Staffing Calculator + ROI Simulator */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {currentLayoutId && (
                 <StaffingCalculatorCard
                   layoutId={currentLayoutId}
@@ -305,7 +350,6 @@ export default function LaborPage() {
                 />
               )}
 
-              {/* ROI Simulator */}
               {currentLayoutId && (
                 <ROISimulatorCard
                   layoutId={currentLayoutId}
@@ -315,8 +359,52 @@ export default function LaborPage() {
               )}
             </div>
 
-            {/* Footer Info */}
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-6 border-t border-slate-800">
+            {/* Standards Config Footer */}
+            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                {/* Current Standards Summary */}
+                <div className="flex flex-wrap items-center gap-6 text-sm">
+                  <span className="text-slate-500 font-mono">Current Standards:</span>
+                  <div className="flex flex-wrap gap-4 text-slate-400">
+                    <span>
+                      Pick: <span className="text-white font-mono">{laborStandards?.pick_item_seconds ?? 12}s</span>
+                    </span>
+                    <span>
+                      Tote: <span className="text-white font-mono">{laborStandards?.tote_time_seconds ?? 8}s</span>
+                    </span>
+                    <span>
+                      Scan: <span className="text-white font-mono">{laborStandards?.scan_time_seconds ?? 5}s</span>
+                    </span>
+                    <span>
+                      Walk: <span className="text-white font-mono">{laborStandards?.walk_speed_fpm ?? 264} fpm</span>
+                    </span>
+                    <span>
+                      PFD: <span className="text-white font-mono">
+                        {((laborStandards?.fatigue_allowance_percent ?? 10) + (laborStandards?.delay_allowance_percent ?? 5)).toFixed(0)}%
+                      </span>
+                    </span>
+                    <span>
+                      Rate: <span className="text-emerald-400 font-mono">${laborStandards?.hourly_labor_rate ?? 18}/hr</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Configure Button */}
+                <button
+                  onClick={() => setShowConfigModal(true)}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-sm rounded-lg transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Configure Standards
+                </button>
+              </div>
+            </div>
+
+            {/* Navigation Footer */}
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-slate-800">
               <div className="flex items-center gap-4 text-sm text-slate-500">
                 <span className="font-mono">
                   Layout: <span className="text-slate-300">{layout?.name || 'None'}</span>
@@ -324,11 +412,6 @@ export default function LaborPage() {
                 <span className="font-mono">
                   Data range: <span className="text-slate-300">{availableDates.length} days</span>
                 </span>
-                {laborStandards && (
-                  <span className="font-mono">
-                    Hourly Rate: <span className="text-emerald-400">${laborStandards.hourly_labor_rate}</span>
-                  </span>
-                )}
               </div>
               <div className="flex gap-3">
                 <Link

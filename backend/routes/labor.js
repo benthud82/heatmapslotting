@@ -14,6 +14,10 @@ const {
   calculateStaffingRequirements,
   calculateROI,
   calculatePerformanceMetrics,
+  // NEW: Time element breakdown functions
+  calculateTimeElementBreakdown,
+  calculateWalkBurdenMetrics,
+  calculateTrendMetrics,
 } = require('../services/laborCalculations');
 
 // Helper: Verify layout ownership
@@ -180,12 +184,19 @@ router.put('/:layoutId/labor/standards', auditLog('UPDATE', 'labor_standards'), 
     }
 
     const {
+      // Legacy fields
       pick_time_seconds,
-      walk_speed_fpm,
       pack_time_seconds,
       putaway_time_seconds,
+      // NEW: Granular picking time elements
+      pick_item_seconds,
+      tote_time_seconds,
+      scan_time_seconds,
+      // Walk and allowances
+      walk_speed_fpm,
       fatigue_allowance_percent,
       delay_allowance_percent,
+      // Cost and shift settings
       reslot_time_minutes,
       hourly_labor_rate,
       benefits_multiplier,
@@ -193,13 +204,14 @@ router.put('/:layoutId/labor/standards', auditLog('UPDATE', 'labor_standards'), 
       target_efficiency_percent,
     } = req.body;
 
-    // Upsert standards
+    // Upsert standards (includes both legacy and new fields)
     const result = await query(
       `INSERT INTO labor_standards (
          layout_id, pick_time_seconds, walk_speed_fpm, pack_time_seconds, putaway_time_seconds,
          fatigue_allowance_percent, delay_allowance_percent, reslot_time_minutes,
-         hourly_labor_rate, benefits_multiplier, shift_hours, target_efficiency_percent
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         hourly_labor_rate, benefits_multiplier, shift_hours, target_efficiency_percent,
+         pick_item_seconds, tote_time_seconds, scan_time_seconds
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (layout_id) DO UPDATE SET
          pick_time_seconds = COALESCE($2, labor_standards.pick_time_seconds),
          walk_speed_fpm = COALESCE($3, labor_standards.walk_speed_fpm),
@@ -212,6 +224,9 @@ router.put('/:layoutId/labor/standards', auditLog('UPDATE', 'labor_standards'), 
          benefits_multiplier = COALESCE($10, labor_standards.benefits_multiplier),
          shift_hours = COALESCE($11, labor_standards.shift_hours),
          target_efficiency_percent = COALESCE($12, labor_standards.target_efficiency_percent),
+         pick_item_seconds = COALESCE($13, labor_standards.pick_item_seconds),
+         tote_time_seconds = COALESCE($14, labor_standards.tote_time_seconds),
+         scan_time_seconds = COALESCE($15, labor_standards.scan_time_seconds),
          updated_at = NOW()
        RETURNING *`,
       [
@@ -227,6 +242,9 @@ router.put('/:layoutId/labor/standards', auditLog('UPDATE', 'labor_standards'), 
         benefits_multiplier,
         shift_hours,
         target_efficiency_percent,
+        pick_item_seconds,
+        tote_time_seconds,
+        scan_time_seconds,
       ]
     );
 
@@ -329,6 +347,203 @@ router.get('/:layoutId/labor/efficiency', async (req, res, next) => {
     };
 
     res.json(metrics);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/layouts/:layoutId/labor/time-breakdown
+ * Calculate time element breakdown for picking operations
+ * Shows how total estimated time breaks down into walk, pick, tote, scan, and PFD allowance
+ */
+router.get('/:layoutId/labor/time-breakdown', async (req, res, next) => {
+  try {
+    const { layoutId } = req.params;
+    const { start_date, end_date } = req.query;
+    const userId = req.user.id;
+
+    if (!await verifyLayoutOwnership(layoutId, userId)) {
+      return res.status(404).json({ error: 'Layout not found' });
+    }
+
+    // Get standards
+    const standards = await getOrCreateStandards(layoutId);
+
+    // Calculate walk distance and total picks
+    const { totalWalkFeet, totalPicks } = await calculateTotalWalkDistance(layoutId, start_date, end_date);
+
+    if (totalPicks === 0) {
+      return res.json({
+        hasData: false,
+        message: 'No pick data available. Upload pick data to see time element breakdown.',
+        totalPicks: 0,
+        totalEstimatedHours: 0,
+        elements: null,
+      });
+    }
+
+    // Calculate time element breakdown
+    const breakdown = calculateTimeElementBreakdown(totalPicks, totalWalkFeet, standards);
+
+    // Add date range info
+    breakdown.hasData = true;
+    breakdown.dateRange = {
+      start: start_date || null,
+      end: end_date || null,
+    };
+
+    res.json(breakdown);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/layouts/:layoutId/labor/walk-burden
+ * Calculate detailed walk burden metrics
+ */
+router.get('/:layoutId/labor/walk-burden', async (req, res, next) => {
+  try {
+    const { layoutId } = req.params;
+    const { start_date, end_date } = req.query;
+    const userId = req.user.id;
+
+    if (!await verifyLayoutOwnership(layoutId, userId)) {
+      return res.status(404).json({ error: 'Layout not found' });
+    }
+
+    // Get standards
+    const standards = await getOrCreateStandards(layoutId);
+
+    // Calculate walk distance and total picks
+    const { totalWalkFeet, totalPicks } = await calculateTotalWalkDistance(layoutId, start_date, end_date);
+
+    if (totalPicks === 0) {
+      return res.json({
+        hasData: false,
+        message: 'No pick data available.',
+        current: null,
+        optimal: null,
+        potentialSavings: null,
+      });
+    }
+
+    // Calculate optimal distance (minimum distance from pick data)
+    // This is the best-case scenario if all picks came from closest locations
+    const parkingResult = await query(
+      `SELECT x_coordinate, y_coordinate
+       FROM route_markers
+       WHERE layout_id = $1 AND marker_type IN ('cart_parking', 'start_point')
+       ORDER BY marker_type ASC, sequence_order ASC
+       LIMIT 1`,
+      [layoutId]
+    );
+
+    let optimalDistanceFeet = null;
+
+    if (parkingResult.rows.length > 0) {
+      const parkingX = parseFloat(parkingResult.rows[0].x_coordinate);
+      const parkingY = parseFloat(parkingResult.rows[0].y_coordinate);
+
+      // Find minimum distance among elements with picks
+      let dateFilter = '';
+      const queryParams = [layoutId];
+
+      if (start_date) {
+        queryParams.push(start_date);
+        dateFilter += ` AND pick_date >= $${queryParams.length}`;
+      }
+      if (end_date) {
+        queryParams.push(end_date);
+        dateFilter += ` AND pick_date <= $${queryParams.length}`;
+      }
+
+      const elementsResult = await query(
+        `SELECT DISTINCT we.x_coordinate, we.y_coordinate, we.width, we.height
+         FROM warehouse_elements we
+         WHERE we.id IN (
+           SELECT DISTINCT element_id FROM pick_transactions
+           WHERE layout_id = $1 ${dateFilter}
+           UNION
+           SELECT DISTINCT element_id FROM item_pick_transactions
+           WHERE layout_id = $1 ${dateFilter}
+         )`,
+        queryParams
+      );
+
+      if (elementsResult.rows.length > 0) {
+        let minDistance = Infinity;
+        for (const row of elementsResult.rows) {
+          const elemX = parseFloat(row.x_coordinate) + (parseFloat(row.width) / 2);
+          const elemY = parseFloat(row.y_coordinate) + (parseFloat(row.height) / 2);
+          const distance = Math.abs(elemX - parkingX) + Math.abs(elemY - parkingY);
+          if (distance < minDistance) {
+            minDistance = distance;
+          }
+        }
+
+        // Optimal = if all picks came from closest location (round-trip, in feet)
+        optimalDistanceFeet = (minDistance * 2 * totalPicks) / 12;
+      }
+    }
+
+    // Calculate walk burden metrics
+    const walkBurden = calculateWalkBurdenMetrics(totalWalkFeet, totalPicks, optimalDistanceFeet, standards);
+
+    walkBurden.hasData = true;
+    walkBurden.dateRange = {
+      start: start_date || null,
+      end: end_date || null,
+    };
+    walkBurden.totalPicks = totalPicks;
+
+    res.json(walkBurden);
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/layouts/:layoutId/labor/trends
+ * Calculate efficiency trend metrics from performance history
+ */
+router.get('/:layoutId/labor/trends', async (req, res, next) => {
+  try {
+    const { layoutId } = req.params;
+    const userId = req.user.id;
+
+    if (!await verifyLayoutOwnership(layoutId, userId)) {
+      return res.status(404).json({ error: 'Layout not found' });
+    }
+
+    // Get performance history (last 60 days)
+    const result = await query(
+      `SELECT
+         performance_date as date,
+         efficiency_percent,
+         actual_picks as picks,
+         actual_hours as hours
+       FROM labor_performance
+       WHERE layout_id = $1
+       ORDER BY performance_date DESC
+       LIMIT 60`,
+      [layoutId]
+    );
+
+    const performanceHistory = result.rows;
+
+    // Calculate trend metrics
+    const trends = calculateTrendMetrics(performanceHistory);
+
+    // Add chart data (last 30 days for display)
+    trends.chartData = performanceHistory.slice(0, 30).reverse().map(p => ({
+      date: p.date,
+      efficiency: p.efficiency_percent,
+      picks: p.picks,
+    }));
+
+    res.json(trends);
   } catch (error) {
     next(error);
   }
