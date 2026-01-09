@@ -1,8 +1,6 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { nanoid } from 'nanoid';
 import WarehouseCanvas, { WarehouseCanvasRef } from '@/components/WarehouseCanvas';
 import Sidebar from '@/components/designer/Sidebar';
 import PropertiesPanel from '@/components/designer/PropertiesPanel';
@@ -18,26 +16,41 @@ import ResequenceModal from '@/components/designer/ResequenceModal';
 import TemplateLibrary from '@/components/designer/TemplateLibrary';
 import DxfImportModal from '@/components/designer/DxfImportModal';
 import DimensionsModal from '@/components/designer/DimensionsModal';
-import { layoutApi, elementsApi, routeMarkersApi, API_URL } from '@/lib/api';
-import { WarehouseTemplate } from '@/lib/templates';
-import { ImportedElement } from '@/lib/dxfImporter';
-import { supabase } from '@/lib/supabase';
-import { WarehouseElement, ElementType, Layout, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
-import { useHistory } from '@/hooks/useHistory';
-import { alignElements, AlignmentType } from '@/lib/alignment';
-import { detectPatterns, generateCorrectionPlan, correctionsToUpdates, correctionsToMarkerUpdates, CorrectionPlan, ElementCorrection } from '@/lib/autoAlign';
 import AutoAlignModal from '@/components/designer/AutoAlignModal';
-import { useJourney } from '@/lib/journey';
 import { HintsContainer } from '@/components/journey';
 
-export default function Home() {
-  const [layouts, setLayouts] = useState<Layout[]>([]);
-  const [currentLayoutId, setCurrentLayoutId] = useState<string | null>(null);
+import { elementsApi, routeMarkersApi, API_URL } from '@/lib/api';
+import { WarehouseTemplate } from '@/lib/templates';
+import { ImportedElement } from '@/lib/dxfImporter';
+import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType } from '@/lib/types';
+import { alignElements, AlignmentType } from '@/lib/alignment';
+import { detectPatterns, generateCorrectionPlan, correctionsToUpdates, correctionsToMarkerUpdates, CorrectionPlan, ElementCorrection } from '@/lib/autoAlign';
+import { TIER_ELEMENT_LIMITS, DEFAULT_TIER, DEFAULT_ELEMENT_LIMIT, isPickableType } from '@/lib/designerConstants';
 
-  // Derived state for current layout object
-  const layout = layouts.find(l => l.id === currentLayoutId) || null;
+import { useHistory } from '@/hooks/useHistory';
+import { useLayoutOperations } from '@/hooks/useLayoutOperations';
+import { useElementOperations } from '@/hooks/useElementOperations';
+import { useMarkerOperations } from '@/hooks/useMarkerOperations';
+import { useClipboard } from '@/hooks/useClipboard';
+import { useDesignerKeyboardShortcuts } from '@/hooks/useDesignerKeyboardShortcuts';
+import { useJourney } from '@/lib/journey';
+import { nanoid } from 'nanoid';
 
-  // History State - Combined for synchronized undo/redo
+export default function DesignerPage() {
+  // Toast state
+  const [toast, setToast] = useState<{
+    message: string;
+    type?: 'success' | 'error' | 'info';
+    duration?: number;
+    onUndo?: () => void;
+    onClose?: () => void;
+  } | null>(null);
+
+  const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'success', duration?: number) => {
+    setToast({ message, type, duration });
+  }, []);
+
+  // History State
   const {
     state: historyState,
     set: setHistoryState,
@@ -45,54 +58,56 @@ export default function Home() {
     redo,
     canUndo,
     canRedo,
-    reset: resetHistory
-  } = useHistory<{ elements: WarehouseElement[], routeMarkers: RouteMarker[] }>({ elements: [], routeMarkers: [] });
+    reset: resetHistory,
+  } = useHistory<{ elements: WarehouseElement[]; routeMarkers: RouteMarker[] }>({
+    elements: [],
+    routeMarkers: [],
+  });
 
   const { elements, routeMarkers } = historyState;
 
-  // Wrapper setters to maintain existing API while updating combined history
   const setElements = useCallback((newElementsOrFn: WarehouseElement[] | ((prev: WarehouseElement[]) => WarehouseElement[])) => {
     setHistoryState(prevState => ({
       ...prevState,
-      elements: typeof newElementsOrFn === 'function' ? newElementsOrFn(prevState.elements) : newElementsOrFn
+      elements: typeof newElementsOrFn === 'function' ? newElementsOrFn(prevState.elements) : newElementsOrFn,
     }));
   }, [setHistoryState]);
 
   const setRouteMarkers = useCallback((newMarkersOrFn: RouteMarker[] | ((prev: RouteMarker[]) => RouteMarker[])) => {
     setHistoryState(prevState => ({
       ...prevState,
-      routeMarkers: typeof newMarkersOrFn === 'function' ? newMarkersOrFn(prevState.routeMarkers) : newMarkersOrFn
+      routeMarkers: typeof newMarkersOrFn === 'function' ? newMarkersOrFn(prevState.routeMarkers) : newMarkersOrFn,
     }));
   }, [setHistoryState]);
 
-  // Tool State
+  // Layout Operations
+  const layoutOps = useLayoutOperations({
+    onSuccess: showToast,
+    onError: (msg) => showToast(msg, 'error'),
+    resetHistory,
+  });
+
+  // Tool & Selection State
   const [activeTool, setActiveTool] = useState<'select' | ElementType | RouteMarkerType>('select');
-
-  // Route Markers State (Selection & Display only)
-  // routeMarkers state is now managed by useHistory above
-  const [selectedMarkerIds, setSelectedMarkerIds] = useState<string[]>([]);
-  const [showDistances, setShowDistances] = useState(false);
-
-  // Selection State
   const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
+  const [selectedMarkerIds, setSelectedMarkerIds] = useState<string[]>([]);
 
   // View State
   const [zoom, setZoom] = useState(1);
-  const [cursorPos, setCursorPos] = useState<{ x: number, y: number } | undefined>(undefined);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | undefined>(undefined);
   const [labelDisplayMode, setLabelDisplayMode] = useState<LabelDisplayMode>('all');
   const [showGrid, setShowGrid] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [snappingEnabled, setSnappingEnabled] = useState(true);
+  const [showDistances, setShowDistances] = useState(false);
 
   // System State
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [userTier, setUserTier] = useState<string>('free');
-  const [elementLimit, setElementLimit] = useState<number>(50);
+  const [error, setError] = useState<string | null>(null);
+  const [userTier, setUserTier] = useState<string>(DEFAULT_TIER);
+  const [elementLimit, setElementLimit] = useState<number>(DEFAULT_ELEMENT_LIMIT);
 
-  // Modals & Toasts
+  // Modal State
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showPatternModal, setShowPatternModal] = useState(false);
@@ -109,31 +124,79 @@ export default function Home() {
     y: number;
     type: ElementType;
   } | null>(null);
-  const [customElementDefaults, setCustomElementDefaults] = useState<
-    Record<string, { width: number; height: number }>
-  >({});
+  const [customElementDefaults, setCustomElementDefaults] = useState<Record<string, { width: number; height: number }>>({});
 
-  const [copiedElements, setCopiedElements] = useState<WarehouseElement[]>([]);
-  const [copiedMarkers, setCopiedMarkers] = useState<RouteMarker[]>([]);
-  const [toast, setToast] = useState<{ message: string; type?: 'success' | 'error' | 'info'; duration?: number; onUndo?: () => void; onClose?: () => void } | null>(null);
-
-  // Delete Undo State
-  const deletedElementsRef = useRef<{ elements: WarehouseElement[], index: number } | null>(null);
-
-  // Canvas Ref for exports
+  // Refs
   const canvasRef = useRef<WarehouseCanvasRef>(null);
 
   // Journey/Onboarding
   const journey = useJourney();
 
-  // Track layout_created milestone when elements exist
+  // Element Operations
+  const elementOps = useElementOperations({
+    layout: layoutOps.currentLayout,
+    currentLayoutId: layoutOps.currentLayoutId,
+    elements,
+    setElements,
+    customElementDefaults,
+    setCustomElementDefaults,
+    onSuccess: showToast,
+    onError: (msg) => {
+      setError(msg);
+      showToast(msg, 'error');
+    },
+    onSavingChange: setSaving,
+  });
+
+  // Marker Operations
+  const markerOps = useMarkerOperations({
+    currentLayoutId: layoutOps.currentLayoutId,
+    routeMarkers,
+    setRouteMarkers,
+    onSuccess: showToast,
+    onError: (msg) => {
+      setError(msg);
+      showToast(msg, 'error');
+    },
+    onSavingChange: setSaving,
+    onLoadData: layoutOps.loadLayouts,
+  });
+
+  // Clipboard Operations
+  const clipboard = useClipboard({
+    elements,
+    routeMarkers,
+    setElements,
+    setRouteMarkers,
+    layout: layoutOps.currentLayout,
+    currentLayoutId: layoutOps.currentLayoutId,
+    onSuccess: showToast,
+    onError: (msg) => showToast(msg, 'error'),
+    onSavingChange: setSaving,
+  });
+
+  // Load initial data
+  useEffect(() => {
+    layoutOps.loadLayouts();
+    fetchUserLimits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load layout data when layout changes
+  useEffect(() => {
+    if (layoutOps.currentLayoutId) {
+      layoutOps.loadLayoutData(layoutOps.currentLayoutId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layoutOps.currentLayoutId]);
+
+  // Journey milestone tracking
   useEffect(() => {
     if (elements.length > 0 && journey && !journey.progress.completedMilestones.includes('layout_created')) {
       journey.markMilestone('layout_created');
     }
   }, [elements.length, journey]);
 
-  // Track route_markers_added milestone when cart_parking exists
   useEffect(() => {
     const hasCartParking = routeMarkers.some(m => m.marker_type === 'cart_parking');
     if (hasCartParking && journey && !journey.progress.completedMilestones.includes('route_markers_added')) {
@@ -141,25 +204,22 @@ export default function Home() {
     }
   }, [routeMarkers, journey]);
 
-  // Track distances_viewed milestone when showDistances is enabled
   useEffect(() => {
     if (showDistances && journey && !journey.progress.completedMilestones.includes('distances_viewed')) {
       journey.markMilestone('distances_viewed');
     }
   }, [showDistances, journey]);
 
-  // Load initial data
+  // Journey event listeners
   useEffect(() => {
-    loadData();
-    loadData();
-    getUser();
-    fetchUserLimits();
+    const handleOpenTemplates = () => setShowTemplateLibrary(true);
+    window.addEventListener('journey:open-templates', handleOpenTemplates);
+    return () => window.removeEventListener('journey:open-templates', handleOpenTemplates);
   }, []);
 
   const fetchUserLimits = async () => {
     try {
       const token = localStorage.getItem('token');
-      // Default to free if no token (though auth should prevent this)
       if (!token) return;
 
       const response = await fetch(`${API_URL}/api/stripe/subscription-status`, {
@@ -168,460 +228,13 @@ export default function Home() {
 
       if (response.ok) {
         const data = await response.json();
-        setUserTier(data.subscription_tier || 'free');
-
-        // Set limits based on tier
-        const limits = {
-          free: 50,
-          pro: 500,
-          enterprise: Infinity,
-        };
-        // @ts-ignore - dynamic key access
-        setElementLimit(limits[data.subscription_tier] || 50);
-      }
-    } catch (error) {
-      console.error('Failed to fetch limits:', error);
-    }
-  };
-
-  const getUser = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session?.user?.email) {
-      setUserEmail(session.user.email);
-    }
-  };
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      // Fetch all layouts first
-      const layoutsData = await layoutApi.getLayouts();
-      setLayouts(layoutsData);
-
-      // If we have layouts but no current selection, select the first one
-      let activeId = currentLayoutId;
-      if (!activeId && layoutsData.length > 0) {
-        activeId = layoutsData[0].id;
-        setCurrentLayoutId(activeId);
-      }
-
-      // If we have an active layout, fetch its elements and route markers
-      if (activeId) {
-        const elementsData = await layoutApi.getElements(activeId);
-
-        // Load route markers
-        let markersData: RouteMarker[] = [];
-        try {
-          markersData = await routeMarkersApi.getMarkers(activeId);
-        } catch (markerErr) {
-          console.error('Failed to load route markers:', markerErr);
-        }
-
-        resetHistory({ elements: elementsData, routeMarkers: markersData });
-
-        setError(null);
-      } else {
-        // No layouts exist? Should not happen as backend creates default, but handle it
-        // No layouts exist? Should not happen as backend creates default, but handle it
-        resetHistory({ elements: [], routeMarkers: [] });
+        setUserTier(data.subscription_tier || DEFAULT_TIER);
+        setElementLimit(TIER_ELEMENT_LIMITS[data.subscription_tier] || DEFAULT_ELEMENT_LIMIT);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load data');
-      console.error('Load error:', err);
-    } finally {
-      setLoading(false);
+      console.error('Failed to fetch limits:', err);
     }
   };
-
-  // Effect to reload elements and route markers when layout changes
-  useEffect(() => {
-    if (currentLayoutId) {
-      const fetchLayoutData = async () => {
-        try {
-          setLoading(true);
-          const elementsData = await layoutApi.getElements(currentLayoutId);
-
-          // Load route markers for this layout
-          let markersData: RouteMarker[] = [];
-          try {
-            markersData = await routeMarkersApi.getMarkers(currentLayoutId);
-          } catch (markerErr) {
-            console.error('Failed to load route markers:', markerErr);
-          }
-
-          resetHistory({ elements: elementsData, routeMarkers: markersData });
-        } catch (err) {
-          console.error('Failed to load elements:', err);
-          setError('Failed to load elements for this layout');
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchLayoutData();
-    }
-  }, [currentLayoutId]);
-
-  // Layout CRUD Handlers
-  const handleLayoutCreate = async (name: string) => {
-    try {
-      setSaving(true);
-      const newLayout = await layoutApi.createLayout({ name });
-      setLayouts(prev => [...prev, newLayout]);
-      setCurrentLayoutId(newLayout.id); // Switch to new layout
-      setToast({ message: 'Layout created', type: 'success' });
-    } catch (err) {
-      setError('Failed to create layout');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleLayoutRename = async (id: string, name: string) => {
-    try {
-      setSaving(true);
-      const updated = await layoutApi.updateLayout(id, { name });
-      setLayouts(prev => prev.map(l => l.id === id ? updated : l));
-      setToast({ message: 'Layout renamed', type: 'success' });
-    } catch (err) {
-      setError('Failed to rename layout');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleLayoutDelete = async (id: string) => {
-    try {
-      setSaving(true);
-      await layoutApi.deleteLayout(id);
-
-      const newLayouts = layouts.filter(l => l.id !== id);
-      setLayouts(newLayouts);
-
-      // If we deleted the current layout, switch to another one
-      if (currentLayoutId === id) {
-        if (newLayouts.length > 0) {
-          setCurrentLayoutId(newLayouts[0].id);
-        } else {
-          setCurrentLayoutId(null);
-          setElements([]);
-        }
-      }
-      setToast({ message: 'Layout deleted', type: 'success' });
-    } catch (err) {
-      setError('Failed to delete layout');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Check if this is the first element of a pickable type
-  const isFirstOfType = useCallback((type: ElementType): boolean => {
-    const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
-    if (!pickableTypes.includes(type)) return false;
-    return !elements.some(el => el.element_type === type);
-  }, [elements]);
-
-  // Get effective dimensions for an element type (custom or default)
-  const getEffectiveDimensions = useCallback((type: ElementType): { width: number; height: number } => {
-    if (customElementDefaults[type]) {
-      return customElementDefaults[type];
-    }
-    return { width: ELEMENT_CONFIGS[type].width, height: ELEMENT_CONFIGS[type].height };
-  }, [customElementDefaults]);
-
-  // Create new element
-  const handleElementCreate = useCallback(
-    async (x: number, y: number) => {
-      if (activeTool === 'select') return;
-
-      const selectedType = activeTool as ElementType;
-
-      // Check if first of pickable type - show dimension modal
-      const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
-      if (pickableTypes.includes(selectedType) && isFirstOfType(selectedType)) {
-        setPendingElementPlacement({ x, y, type: selectedType });
-        setShowFirstElementModal(true);
-        return;
-      }
-
-      // Use custom defaults if set, otherwise use ELEMENT_CONFIGS
-      const dimensions = getEffectiveDimensions(selectedType);
-      const tempId = nanoid();
-      const config = ELEMENT_CONFIGS[selectedType];
-
-      // Generate abbreviated label
-      const typeCount = elements.filter(el => el.element_type === selectedType).length + 1;
-      const abbreviations: Record<ElementType, string> = {
-        bay: 'B',
-        flow_rack: 'FR',
-        full_pallet: 'P',
-        text: 'T',
-        line: 'L',
-        arrow: 'A',
-      };
-      const abbreviatedLabel = `${abbreviations[selectedType]}${typeCount}`;
-
-      const tempElement: WarehouseElement = {
-        id: tempId,
-        layout_id: layout?.id || '',
-        element_type: selectedType,
-        label: abbreviatedLabel,
-        x_coordinate: x,
-        y_coordinate: y,
-        width: dimensions.width,
-        height: dimensions.height,
-        rotation: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // Update state via history
-      const newElements = [...elements, tempElement];
-      setElements(newElements);
-
-      try {
-        setSaving(true);
-        const created = await elementsApi.create({
-          layout_id: layout?.id || currentLayoutId || '',
-          element_type: selectedType,
-          label: tempElement.label,
-          x_coordinate: x,
-          y_coordinate: y,
-          rotation: 0,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-
-        // Replace temp element with real one
-        setElements(newElements.map((el) => (el.id === tempId ? created : el)));
-      } catch (err) {
-        setElements(elements); // Revert to previous state
-        // @ts-ignore
-        const message = err.data?.message || err.message || 'Failed to create element';
-        setError(message);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [activeTool, layout, elements, setElements, isFirstOfType, getEffectiveDimensions, currentLayoutId]
-  );
-
-  // Update element
-  const handleElementUpdate = useCallback(
-    async (
-      id: string,
-      updates: { x_coordinate?: number; y_coordinate?: number; rotation?: number; label?: string; width?: number; height?: number }
-    ) => {
-      const updatedElements = elements.map((el) =>
-        el.id === id
-          ? {
-            ...el,
-            ...(updates.x_coordinate !== undefined && { x_coordinate: updates.x_coordinate }),
-            ...(updates.y_coordinate !== undefined && { y_coordinate: updates.y_coordinate }),
-            ...(updates.rotation !== undefined && { rotation: updates.rotation }),
-            ...(updates.label !== undefined && { label: updates.label }),
-            ...(updates.width !== undefined && { width: updates.width }),
-            ...(updates.height !== undefined && { height: updates.height }),
-          }
-          : el
-      );
-
-      setElements(updatedElements);
-
-      try {
-        setSaving(true);
-        await elementsApi.update(id, updates);
-      } catch (err) {
-        setElements(elements); // Revert
-        setError(err instanceof Error ? err.message : 'Failed to update element');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [elements, setElements]
-  );
-
-  // Batch update elements
-  const handleMultiElementUpdate = useCallback(
-    async (updates: Array<{ id: string; changes: { x_coordinate?: number; y_coordinate?: number } }>) => {
-      // 1. Update local state immediately (optimistic)
-      const updatedElements = elements.map((el) => {
-        const update = updates.find(u => u.id === el.id);
-        if (update) {
-          return {
-            ...el,
-            ...update.changes
-          };
-        }
-        return el;
-      });
-
-      setElements(updatedElements);
-
-      // 2. Update backend
-      try {
-        setSaving(true);
-        // Process in parallel
-        await Promise.all(updates.map(u => elementsApi.update(u.id, u.changes)));
-      } catch (err) {
-        setElements(elements); // Revert
-        setError(err instanceof Error ? err.message : 'Failed to update elements');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [elements, setElements]
-  );
-
-  // Handle first-element modal apply - creates element with custom dimensions and stores as default
-  const handleFirstElementModalApply = useCallback(
-    async (dimensions: { width: number; height: number }) => {
-      if (!pendingElementPlacement) return;
-
-      const { x, y, type } = pendingElementPlacement;
-
-      // Store as custom default for this type
-      setCustomElementDefaults(prev => ({
-        ...prev,
-        [type]: dimensions
-      }));
-
-      // Create the element with the specified dimensions
-      const tempId = nanoid();
-      const config = ELEMENT_CONFIGS[type];
-
-      // Generate abbreviated label
-      const typeCount = elements.filter(el => el.element_type === type).length + 1;
-      const abbreviations: Record<ElementType, string> = {
-        bay: 'B',
-        flow_rack: 'FR',
-        full_pallet: 'P',
-        text: 'T',
-        line: 'L',
-        arrow: 'A',
-      };
-      const abbreviatedLabel = `${abbreviations[type]}${typeCount}`;
-
-      const tempElement: WarehouseElement = {
-        id: tempId,
-        layout_id: layout?.id || '',
-        element_type: type,
-        label: abbreviatedLabel,
-        x_coordinate: x,
-        y_coordinate: y,
-        width: dimensions.width,
-        height: dimensions.height,
-        rotation: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // Update state via history
-      const newElements = [...elements, tempElement];
-      setElements(newElements);
-
-      // Clear pending state and close modal
-      setPendingElementPlacement(null);
-      setShowFirstElementModal(false);
-
-      try {
-        setSaving(true);
-        const created = await elementsApi.create({
-          layout_id: layout?.id || currentLayoutId || '',
-          element_type: type,
-          label: tempElement.label,
-          x_coordinate: x,
-          y_coordinate: y,
-          rotation: 0,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-
-        // Replace temp element with real one
-        setElements(newElements.map((el) => (el.id === tempId ? created : el)));
-        setToast({ message: `Created ${config.displayName} (${dimensions.width}" × ${dimensions.height}")`, type: 'success', duration: 2000 });
-      } catch (err) {
-        setElements(elements); // Revert to previous state
-        // @ts-expect-error - dynamic error access
-        const message = err.data?.message || err.message || 'Failed to create element';
-        setError(message);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [pendingElementPlacement, elements, layout, currentLayoutId, setElements]
-  );
-
-  // Handle first-element modal cancel
-  const handleFirstElementModalCancel = useCallback(() => {
-    setPendingElementPlacement(null);
-    setShowFirstElementModal(false);
-  }, []);
-
-  // Helper to validate UUID format (filters out nanoid temp IDs)
-  const isValidUUID = (id: string): boolean =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-
-  // Batch update dimensions for all elements of a specific type
-  const handleBatchDimensionUpdate = useCallback(
-    async (type: ElementType, dimensions: { width: number; height: number }) => {
-      // Get all elements of this type
-      const allElementsOfType = elements.filter(el => el.element_type === type);
-      // Filter to only elements with valid UUIDs (exclude temp nanoid IDs)
-      const elementsWithValidIds = allElementsOfType.filter(el => isValidUUID(el.id));
-
-      if (allElementsOfType.length === 0) return;
-
-      // Update local state optimistically (all elements, including temp)
-      const updatedElements = elements.map((el) =>
-        el.element_type === type
-          ? { ...el, width: dimensions.width, height: dimensions.height }
-          : el
-      );
-
-      setElements(updatedElements);
-
-      // Also update custom defaults for future elements
-      setCustomElementDefaults(prev => ({
-        ...prev,
-        [type]: dimensions
-      }));
-
-      // Only send backend updates for elements with valid UUIDs
-      if (elementsWithValidIds.length > 0) {
-        try {
-          setSaving(true);
-          // Update all elements of this type in parallel
-          await Promise.all(
-            elementsWithValidIds.map(el =>
-              elementsApi.update(el.id, { width: dimensions.width, height: dimensions.height })
-            )
-          );
-
-          const typeName = ELEMENT_CONFIGS[type]?.displayName || type;
-          setToast({
-            message: `Updated ${allElementsOfType.length} ${typeName.toLowerCase()}${allElementsOfType.length > 1 ? 's' : ''} to ${dimensions.width}" × ${dimensions.height}"`,
-            type: 'success',
-            duration: 2500
-          });
-        } catch (err) {
-          setElements(elements); // Revert
-          setError(err instanceof Error ? err.message : 'Failed to update elements');
-        } finally {
-          setSaving(false);
-        }
-      } else {
-        // All elements are pending creation, just show success for local update
-        const typeName = ELEMENT_CONFIGS[type]?.displayName || type;
-        setToast({
-          message: `Updated ${allElementsOfType.length} ${typeName.toLowerCase()}${allElementsOfType.length > 1 ? 's' : ''} to ${dimensions.width}" × ${dimensions.height}"`,
-          type: 'success',
-          duration: 2500
-        });
-      }
-    },
-    [elements, setElements]
-  );
 
   // Auto-Align Handlers
   const handleAutoAlign = useCallback(() => {
@@ -631,105 +244,20 @@ export default function Home() {
     setShowAutoAlignModal(true);
   }, [elements, routeMarkers]);
 
-  // Calculate misaligned count for status bar badge
   const misalignedCount = (() => {
     const detection = detectPatterns(elements, routeMarkers);
     return detection.totalMisaligned;
   })();
 
-  // Route Marker Handlers
-  const handleMarkerCreate = useCallback(
-    async (x: number, y: number, markerType: RouteMarkerType) => {
-      if (!currentLayoutId) return;
-
-      const tempId = nanoid();
-      const markerCount = routeMarkers.filter(m => m.marker_type === markerType).length + 1;
-      const labelPrefixes: Record<RouteMarkerType, string> = {
-        start_point: 'Start',
-        stop_point: 'Stop',
-        cart_parking: 'Cart',
-      };
-      const label = markerCount === 1 ? labelPrefixes[markerType] : `${labelPrefixes[markerType]} ${markerCount}`;
-
-      // Calculate sequence order for cart parking
-      const sequenceOrder = markerType === 'cart_parking'
-        ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1
-        : undefined;
-
-      const tempMarker: RouteMarker = {
-        id: tempId,
-        layout_id: currentLayoutId,
-        marker_type: markerType,
-        label,
-        x_coordinate: x,
-        y_coordinate: y,
-        sequence_order: sequenceOrder,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // Optimistic update
-      setRouteMarkers([...routeMarkers, tempMarker]);
-
-      try {
-        setSaving(true);
-        const created = await routeMarkersApi.create(currentLayoutId, {
-          marker_type: markerType,
-          label,
-          x_coordinate: x,
-          y_coordinate: y,
-          sequence_order: sequenceOrder,
-        });
-
-        // Replace temp with real
-        setRouteMarkers(markers => markers.map(m => m.id === tempId ? created : m));
-        setToast({ message: `${label} placed`, type: 'success', duration: 2000 });
-      } catch (err) {
-        // Revert
-        setRouteMarkers(markers => markers.filter(m => m.id !== tempId));
-        setError(err instanceof Error ? err.message : 'Failed to create route marker');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [currentLayoutId, routeMarkers]
-  );
-
-  const handleMarkerUpdate = useCallback(
-    async (id: string, updates: { x_coordinate?: number; y_coordinate?: number; label?: string; sequence_order?: number }) => {
-      const originalMarkers = [...routeMarkers];
-
-      // Optimistic update
-      setRouteMarkers(markers => markers.map(m =>
-        m.id === id ? { ...m, ...updates, updated_at: new Date().toISOString() } : m
-      ));
-
-      try {
-        setSaving(true);
-        await routeMarkersApi.update(id, updates);
-      } catch (err) {
-        // Revert
-        setRouteMarkers(originalMarkers);
-        setError(err instanceof Error ? err.message : 'Failed to update route marker');
-      } finally {
-        setSaving(false);
-      }
-    },
-    [routeMarkers]
-  );
-
-  // Auto-Align Apply (must be after handleMarkerUpdate)
   const handleAutoAlignApply = useCallback(async (corrections: ElementCorrection[]) => {
-    // Apply element corrections
     const elementUpdates = correctionsToUpdates(corrections);
     if (elementUpdates.length > 0) {
-      await handleMultiElementUpdate(elementUpdates);
+      await elementOps.updateMultipleElements(elementUpdates);
     }
 
-    // Apply marker corrections
     const markerUpdates = correctionsToMarkerUpdates(corrections);
     for (const update of markerUpdates) {
-      await handleMarkerUpdate(update.id, {
+      await markerOps.updateMarker(update.id, {
         x_coordinate: update.x_coordinate,
         y_coordinate: update.y_coordinate,
       });
@@ -744,392 +272,114 @@ export default function Home() {
       message = `Aligned ${elementCount} element${elementCount !== 1 ? 's' : ''} and ${markerCount} marker${markerCount !== 1 ? 's' : ''}`;
     }
 
-    setToast({
-      message,
-      type: 'success',
-      duration: 3000,
-    });
-  }, [handleMultiElementUpdate, handleMarkerUpdate]);
+    showToast(message);
+  }, [elementOps, markerOps, showToast]);
 
-  const handleMarkerDelete = useCallback(async () => {
-    if (selectedMarkerIds.length === 0) return;
+  // Element Create Handler (for canvas click)
+  const handleElementCreate = useCallback(async (x: number, y: number) => {
+    if (activeTool === 'select') return;
 
-    const markersToDelete = routeMarkers.filter((m) => selectedMarkerIds.includes(m.id));
-    if (markersToDelete.length === 0) return;
+    const selectedType = activeTool as ElementType;
 
-    // Optimistic delete
-    const remainingMarkers = routeMarkers.filter((m) => !selectedMarkerIds.includes(m.id));
-    setRouteMarkers(remainingMarkers);
-    setSelectedMarkerIds([]);
-
-    try {
-      setSaving(true);
-      // Execute delete immediately to prevent data loss on refresh
-      await Promise.all(markersToDelete.map((marker) => routeMarkersApi.delete(marker.id)));
-
-      setToast({
-        message: `Deleted ${markersToDelete.length} marker${markersToDelete.length > 1 ? 's' : ''}`,
-        type: 'success',
-        duration: 2000,
-      });
-    } catch (err) {
-      console.error('Delete error:', err);
-      // Revert optimistic update on failure
-      setRouteMarkers(routeMarkers);
-      setError('Failed to delete markers. Please try again.');
-      // Reload data to ensure sync
-      loadData();
-    } finally {
-      setSaving(false);
-    }
-  }, [selectedMarkerIds, routeMarkers, currentLayoutId]);
-
-  const handleMarkerClick = useCallback((id: string, ctrl: boolean, meta: boolean) => {
-    // If clicking the only selected marker, deselect it
-    if (selectedMarkerIds.length === 1 && selectedMarkerIds[0] === id && !ctrl && !meta) {
-      setSelectedMarkerIds([]);
+    if (isPickableType(selectedType) && elementOps.isFirstOfType(selectedType)) {
+      setPendingElementPlacement({ x, y, type: selectedType });
+      setShowFirstElementModal(true);
       return;
     }
 
-    if (ctrl || meta) {
-      setSelectedMarkerIds(prev => prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]);
-    } else {
-      setSelectedMarkerIds([id]);
+    await elementOps.createElement(x, y, selectedType);
+  }, [activeTool, elementOps]);
+
+  // Direct element create (for drag-drop)
+  const handleDirectElementCreate = useCallback(async (x: number, y: number, elementType: ElementType) => {
+    if (isPickableType(elementType) && elementOps.isFirstOfType(elementType)) {
+      setPendingElementPlacement({ x, y, type: elementType });
+      setShowFirstElementModal(true);
+      return;
     }
-    setSelectedElementIds([]); // Deselect elements when selecting markers
-  }, [selectedMarkerIds]);
 
-  // Delete element(s)
-  const handleElementDelete = useCallback(async () => {
-    if (selectedElementIds.length === 0) return;
+    await elementOps.createElement(x, y, elementType);
+    showToast(`Created ${ELEMENT_CONFIGS[elementType].displayName}`, 'success', 1500);
+  }, [elementOps, showToast]);
 
-    const elementsToDelete = elements.filter((el) => selectedElementIds.includes(el.id));
-    if (elementsToDelete.length === 0) return;
+  // First element modal handlers
+  const handleFirstElementModalApply = useCallback(async (dimensions: { width: number; height: number }) => {
+    if (!pendingElementPlacement) return;
 
-    // Optimistically remove from UI
-    const remainingElements = elements.filter((el) => !selectedElementIds.includes(el.id));
-    setElements(remainingElements);
-    setSelectedElementIds([]);
+    await elementOps.createWithDimensions(
+      pendingElementPlacement.x,
+      pendingElementPlacement.y,
+      pendingElementPlacement.type,
+      dimensions
+    );
 
-    try {
-      setSaving(true);
-      // Execute delete immediately to prevent data loss on refresh
-      await Promise.all(elementsToDelete.map((el) => elementsApi.delete(el.id)));
+    setPendingElementPlacement(null);
+    setShowFirstElementModal(false);
+  }, [pendingElementPlacement, elementOps]);
 
+  const handleFirstElementModalCancel = useCallback(() => {
+    setPendingElementPlacement(null);
+    setShowFirstElementModal(false);
+  }, []);
+
+  // Delete handler
+  const handleDelete = useCallback(async () => {
+    if (selectedMarkerIds.length > 0) {
+      await markerOps.deleteMarkers(selectedMarkerIds);
+      setSelectedMarkerIds([]);
+    } else if (selectedElementIds.length > 0) {
+      const elementsToDelete = elements.filter(el => selectedElementIds.includes(el.id));
+      await elementOps.deleteElements(selectedElementIds);
+      setSelectedElementIds([]);
+
+      // Set up toast with undo functionality
       setToast({
         message: `Deleted ${elementsToDelete.length} element${elementsToDelete.length > 1 ? 's' : ''}`,
         type: 'success',
         duration: 5000,
         onUndo: async () => {
-          // 1. Optimistically restore to UI (using old IDs temporarily)
-          setElements((prev) => [...prev, ...elementsToDelete]);
           setToast(null);
-
+          setSaving(true);
           try {
-            setSaving(true);
-            // 2. Re-create elements on backend to get new permanent IDs
-            const restoredElements = await Promise.all(elementsToDelete.map(el => elementsApi.create({
-              element_type: el.element_type,
-              label: el.label,
-              x_coordinate: el.x_coordinate,
-              y_coordinate: el.y_coordinate,
-              rotation: el.rotation,
-              width: el.width,
-              height: el.height
-            })));
-
-            // 3. Update local state with the new, real IDs from backend
-            setElements(current => current.map(el => {
-              // If this element is one of the ones we just "restored" with an old ID
-              const matchIndex = elementsToDelete.findIndex(d => d.id === el.id);
-              if (matchIndex !== -1) {
-                return restoredElements[matchIndex];
-              }
-              return el;
-            }));
-          } catch (err) {
-            console.error('Undo failed:', err);
-            setError('Failed to restore elements. Please try again.');
-            loadData(); // Fallback to ensure consistency
+            const restored = await Promise.all(
+              elementsToDelete.map(el =>
+                elementsApi.create({
+                  element_type: el.element_type,
+                  label: el.label,
+                  x_coordinate: el.x_coordinate,
+                  y_coordinate: el.y_coordinate,
+                  rotation: el.rotation,
+                  width: el.width,
+                  height: el.height,
+                })
+              )
+            );
+            setElements(prev => [...prev, ...restored]);
+          } catch {
+            setError('Failed to restore elements');
           } finally {
             setSaving(false);
           }
-        }
+        },
       });
-    } catch (err) {
-      console.error('Delete error:', err);
-      // Revert optimistic update on failure
-      setElements(elements);
-      setError('Failed to delete elements. Please try again.');
-      // Reload data to ensure sync
-      loadData();
-    } finally {
-      setSaving(false);
     }
-  }, [selectedElementIds, elements, setElements]);
+  }, [selectedMarkerIds, selectedElementIds, elements, elementOps, markerOps, setElements]);
 
-  // Copy & Paste
+  // Copy/Paste handlers
   const handleCopy = useCallback(() => {
-    if (selectedMarkerIds.length > 0) {
-      const markersToCopy = routeMarkers.filter((m) => selectedMarkerIds.includes(m.id));
-      setCopiedMarkers(markersToCopy);
-      setCopiedElements([]); // Clear element clipboard
-      setToast({ message: `Copied ${markersToCopy.length} marker${markersToCopy.length > 1 ? 's' : ''}`, type: 'success' });
-    } else if (selectedElementIds.length > 0) {
-      const elementsToCopy = elements.filter((el) => selectedElementIds.includes(el.id));
-      setCopiedElements(elementsToCopy);
-      setCopiedMarkers([]); // Clear marker clipboard
-      setToast({ message: `Copied ${elementsToCopy.length} elements`, type: 'success' });
-    }
-  }, [selectedElementIds, selectedMarkerIds, elements, routeMarkers]);
+    clipboard.copy(selectedElementIds, selectedMarkerIds);
+  }, [clipboard, selectedElementIds, selectedMarkerIds]);
 
   const handlePaste = useCallback(async () => {
-    if (copiedMarkers.length > 0) {
-      // Paste markers
-      const newMarkerIds: string[] = [];
-      const PASTE_OFFSET = 20;
-      const newMarkersToAdd: RouteMarker[] = [];
-
-      for (const copiedMarker of copiedMarkers) {
-        const tempId = nanoid();
-        const markerCount = routeMarkers.filter(m => m.marker_type === copiedMarker.marker_type).length + 1 + newMarkersToAdd.filter(m => m.marker_type === copiedMarker.marker_type).length;
-        const label = markerCount === 1 ? copiedMarker.marker_type.replace('_', ' ') : `${copiedMarker.marker_type.replace('_', ' ')} ${markerCount}`;
-
-        const newMarker: RouteMarker = {
-          id: tempId,
-          layout_id: currentLayoutId || '',
-          marker_type: copiedMarker.marker_type,
-          label,
-          x_coordinate: copiedMarker.x_coordinate + PASTE_OFFSET,
-          y_coordinate: copiedMarker.y_coordinate + PASTE_OFFSET,
-          sequence_order: copiedMarker.marker_type === 'cart_parking' ? routeMarkers.filter(m => m.marker_type === 'cart_parking').length + 1 + newMarkersToAdd.filter(m => m.marker_type === 'cart_parking').length : undefined,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        newMarkersToAdd.push(newMarker);
-        newMarkerIds.push(tempId);
-      }
-
-      const updatedMarkers = [...routeMarkers, ...newMarkersToAdd];
-      setRouteMarkers(updatedMarkers);
+    const { newElementIds, newMarkerIds } = await clipboard.paste();
+    if (newElementIds.length > 0) {
+      setSelectedElementIds(newElementIds);
+      setSelectedMarkerIds([]);
+    } else if (newMarkerIds.length > 0) {
       setSelectedMarkerIds(newMarkerIds);
       setSelectedElementIds([]);
-
-      try {
-        setSaving(true);
-        // Create all markers on backend
-        const createdMarkers = await Promise.all(newMarkersToAdd.map(marker => routeMarkersApi.create(currentLayoutId!, {
-          marker_type: marker.marker_type,
-          label: marker.label,
-          x_coordinate: marker.x_coordinate,
-          y_coordinate: marker.y_coordinate,
-          sequence_order: marker.sequence_order,
-        })));
-
-        // Replace temp markers with real ones
-        setRouteMarkers(prev => prev.map(m => {
-          const created = createdMarkers.find(cm => cm.marker_type === m.marker_type && Math.abs(cm.x_coordinate - m.x_coordinate) < 1);
-          return created || m;
-        }));
-
-        // Select all newly created markers
-        setSelectedMarkerIds(createdMarkers.map(m => m.id));
-
-        setToast({
-          message: `Pasted ${createdMarkers.length} marker${createdMarkers.length > 1 ? 's' : ''}`,
-          type: 'success',
-        });
-      } catch (err) {
-        setRouteMarkers(routeMarkers); // Revert
-        setError('Failed to paste markers');
-      } finally {
-        setSaving(false);
-      }
-    } else if (copiedElements.length > 0) {
-      // Paste elements
-      const newElementIds: string[] = [];
-      const PASTE_OFFSET = 20;
-      const newElementsToAdd: WarehouseElement[] = [];
-
-      for (const copiedElement of copiedElements) {
-        const tempId = nanoid();
-        const config = ELEMENT_CONFIGS[copiedElement.element_type];
-
-        const typeCount = elements.filter(el => el.element_type === copiedElement.element_type).length + 1 + newElementsToAdd.filter(el => el.element_type === copiedElement.element_type).length;
-        const abbreviations: Record<ElementType, string> = {
-          bay: 'B',
-          flow_rack: 'FR',
-          full_pallet: 'P',
-          text: 'T',
-          line: 'L',
-          arrow: 'A'
-        };
-        const newLabel = `${abbreviations[copiedElement.element_type]}${typeCount}`;
-
-        const newElement: WarehouseElement = {
-          id: tempId,
-          layout_id: layout?.id || '',
-          element_type: copiedElement.element_type,
-          label: newLabel,
-          x_coordinate: copiedElement.x_coordinate + PASTE_OFFSET,
-          y_coordinate: copiedElement.y_coordinate + PASTE_OFFSET,
-          width: config.width,
-          height: config.height,
-          rotation: copiedElement.rotation,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-
-        newElementsToAdd.push(newElement);
-        newElementIds.push(tempId);
-      }
-
-      const updatedElements = [...elements, ...newElementsToAdd];
-      setElements(updatedElements);
-      // Don't set selection yet - wait for backend to return permanent IDs
-      // to prevent UUID errors if user tries to drag before API completes
-      setSelectedMarkerIds([]);
-
-      try {
-        setSaving(true);
-        // Create all on backend
-        const createdElements = await Promise.all(newElementsToAdd.map(el => elementsApi.create({
-          layout_id: layout?.id || currentLayoutId || '',
-          element_type: el.element_type,
-          label: el.label,
-          x_coordinate: el.x_coordinate,
-          y_coordinate: el.y_coordinate,
-          rotation: el.rotation,
-          width: el.width,
-          height: el.height,
-        })));
-
-        // Map temporary IDs to permanent IDs from backend response
-        // Build a mapping: tempId -> permanentId
-        const tempToPermanentIdMap = new Map<string, string>();
-        for (let i = 0; i < newElementsToAdd.length; i++) {
-          tempToPermanentIdMap.set(newElementsToAdd[i].id, createdElements[i].id);
-        }
-
-        // Update local elements state: replace temp elements with the real ones from backend
-        setElements(currentElements => currentElements.map(el => {
-          const permanentId = tempToPermanentIdMap.get(el.id);
-          if (permanentId) {
-            // Find the corresponding created element
-            const createdEl = createdElements.find(c => c.id === permanentId);
-            return createdEl || el;
-          }
-          return el;
-        }));
-
-        // Update selection to use permanent IDs
-        const permanentSelectedIds = newElementIds.map(tempId => tempToPermanentIdMap.get(tempId) || tempId);
-        setSelectedElementIds(permanentSelectedIds);
-      } catch (err) {
-        setElements(elements); // Revert
-        setError('Failed to paste elements');
-      } finally {
-        setSaving(false);
-      }
     }
-  }, [copiedElements, copiedMarkers, elements, routeMarkers, layout, currentLayoutId, setElements]);
-
-  // Menu Actions
-  const handleMenuAction = useCallback((action: string) => {
-    switch (action) {
-      case 'save':
-        // Auto-save is implemented, but we can force a save or show success
-        setToast({ message: 'Layout saved successfully', type: 'success' });
-        break;
-      case 'export_png':
-        canvasRef.current?.exportAsPNG();
-        setToast({ message: 'Exported as PNG', type: 'success', duration: 2000 });
-        break;
-      case 'export_pdf':
-        canvasRef.current?.exportAsPDF();
-        setToast({ message: 'Exported as PDF', type: 'success', duration: 2000 });
-        break;
-      case 'print':
-        window.print();
-        break;
-      case 'undo':
-        if (canUndo) undo();
-        break;
-      case 'redo':
-        if (canRedo) redo();
-        break;
-      case 'cut':
-        handleCopy();
-        if (selectedMarkerIds.length > 0) {
-          handleMarkerDelete();
-        } else {
-          handleElementDelete();
-        }
-        break;
-      case 'copy':
-        handleCopy();
-        break;
-      case 'paste':
-        handlePaste();
-        break;
-      case 'delete':
-        handleElementDelete();
-        break;
-      case 'select_all':
-        if (selectedMarkerIds.length > 0) {
-          // If markers are selected, select all markers
-          setSelectedMarkerIds(routeMarkers.map(m => m.id));
-        } else {
-          // Otherwise select all elements
-          setSelectedElementIds(elements.map(el => el.id));
-        }
-        break;
-      case 'zoom_in':
-        setZoom(z => Math.min(z * 1.2, 5));
-        break;
-      case 'zoom_out':
-        setZoom(z => Math.max(z / 1.2, 0.1));
-        break;
-      case 'zoom_fit':
-        setZoom(1); // Todo: Implement real fit logic
-        break;
-      case 'toggle_grid':
-        setShowGrid(prev => !prev);
-        break;
-      case 'toggle_snap':
-        // Snapping toggle moved to canvas button - keeping for backward compatibility
-        setSnappingEnabled(prev => !prev);
-        setToast({ message: `Smart Snapping: ${!snappingEnabled ? 'On' : 'Off'}`, type: 'info' });
-        break;
-      case 'help_shortcuts':
-        setShowShortcutsModal(true);
-        break;
-      case 'help_about':
-        setToast({
-          message: 'HeatmapSlotting v1.0 - Warehouse Heatmap Designer',
-          type: 'info',
-          duration: 3000
-        });
-        break;
-      case 'generate_pattern':
-        if (selectedElementIds.length >= 1) {
-          setShowPatternModal(true);
-        } else {
-          setToast({ message: 'Select at least 1 element to use as a template', type: 'info' });
-        }
-        break;
-      case 'resequence':
-        if (selectedElementIds.length >= 2) {
-          setShowResequenceModal(true);
-        } else {
-          setToast({ message: 'Select at least 2 elements to resequence', type: 'info' });
-        }
-        break;
-      default:
-        console.log('Unknown action:', action);
-    }
-  }, [canUndo, canRedo, undo, redo, handleCopy, handleElementDelete, handlePaste, elements, snapToGrid, selectedElementIds]);
+  }, [clipboard]);
 
   // Alignment
   const handleAlign = useCallback((type: AlignmentType) => {
@@ -1144,22 +394,18 @@ export default function Home() {
     });
 
     setElements(newElements);
-
-    // Save changes
-    // Note: In a real app, we'd batch update these
     aligned.forEach(el => {
       elementsApi.update(el.id, { x_coordinate: el.x_coordinate, y_coordinate: el.y_coordinate });
     });
   }, [selectedElementIds, elements, setElements]);
 
-  // Pattern Generation - bulk create elements from a template
+  // Pattern Generation
   const handlePatternGenerate = useCallback(async (generatedElements: GeneratedElementData[]) => {
     if (generatedElements.length === 0) return;
 
-    // Create temporary elements with temp IDs for optimistic update
-    const tempElements: WarehouseElement[] = generatedElements.map((el, index) => ({
+    const tempElements: WarehouseElement[] = generatedElements.map((el) => ({
       id: `temp-${nanoid()}`,
-      layout_id: layout?.id || currentLayoutId || '',
+      layout_id: layoutOps.currentLayout?.id || layoutOps.currentLayoutId || '',
       element_type: el.element_type,
       label: el.label,
       x_coordinate: el.x_coordinate,
@@ -1171,19 +417,15 @@ export default function Home() {
       updated_at: new Date().toISOString(),
     }));
 
-    // Optimistic update
-    const newElements = [...elements, ...tempElements];
-    setElements(newElements);
+    setElements([...elements, ...tempElements]);
     setShowPatternModal(false);
 
     try {
       setSaving(true);
-
-      // Create all elements on backend
       const createdElements = await Promise.all(
         generatedElements.map(el =>
           elementsApi.create({
-            layout_id: layout?.id || currentLayoutId || '',
+            layout_id: layoutOps.currentLayout?.id || layoutOps.currentLayoutId || '',
             element_type: el.element_type,
             label: el.label,
             x_coordinate: el.x_coordinate,
@@ -1195,33 +437,21 @@ export default function Home() {
         )
       );
 
-      // Replace temp elements with real ones
-      const finalElements = elements.concat(createdElements);
-      setElements(finalElements);
-
-      // Select all newly created elements
+      setElements(elements.concat(createdElements));
       setSelectedElementIds(createdElements.map(el => el.id));
-
-      setToast({
-        message: `Generated ${createdElements.length} elements`,
-        type: 'success',
-      });
+      showToast(`Generated ${createdElements.length} elements`);
     } catch (err) {
-      // Revert on error
       setElements(elements);
-      // @ts-ignore
-      const message = err.data?.message || err.message || 'Failed to generate elements';
-      setError(message);
+      setError((err as Error)?.message || 'Failed to generate elements');
     } finally {
       setSaving(false);
     }
-  }, [elements, layout, currentLayoutId, setElements]);
+  }, [elements, layoutOps, setElements, showToast]);
 
-  // Re-sequence - bulk rename elements based on position
+  // Resequence
   const handleResequenceApply = useCallback(async (renames: { id: string; newLabel: string }[]) => {
     if (renames.length === 0) return;
 
-    // Optimistic update
     const newElements = elements.map(el => {
       const rename = renames.find(r => r.id === el.id);
       return rename ? { ...el, label: rename.newLabel } : el;
@@ -1231,109 +461,23 @@ export default function Home() {
 
     try {
       setSaving(true);
-
-      // Update all on backend
-      await Promise.all(
-        renames.map(({ id, newLabel }) =>
-          elementsApi.update(id, { label: newLabel })
-        )
-      );
-
-      setToast({
-        message: `Renamed ${renames.length} elements`,
-        type: 'success',
-      });
-    } catch (err) {
-      // Revert on error
+      await Promise.all(renames.map(({ id, newLabel }) => elementsApi.update(id, { label: newLabel })));
+      showToast(`Renamed ${renames.length} elements`);
+    } catch {
       setElements(elements);
       setError('Failed to rename elements');
     } finally {
       setSaving(false);
     }
-  }, [elements, setElements]);
+  }, [elements, setElements, showToast]);
 
-  // Direct element creation for drag-drop (bypasses activeTool state)
-  const handleDirectElementCreate = useCallback(
-    async (x: number, y: number, elementType: ElementType) => {
-      // Check if first of pickable type - show dimension modal
-      const pickableTypes: ElementType[] = ['bay', 'flow_rack', 'full_pallet'];
-      if (pickableTypes.includes(elementType) && isFirstOfType(elementType)) {
-        setPendingElementPlacement({ x, y, type: elementType });
-        setShowFirstElementModal(true);
-        return;
-      }
-
-      // Use custom defaults if set, otherwise use ELEMENT_CONFIGS
-      const dimensions = getEffectiveDimensions(elementType);
-      const tempId = nanoid();
-      const config = ELEMENT_CONFIGS[elementType];
-
-      // Generate abbreviated label
-      const typeCount = elements.filter(el => el.element_type === elementType).length + 1;
-      const abbreviations: Record<ElementType, string> = {
-        bay: 'B',
-        flow_rack: 'FR',
-        full_pallet: 'P',
-        text: 'T',
-        line: 'L',
-        arrow: 'A',
-      };
-      const abbreviatedLabel = `${abbreviations[elementType]}${typeCount}`;
-
-      const tempElement: WarehouseElement = {
-        id: tempId,
-        layout_id: layout?.id || '',
-        element_type: elementType,
-        label: abbreviatedLabel,
-        x_coordinate: x,
-        y_coordinate: y,
-        width: dimensions.width,
-        height: dimensions.height,
-        rotation: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      // Update state via history
-      const newElements = [...elements, tempElement];
-      setElements(newElements);
-
-      try {
-        setSaving(true);
-        const created = await elementsApi.create({
-          layout_id: layout?.id || currentLayoutId || '',
-          element_type: elementType,
-          label: tempElement.label,
-          x_coordinate: x,
-          y_coordinate: y,
-          rotation: 0,
-          width: dimensions.width,
-          height: dimensions.height,
-        });
-
-        // Replace temp element with real one
-        setElements(newElements.map((el) => (el.id === tempId ? created : el)));
-        setToast({ message: `Created ${config.displayName}`, type: 'success', duration: 1500 });
-      } catch (err) {
-        setElements(elements); // Revert to previous state
-        // @ts-expect-error - dynamic error access
-        const message = err.data?.message || err.message || 'Failed to create element';
-        setError(message);
-      } finally {
-        setSaving(false);
-      }
-    },
-    [layout, elements, setElements, currentLayoutId, isFirstOfType, getEffectiveDimensions]
-  );
-
-  // Apply template - bulk create elements and route markers from template
+  // Template Application
   const handleApplyTemplate = useCallback(async (template: WarehouseTemplate) => {
-    if (!currentLayoutId) return;
+    if (!layoutOps.currentLayoutId) return;
 
-    // Create temporary elements
     const tempElements: WarehouseElement[] = template.elements.map((el, index) => ({
       id: `temp-template-${index}`,
-      layout_id: currentLayoutId,
+      layout_id: layoutOps.currentLayoutId!,
       element_type: el.element_type,
       label: el.label,
       x_coordinate: el.x_coordinate,
@@ -1345,10 +489,9 @@ export default function Home() {
       updated_at: new Date().toISOString(),
     }));
 
-    // Create temporary route markers
     const tempMarkers: RouteMarker[] = template.routeMarkers.map((marker, index) => ({
       id: `temp-marker-${index}`,
-      layout_id: currentLayoutId,
+      layout_id: layoutOps.currentLayoutId!,
       marker_type: marker.marker_type,
       label: marker.label,
       x_coordinate: marker.x_coordinate,
@@ -1358,7 +501,6 @@ export default function Home() {
       updated_at: new Date().toISOString(),
     }));
 
-    // Optimistic update - add to existing
     setHistoryState(prev => ({
       elements: [...prev.elements, ...tempElements],
       routeMarkers: [...prev.routeMarkers, ...tempMarkers],
@@ -1367,12 +509,10 @@ export default function Home() {
 
     try {
       setSaving(true);
-
-      // Create all elements on backend
       const createdElements = await Promise.all(
         template.elements.map(el =>
           elementsApi.create({
-            layout_id: currentLayoutId,
+            layout_id: layoutOps.currentLayoutId!,
             element_type: el.element_type,
             label: el.label,
             x_coordinate: el.x_coordinate,
@@ -1384,10 +524,9 @@ export default function Home() {
         )
       );
 
-      // Create all route markers on backend
       const createdMarkers = await Promise.all(
         template.routeMarkers.map(marker =>
-          routeMarkersApi.create(currentLayoutId, {
+          routeMarkersApi.create(layoutOps.currentLayoutId!, {
             marker_type: marker.marker_type,
             label: marker.label,
             x_coordinate: marker.x_coordinate,
@@ -1397,18 +536,13 @@ export default function Home() {
         )
       );
 
-      // Replace temp with real IDs
       setHistoryState(prev => ({
         elements: prev.elements.filter(el => !el.id.startsWith('temp-template-')).concat(createdElements),
         routeMarkers: prev.routeMarkers.filter(m => !m.id.startsWith('temp-marker-')).concat(createdMarkers),
       }));
 
-      setToast({
-        message: `Applied "${template.name}" template (${createdElements.length} elements, ${createdMarkers.length} markers)`,
-        type: 'success',
-      });
-    } catch (err) {
-      // Revert on error
+      showToast(`Applied "${template.name}" template (${createdElements.length} elements, ${createdMarkers.length} markers)`);
+    } catch {
       setHistoryState(prev => ({
         elements: prev.elements.filter(el => !el.id.startsWith('temp-template-')),
         routeMarkers: prev.routeMarkers.filter(m => !m.id.startsWith('temp-marker-')),
@@ -1417,16 +551,15 @@ export default function Home() {
     } finally {
       setSaving(false);
     }
-  }, [currentLayoutId, setHistoryState]);
+  }, [layoutOps.currentLayoutId, setHistoryState, showToast]);
 
-  // DXF Import - bulk create elements from imported DXF file
+  // DXF Import
   const handleDxfImport = useCallback(async (importedElements: ImportedElement[]) => {
-    if (!currentLayoutId || importedElements.length === 0) return;
+    if (!layoutOps.currentLayoutId || importedElements.length === 0) return;
 
-    // Create temporary elements
     const tempElements: WarehouseElement[] = importedElements.map((el, index) => ({
       id: `temp-dxf-${index}`,
-      layout_id: currentLayoutId,
+      layout_id: layoutOps.currentLayoutId!,
       element_type: el.element_type,
       label: el.label,
       x_coordinate: el.x_coordinate,
@@ -1438,17 +571,14 @@ export default function Home() {
       updated_at: new Date().toISOString(),
     }));
 
-    // Optimistic update
     setElements(prev => [...prev, ...tempElements]);
 
     try {
       setSaving(true);
-
-      // Create all elements on backend
       const createdElements = await Promise.all(
         importedElements.map(el =>
           elementsApi.create({
-            layout_id: currentLayoutId,
+            layout_id: layoutOps.currentLayoutId!,
             element_type: el.element_type,
             label: el.label,
             x_coordinate: el.x_coordinate,
@@ -1460,120 +590,137 @@ export default function Home() {
         )
       );
 
-      // Replace temp with real IDs
       setElements(prev => prev.filter(el => !el.id.startsWith('temp-dxf-')).concat(createdElements));
-
-      // Select all newly created elements
       setSelectedElementIds(createdElements.map(el => el.id));
-
-      setToast({
-        message: `Imported ${createdElements.length} elements from DXF file`,
-        type: 'success',
-      });
-    } catch (err) {
-      // Revert on error
+      showToast(`Imported ${createdElements.length} elements from DXF file`);
+    } catch {
       setElements(prev => prev.filter(el => !el.id.startsWith('temp-dxf-')));
       setError('Failed to import DXF elements');
     } finally {
       setSaving(false);
     }
-  }, [currentLayoutId, setElements]);
+  }, [layoutOps.currentLayoutId, setElements, showToast]);
+
+  // Menu Actions
+  const handleMenuAction = useCallback((action: string) => {
+    switch (action) {
+      case 'save':
+        showToast('Layout saved successfully');
+        break;
+      case 'export_png':
+        canvasRef.current?.exportAsPNG();
+        showToast('Exported as PNG', 'success', 2000);
+        break;
+      case 'export_pdf':
+        canvasRef.current?.exportAsPDF();
+        showToast('Exported as PDF', 'success', 2000);
+        break;
+      case 'print':
+        window.print();
+        break;
+      case 'undo':
+        if (canUndo) undo();
+        break;
+      case 'redo':
+        if (canRedo) redo();
+        break;
+      case 'cut':
+        handleCopy();
+        handleDelete();
+        break;
+      case 'copy':
+        handleCopy();
+        break;
+      case 'paste':
+        handlePaste();
+        break;
+      case 'delete':
+        handleDelete();
+        break;
+      case 'select_all':
+        if (selectedMarkerIds.length > 0) {
+          setSelectedMarkerIds(routeMarkers.map(m => m.id));
+        } else {
+          setSelectedElementIds(elements.map(el => el.id));
+        }
+        break;
+      case 'zoom_in':
+        setZoom(z => Math.min(z * 1.2, 5));
+        break;
+      case 'zoom_out':
+        setZoom(z => Math.max(z / 1.2, 0.1));
+        break;
+      case 'zoom_fit':
+        setZoom(1);
+        break;
+      case 'toggle_grid':
+        setShowGrid(prev => !prev);
+        break;
+      case 'toggle_snap':
+        setSnappingEnabled(prev => !prev);
+        showToast(`Smart Snapping: ${!snappingEnabled ? 'On' : 'Off'}`, 'info');
+        break;
+      case 'help_shortcuts':
+        setShowShortcutsModal(true);
+        break;
+      case 'help_about':
+        showToast('HeatmapSlotting v1.0 - Warehouse Heatmap Designer', 'info', 3000);
+        break;
+      case 'generate_pattern':
+        if (selectedElementIds.length >= 1) {
+          setShowPatternModal(true);
+        } else {
+          showToast('Select at least 1 element to use as a template', 'info');
+        }
+        break;
+      case 'resequence':
+        if (selectedElementIds.length >= 2) {
+          setShowResequenceModal(true);
+        } else {
+          showToast('Select at least 2 elements to resequence', 'info');
+        }
+        break;
+    }
+  }, [
+    canUndo, canRedo, undo, redo, handleCopy, handleDelete, handlePaste,
+    elements, routeMarkers, selectedMarkerIds, selectedElementIds, snappingEnabled, showToast
+  ]);
+
+  // Marker click handler
+  const handleMarkerClick = useCallback((id: string, ctrl: boolean, meta: boolean) => {
+    if (selectedMarkerIds.length === 1 && selectedMarkerIds[0] === id && !ctrl && !meta) {
+      setSelectedMarkerIds([]);
+      return;
+    }
+
+    if (ctrl || meta) {
+      setSelectedMarkerIds(prev => prev.includes(id) ? prev.filter(mid => mid !== id) : [...prev, id]);
+    } else {
+      setSelectedMarkerIds([id]);
+    }
+    setSelectedElementIds([]);
+  }, [selectedMarkerIds]);
 
   // Keyboard Shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  useDesignerKeyboardShortcuts({
+    onUndo: undo,
+    onRedo: redo,
+    onCopy: handleCopy,
+    onPaste: handlePaste,
+    onCut: () => { handleCopy(); handleDelete(); },
+    onDelete: handleDelete,
+    onSelectAll: () => handleMenuAction('select_all'),
+    onSave: () => handleMenuAction('save'),
+    onGeneratePattern: () => setShowPatternModal(true),
+    onResequence: () => setShowResequenceModal(true),
+    onAutoAlign: handleAutoAlign,
+    canUndo,
+    canRedo,
+    hasMarkersSelected: selectedMarkerIds.length > 0,
+    selectedElementCount: selectedElementIds.length,
+  });
 
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
-
-      if (cmdOrCtrl) {
-        switch (e.key.toLowerCase()) {
-          case 'z':
-            e.preventDefault();
-            if (e.shiftKey) {
-              if (canRedo) redo();
-            } else {
-              if (canUndo) undo();
-            }
-            break;
-          case 'y':
-            e.preventDefault();
-            if (canRedo) redo();
-            break;
-          case 'a':
-            e.preventDefault();
-            handleMenuAction('select_all');
-            break;
-          case 's':
-            e.preventDefault();
-            handleMenuAction('save');
-            break;
-          case 'c':
-            e.preventDefault();
-            handleCopy();
-            break;
-          case 'v':
-            e.preventDefault();
-            handlePaste();
-            break;
-          case 'x':
-            e.preventDefault();
-            handleMenuAction('cut');
-            break;
-        }
-      } else {
-        switch (e.key.toLowerCase()) {
-          case 'delete':
-            e.preventDefault();
-            if (selectedMarkerIds.length > 0) {
-              handleMarkerDelete();
-            } else {
-              handleElementDelete();
-            }
-            break;
-          case 'g':
-            // G - Generate pattern (requires at least 1 element selected)
-            if (selectedElementIds.length >= 1) {
-              e.preventDefault();
-              setShowPatternModal(true);
-            }
-            break;
-          case 'r':
-            // R - Resequence selection (requires at least 2 elements selected)
-            if (selectedElementIds.length >= 2) {
-              e.preventDefault();
-              setShowResequenceModal(true);
-            }
-            break;
-          case 'a':
-            // Shift+A - Auto-Align
-            if (e.shiftKey) {
-              e.preventDefault();
-              handleAutoAlign();
-            }
-            break;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canUndo, canRedo, undo, redo, handleMenuAction, handleCopy, handlePaste, handleElementDelete, handleMarkerDelete, selectedElementIds, selectedMarkerIds, handleAutoAlign]);
-
-  // Journey Event Listeners - respond to contextual hint actions
-  useEffect(() => {
-    const handleOpenTemplates = () => {
-      setShowTemplateLibrary(true);
-    };
-
-    window.addEventListener('journey:open-templates', handleOpenTemplates);
-    return () => {
-      window.removeEventListener('journey:open-templates', handleOpenTemplates);
-    };
-  }, []);
-
-  if (loading) {
+  if (layoutOps.loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">
@@ -1588,15 +735,17 @@ export default function Home() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-slate-950 overflow-hidden">
-      <Header title="Warehouse Designer" subtitle={`${layout?.name || 'Untitled Layout'} • Layout Editor`} />
+      <Header
+        title="Warehouse Designer"
+        subtitle={`${layoutOps.currentLayout?.name || 'Untitled Layout'} • Layout Editor`}
+      />
 
-      {/* Contextual hints for onboarding */}
       <div className="px-4 pt-2">
         <HintsContainer page="/designer" />
       </div>
 
       <MenuBar
-        layoutName={layout?.name || 'Untitled Layout'}
+        layoutName={layoutOps.currentLayout?.name || 'Untitled Layout'}
         onAction={handleMenuAction}
         onShowTemplates={() => setShowTemplateLibrary(true)}
         onShowDxfImport={() => setShowDxfImport(true)}
@@ -1604,17 +753,17 @@ export default function Home() {
         onToggleDistances={() => setShowDistances(!showDistances)}
         headerContent={
           <LayoutManager
-            layouts={layouts}
-            currentLayoutId={currentLayoutId}
-            onLayoutSelect={setCurrentLayoutId}
-            onLayoutCreate={handleLayoutCreate}
-            onLayoutRename={handleLayoutRename}
-            onLayoutDelete={handleLayoutDelete}
+            layouts={layoutOps.layouts}
+            currentLayoutId={layoutOps.currentLayoutId}
+            onLayoutSelect={layoutOps.setCurrentLayoutId}
+            onLayoutCreate={layoutOps.createLayout}
+            onLayoutRename={layoutOps.renameLayout}
+            onLayoutDelete={layoutOps.deleteLayout}
           />
         }
       />
 
-      < div className="flex-1 flex overflow-hidden" >
+      <div className="flex-1 flex overflow-hidden">
         <Sidebar activeTool={activeTool} onSelectTool={setActiveTool} />
 
         <main
@@ -1629,16 +778,13 @@ export default function Home() {
               const data = JSON.parse(e.dataTransfer.getData('application/json'));
               if (!data?.type) return;
 
-              // Get canvas position from the drop event
               const rect = e.currentTarget.getBoundingClientRect();
               const x = e.clientX - rect.left;
               const y = e.clientY - rect.top;
 
               if (data.isRouteMarker) {
-                // Create route marker
-                await handleMarkerCreate(x, y, data.type as RouteMarkerType);
+                await markerOps.createMarker(x, y, data.type as RouteMarkerType);
               } else {
-                // Create element directly without changing activeTool
                 await handleDirectElementCreate(x, y, data.type as ElementType);
               }
             } catch (err) {
@@ -1653,14 +799,12 @@ export default function Home() {
             selectedElementIds={selectedElementIds}
             labelDisplayMode={labelDisplayMode}
             onElementClick={(id: string, ctrl: boolean, meta: boolean) => {
-              // If in placement mode (drawing), auto-switch to select mode
               if (activeTool !== 'select') {
                 setActiveTool('select');
                 setSelectedElementIds([id]);
                 return;
               }
 
-              // If clicking the only selected element, deselect it
               if (selectedElementIds.length === 1 && selectedElementIds[0] === id && !ctrl && !meta) {
                 setSelectedElementIds([]);
                 return;
@@ -1673,25 +817,25 @@ export default function Home() {
               }
             }}
             onElementCreate={handleElementCreate}
-            onElementUpdate={handleElementUpdate}
+            onElementUpdate={elementOps.updateElement}
             onCanvasClick={() => {
               setSelectedElementIds([]);
               setSelectedMarkerIds([]);
             }}
-            canvasWidth={layout?.canvas_width || 1200}
-            canvasHeight={layout?.canvas_height || 800}
+            canvasWidth={layoutOps.currentLayout?.canvas_width || 1200}
+            canvasHeight={layoutOps.currentLayout?.canvas_height || 800}
             onZoomChange={setZoom}
             onCursorMove={(x, y) => setCursorPos({ x, y })}
             routeMarkers={routeMarkers}
             selectedMarkerIds={selectedMarkerIds}
             onMarkerClick={handleMarkerClick}
-            onMarkerCreate={handleMarkerCreate}
-            onMarkerUpdate={handleMarkerUpdate}
+            onMarkerCreate={markerOps.createMarker}
+            onMarkerUpdate={markerOps.updateMarker}
             snappingEnabled={snappingEnabled}
             onSnappingToggle={() => setSnappingEnabled(prev => !prev)}
             showRouteMarkers={true}
             onMultiElementSelect={(ids) => setSelectedElementIds(ids)}
-            onMultiElementUpdate={handleMultiElementUpdate}
+            onMultiElementUpdate={elementOps.updateMultipleElements}
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
             customElementDefaults={customElementDefaults}
@@ -1701,14 +845,12 @@ export default function Home() {
             <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-900/90 border border-red-500 text-white px-4 py-3 rounded shadow-xl flex items-center gap-4 z-50 max-w-md">
               <div className="flex flex-col">
                 <span className="font-bold">{error}</span>
-                {/* Check if error message contains suggestion or if we have a specific flag (we'd need state for that, but simple text check works for now) */}
                 {(error.includes('limit reached') || error.includes('Upgrade')) && (
                   <span className="text-xs text-red-200 mt-1">
                     Need more capacity? Upgrade your plan.
                   </span>
                 )}
               </div>
-
               {(error.includes('limit reached') || error.includes('Upgrade')) && (
                 <a
                   href="/pricing"
@@ -1717,8 +859,9 @@ export default function Home() {
                   Upgrade Plan
                 </a>
               )}
-
-              <button onClick={() => setError(null)} className="font-bold hover:text-red-200 ml-2">✕</button>
+              <button onClick={() => setError(null)} className="font-bold hover:text-red-200 ml-2">
+                ✕
+              </button>
             </div>
           )}
         </main>
@@ -1727,22 +870,24 @@ export default function Home() {
           <PropertiesPanel
             element={selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) || null : null}
             selectedCount={selectedElementIds.length}
-            onUpdate={handleElementUpdate}
+            onUpdate={elementOps.updateElement}
             onGeneratePattern={selectedElementIds.length >= 1 ? () => setShowPatternModal(true) : undefined}
             onResequence={selectedElementIds.length >= 2 ? () => setShowResequenceModal(true) : undefined}
             selectedMarker={selectedMarkerIds.length === 1 ? routeMarkers.find(m => m.id === selectedMarkerIds[0]) || null : null}
-            onMarkerUpdate={handleMarkerUpdate}
-            onMarkerDelete={handleMarkerDelete}
+            onMarkerUpdate={markerOps.updateMarker}
+            onMarkerDelete={() => {
+              markerOps.deleteMarkers(selectedMarkerIds);
+              setSelectedMarkerIds([]);
+            }}
             elements={elements}
             routeMarkers={routeMarkers}
             labelDisplayMode={labelDisplayMode}
             onLabelDisplayModeChange={setLabelDisplayMode}
             onAlign={handleAlign}
-            onBatchUpdateDimensions={handleBatchDimensionUpdate}
+            onBatchUpdateDimensions={elementOps.batchUpdateDimensions}
           />
-          {/* Add Alignment Controls here if needed, or in a separate toolbar */}
         </aside>
-      </div >
+      </div>
 
       <StatusBar
         zoom={zoom}
@@ -1765,52 +910,44 @@ export default function Home() {
         misalignedCount={misalignedCount}
       />
 
-      {
-        showBulkRenameModal && (
-          <BulkRenameModal
-            selectedElements={elements.filter((el) => selectedElementIds.includes(el.id))}
-            allElements={elements}
-            onApply={async (renames) => {
-              // Bulk rename logic
-              const newElements = elements.map(el => {
-                const rename = renames.find(r => r.id === el.id);
-                return rename ? { ...el, label: rename.newLabel } : el;
-              });
-              setElements(newElements);
-              setShowBulkRenameModal(false);
-              // Save
-              for (const { id, newLabel } of renames) {
-                await elementsApi.update(id, { label: newLabel });
-              }
-            }}
-            onCancel={() => setShowBulkRenameModal(false)}
-          />
-        )
-      }
+      {showBulkRenameModal && (
+        <BulkRenameModal
+          selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
+          allElements={elements}
+          onApply={async (renames) => {
+            const newElements = elements.map(el => {
+              const rename = renames.find(r => r.id === el.id);
+              return rename ? { ...el, label: rename.newLabel } : el;
+            });
+            setElements(newElements);
+            setShowBulkRenameModal(false);
+            for (const { id, newLabel } of renames) {
+              await elementsApi.update(id, { label: newLabel });
+            }
+          }}
+          onCancel={() => setShowBulkRenameModal(false)}
+        />
+      )}
 
-      {
-        showPatternModal && selectedElementIds.length >= 1 && (
-          <PatternGeneratorModal
-            templateElement={elements.find(el => el.id === selectedElementIds[0])!}
-            existingLabels={elements.map(el => el.label)}
-            elementLimit={elementLimit}
-            currentElementCount={elements.length}
-            onGenerate={handlePatternGenerate}
-            onCancel={() => setShowPatternModal(false)}
-          />
-        )
-      }
+      {showPatternModal && selectedElementIds.length >= 1 && (
+        <PatternGeneratorModal
+          templateElement={elements.find(el => el.id === selectedElementIds[0])!}
+          existingLabels={elements.map(el => el.label)}
+          elementLimit={elementLimit}
+          currentElementCount={elements.length}
+          onGenerate={handlePatternGenerate}
+          onCancel={() => setShowPatternModal(false)}
+        />
+      )}
 
-      {
-        showResequenceModal && selectedElementIds.length >= 2 && (
-          <ResequenceModal
-            selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
-            allElements={elements}
-            onApply={handleResequenceApply}
-            onCancel={() => setShowResequenceModal(false)}
-          />
-        )
-      }
+      {showResequenceModal && selectedElementIds.length >= 2 && (
+        <ResequenceModal
+          selectedElements={elements.filter(el => selectedElementIds.includes(el.id))}
+          allElements={elements}
+          onApply={handleResequenceApply}
+          onCancel={() => setShowResequenceModal(false)}
+        />
+      )}
 
       <KeyboardShortcutsModal isOpen={showShortcutsModal} onClose={() => setShowShortcutsModal(false)} />
 
@@ -1837,32 +974,29 @@ export default function Home() {
         correctionPlan={autoAlignCorrectionPlan}
       />
 
-      {/* First Element Dimensions Modal */}
       {showFirstElementModal && pendingElementPlacement && (
         <DimensionsModal
           mode="create"
           elementType={pendingElementPlacement.type as 'bay' | 'flow_rack' | 'full_pallet'}
           initialWidth={ELEMENT_CONFIGS[pendingElementPlacement.type].width}
           initialHeight={ELEMENT_CONFIGS[pendingElementPlacement.type].height}
-          onApply={(dimensions) => handleFirstElementModalApply(dimensions)}
+          onApply={handleFirstElementModalApply}
           onCancel={handleFirstElementModalCancel}
         />
       )}
 
-      {
-        toast && (
-          <Toast
-            message={toast.message}
-            type={toast.type}
-            duration={toast.duration}
-            onUndo={toast.onUndo}
-            onClose={() => {
-              if (toast.onClose) toast.onClose();
-              setToast(null);
-            }}
-          />
-        )
-      }
-    </div >
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          duration={toast.duration}
+          onUndo={toast.onUndo}
+          onClose={() => {
+            if (toast.onClose) toast.onClose();
+            setToast(null);
+          }}
+        />
+      )}
+    </div>
   );
 }
