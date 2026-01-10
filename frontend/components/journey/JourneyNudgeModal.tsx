@@ -74,6 +74,7 @@ export default function JourneyNudgeModal() {
   // Determine if we should show a nudge
   useEffect(() => {
     if (!journey || journey.loading) return;
+    if (!journey.isAuthenticated) return;
     if (journey.preferences.onboarding_completed || journey.preferences.onboarding_dismissed) return;
 
     // Wait 2 seconds before showing nudge (don't interrupt immediately)
@@ -83,6 +84,7 @@ export default function JourneyNudgeModal() {
 
   useEffect(() => {
     if (!journey || journey.loading || !showDelay) return;
+    if (!journey.isAuthenticated) return;
     if (journey.preferences.onboarding_completed || journey.preferences.onboarding_dismissed) return;
 
     const completedMilestones = journey.progress.completedMilestones;

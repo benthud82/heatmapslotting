@@ -119,6 +119,41 @@ const getDraggedElementEdges = (
 };
 
 /**
+ * Check if two axis-aligned bounding boxes overlap
+ */
+const doAABBsOverlap = (a: ElementEdges, b: ElementEdges): boolean => {
+  return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+};
+
+/**
+ * Check if a ghost element would overlap with any existing elements
+ * Returns true if there's a collision (element cannot be placed)
+ */
+export const checkElementCollision = (
+  ghostElement: { x: number; y: number; width: number; height: number; rotation?: number },
+  existingElements: WarehouseElement[]
+): boolean => {
+  if (existingElements.length === 0) return false;
+
+  const ghostEdges = getDraggedElementEdges(
+    ghostElement.x,
+    ghostElement.y,
+    ghostElement.width,
+    ghostElement.height,
+    ghostElement.rotation ?? 0
+  );
+
+  for (const element of existingElements) {
+    const elementEdges = getElementEdges(element);
+    if (doAABBsOverlap(ghostEdges, elementEdges)) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+/**
  * Find snap points for a dragged element against all other elements
  * Returns snap coordinates if within threshold, null otherwise
  */

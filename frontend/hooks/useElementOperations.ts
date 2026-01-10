@@ -11,6 +11,8 @@ interface UseElementOperationsOptions {
   setElements: (elements: WarehouseElement[] | ((prev: WarehouseElement[]) => WarehouseElement[])) => void;
   customElementDefaults: Record<string, { width: number; height: number }>;
   setCustomElementDefaults: React.Dispatch<React.SetStateAction<Record<string, { width: number; height: number }>>>;
+  elementRotationDefaults: Record<string, number>;
+  setElementRotationDefaults: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
   onSavingChange?: (saving: boolean) => void;
@@ -21,6 +23,8 @@ interface UseElementOperationsReturn {
   isFirstOfType: (type: ElementType) => boolean;
   // Get effective dimensions for an element type
   getEffectiveDimensions: (type: ElementType) => { width: number; height: number };
+  // Get effective rotation for an element type
+  getEffectiveRotation: (type: ElementType) => number;
   // Create a new element
   createElement: (x: number, y: number, type: ElementType) => Promise<void>;
   // Update an element
@@ -43,6 +47,8 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     setElements,
     customElementDefaults,
     setCustomElementDefaults,
+    elementRotationDefaults,
+    setElementRotationDefaults,
     onSuccess,
     onError,
     onSavingChange,
@@ -64,8 +70,13 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     return { width: ELEMENT_CONFIGS[type].width, height: ELEMENT_CONFIGS[type].height };
   }, [customElementDefaults]);
 
+  // Get effective rotation (remembers last-used rotation per element type)
+  const getEffectiveRotation = useCallback((type: ElementType): number => {
+    return elementRotationDefaults[type] ?? 0;
+  }, [elementRotationDefaults]);
+
   // Create temp element helper
-  const createTempElement = (x: number, y: number, type: ElementType, dimensions: { width: number; height: number }): WarehouseElement => ({
+  const createTempElement = (x: number, y: number, type: ElementType, dimensions: { width: number; height: number }, rotation: number): WarehouseElement => ({
     id: nanoid(),
     layout_id: layout?.id || '',
     element_type: type,
@@ -74,7 +85,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     y_coordinate: y,
     width: dimensions.width,
     height: dimensions.height,
-    rotation: 0,
+    rotation,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   });
@@ -82,7 +93,8 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
   // Create a new element
   const createElement = useCallback(async (x: number, y: number, type: ElementType) => {
     const dimensions = getEffectiveDimensions(type);
-    const tempElement = createTempElement(x, y, type, dimensions);
+    const rotation = getEffectiveRotation(type);
+    const tempElement = createTempElement(x, y, type, dimensions, rotation);
     const tempId = tempElement.id;
 
     // Optimistic update
@@ -97,7 +109,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
         label: tempElement.label,
         x_coordinate: x,
         y_coordinate: y,
-        rotation: 0,
+        rotation,
         width: dimensions.width,
         height: dimensions.height,
       });
@@ -112,7 +124,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     } finally {
       setSaving(false);
     }
-  }, [elements, layout, currentLayoutId, getEffectiveDimensions, setElements, onError]);
+  }, [elements, layout, currentLayoutId, getEffectiveDimensions, getEffectiveRotation, setElements, onError]);
 
   // Create with custom dimensions
   const createWithDimensions = useCallback(async (
@@ -124,7 +136,8 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     // Store as custom default
     setCustomElementDefaults(prev => ({ ...prev, [type]: dimensions }));
 
-    const tempElement = createTempElement(x, y, type, dimensions);
+    const rotation = getEffectiveRotation(type);
+    const tempElement = createTempElement(x, y, type, dimensions, rotation);
     const tempId = tempElement.id;
 
     // Optimistic update
@@ -139,7 +152,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
         label: tempElement.label,
         x_coordinate: x,
         y_coordinate: y,
-        rotation: 0,
+        rotation,
         width: dimensions.width,
         height: dimensions.height,
       });
@@ -155,13 +168,24 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     } finally {
       setSaving(false);
     }
-  }, [elements, layout, currentLayoutId, setElements, setCustomElementDefaults, onSuccess, onError]);
+  }, [elements, layout, currentLayoutId, setElements, setCustomElementDefaults, getEffectiveRotation, onSuccess, onError]);
 
   // Update an element
   const updateElement = useCallback(async (
     id: string,
     updates: Partial<WarehouseElement>
   ) => {
+    // Find the element to get its type for rotation memory
+    const element = elements.find(el => el.id === id);
+
+    // Remember rotation for this element type when rotation changes
+    if (updates.rotation !== undefined && element) {
+      setElementRotationDefaults(prev => ({
+        ...prev,
+        [element.element_type]: updates.rotation as number,
+      }));
+    }
+
     const updatedElements = elements.map(el =>
       el.id === id ? { ...el, ...updates } : el
     );
@@ -176,7 +200,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
     } finally {
       setSaving(false);
     }
-  }, [elements, setElements, onError]);
+  }, [elements, setElements, setElementRotationDefaults, onError]);
 
   // Update multiple elements
   const updateMultipleElements = useCallback(async (
@@ -269,6 +293,7 @@ export function useElementOperations(options: UseElementOperationsOptions): UseE
   return {
     isFirstOfType,
     getEffectiveDimensions,
+    getEffectiveRotation,
     createElement,
     updateElement,
     updateMultipleElements,

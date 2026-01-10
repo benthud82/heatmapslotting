@@ -96,6 +96,9 @@ export default function WhatsNextWidget() {
 
   if (!journey || journey.loading) return null;
 
+  // Hide if not authenticated (e.g., on login page)
+  if (!journey.isAuthenticated) return null;
+
   // Hide if onboarding is complete or dismissed
   if (journey.preferences.onboarding_completed || journey.preferences.onboarding_dismissed) {
     return null;

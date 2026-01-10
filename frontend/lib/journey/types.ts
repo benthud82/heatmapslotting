@@ -61,6 +61,7 @@ export interface JourneyState {
 }
 
 export interface JourneyContextValue extends JourneyState {
+  isAuthenticated: boolean;
   markMilestone: (milestone: MilestoneKey, metadata?: Record<string, unknown>) => Promise<void>;
   dismissHint: (hintId: string) => Promise<void>;
   dismissOnboarding: () => Promise<void>;

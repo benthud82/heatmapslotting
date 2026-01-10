@@ -223,6 +223,7 @@ export function JourneyProvider({ children }: { children: React.ReactNode }) {
     <JourneyContext.Provider
       value={{
         ...state,
+        isAuthenticated,
         markMilestone,
         dismissHint,
         dismissOnboarding,

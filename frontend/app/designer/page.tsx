@@ -125,6 +125,7 @@ export default function DesignerPage() {
     type: ElementType;
   } | null>(null);
   const [customElementDefaults, setCustomElementDefaults] = useState<Record<string, { width: number; height: number }>>({});
+  const [elementRotationDefaults, setElementRotationDefaults] = useState<Record<string, number>>({});
 
   // Refs
   const canvasRef = useRef<WarehouseCanvasRef>(null);
@@ -140,6 +141,8 @@ export default function DesignerPage() {
     setElements,
     customElementDefaults,
     setCustomElementDefaults,
+    elementRotationDefaults,
+    setElementRotationDefaults,
     onSuccess: showToast,
     onError: (msg) => {
       setError(msg);
@@ -839,6 +842,7 @@ export default function DesignerPage() {
             showDistances={showDistances}
             onDistancesToggle={() => setShowDistances(prev => !prev)}
             customElementDefaults={customElementDefaults}
+            elementRotationDefaults={elementRotationDefaults}
           />
 
           {error && (

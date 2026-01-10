@@ -7,7 +7,7 @@ import { Stage, Layer, Rect, Text, Transformer, Line, Group, Arrow, Image as Kon
 import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType, ROUTE_MARKER_CONFIGS } from '@/lib/types';
-import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges } from '@/lib/snapping';
+import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges, checkElementCollision } from '@/lib/snapping';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
 import { calculateRouteDistance, type DistanceCalculationResult, getMarkerCenter, getElementCenter, pixelsToFeet, calculateManhattanDistance } from '@/lib/distanceCalculation';
@@ -284,6 +284,8 @@ interface WarehouseCanvasProps {
   maxBurden?: number;
   // Custom element defaults for ghost preview dimensions
   customElementDefaults?: Record<string, { width: number; height: number }>;
+  // Rotation defaults for ghost preview rotation
+  elementRotationDefaults?: Record<string, number>;
   // Reslot move visualization
   activeReslotMove?: {
     fromId: string;
@@ -325,6 +327,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   minBurden = 0,
   maxBurden = 0,
   customElementDefaults,
+  elementRotationDefaults,
   activeReslotMove,
 }, ref) {
   const stageRef = useRef<Konva.Stage>(null);
@@ -338,6 +341,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const [cursorCanvasPos, setCursorCanvasPos] = useState<{ x: number; y: number } | null>(null);
+  const [ghostHasCollision, setGhostHasCollision] = useState(false);
   const [hoveredParkingId, setHoveredParkingId] = useState<string | null>(null);
   const [parkingTooltipPos, setParkingTooltipPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -802,6 +806,8 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             const customDims = customElementDefaults?.[selectedType as ElementType];
             const ghostWidth = customDims?.width ?? config.width;
             const ghostHeight = customDims?.height ?? config.height;
+            // Use remembered rotation for this element type
+            const ghostRotation = elementRotationDefaults?.[selectedType as ElementType] ?? 0;
 
             // Calculate potential snap points
             const ghostElement = {
@@ -809,7 +815,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               y: pos.y - Number(ghostHeight) / 2,
               width: Number(ghostWidth),
               height: Number(ghostHeight),
-              rotation: 0,
+              rotation: ghostRotation,
             };
 
             const snapResult = findSnapPoints(ghostElement, elements);
@@ -817,18 +823,30 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             const snappedX = snapResult.snapX !== null ? snapResult.snapX + Number(ghostWidth) / 2 : pos.x;
             const snappedY = snapResult.snapY !== null ? snapResult.snapY + Number(ghostHeight) / 2 : pos.y;
 
+            // Check for collision at the snapped position
+            const snappedGhostElement = {
+              x: snappedX - Number(ghostWidth) / 2,
+              y: snappedY - Number(ghostHeight) / 2,
+              width: Number(ghostWidth),
+              height: Number(ghostHeight),
+              rotation: ghostRotation,
+            };
+            setGhostHasCollision(checkElementCollision(snappedGhostElement, elements));
+
             setCursorCanvasPos({ x: snappedX, y: snappedY });
             // For warehouse elements, findSnapPoints doesn't return snappedElementIds, so clear it
             setSnapPreviewLines([]);
             setSnappedElementIds([]);
           } else {
             setCursorCanvasPos(pos);
+            setGhostHasCollision(false);
             setSnapPreviewLines([]);
             setSnappedElementIds([]);
           }
         }
       } else {
         setCursorCanvasPos(pos);
+        setGhostHasCollision(false);
         setSnapPreviewLines([]);
         setSnappedElementIds([]);
       }
@@ -1459,6 +1477,32 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             />
             {gridLines}
 
+            {/* Negative X area overlay (left of x=0) - red tinted */}
+            {viewportBounds.startX < 0 && (
+              <Rect
+                x={viewportBounds.startX}
+                y={viewportBounds.startY}
+                width={Math.min(-viewportBounds.startX, viewportBounds.endX - viewportBounds.startX)}
+                height={viewportBounds.endY - viewportBounds.startY}
+                fill="#7f1d1d"
+                opacity={0.3}
+                listening={false}
+              />
+            )}
+
+            {/* Negative Y area overlay (above y=0) - red tinted */}
+            {viewportBounds.startY < 0 && (
+              <Rect
+                x={Math.max(0, viewportBounds.startX)}
+                y={viewportBounds.startY}
+                width={viewportBounds.endX - Math.max(0, viewportBounds.startX)}
+                height={Math.min(-viewportBounds.startY, viewportBounds.endY - viewportBounds.startY)}
+                fill="#7f1d1d"
+                opacity={0.3}
+                listening={false}
+              />
+            )}
+
             {/* Selection Rectangle */}
             {selectionRect.isVisible && (
               <Rect
@@ -2048,20 +2092,28 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
               const customDims = customElementDefaults?.[selectedType as ElementType];
               const ghostWidth = customDims?.width ?? config.width;
               const ghostHeight = customDims?.height ?? config.height;
+              // Use remembered rotation for this element type
+              const ghostRotation = elementRotationDefaults?.[selectedType as ElementType] ?? 0;
+
+              // Use red color when collision detected, otherwise use element color
+              const ghostColor = ghostHasCollision ? '#ef4444' : config.color;
 
               return (
                 <Rect
-                  x={cursorCanvasPos.x - Number(ghostWidth) / 2}
-                  y={cursorCanvasPos.y - Number(ghostHeight) / 2}
+                  x={cursorCanvasPos.x}
+                  y={cursorCanvasPos.y}
                   width={Number(ghostWidth)}
                   height={Number(ghostHeight)}
-                  fill={config.color}
-                  opacity={0.3}
-                  stroke={config.color}
+                  offsetX={Number(ghostWidth) / 2}
+                  offsetY={Number(ghostHeight) / 2}
+                  rotation={ghostRotation}
+                  fill={ghostColor}
+                  opacity={ghostHasCollision ? 0.5 : 0.3}
+                  stroke={ghostColor}
                   strokeWidth={2}
                   dash={[5, 5]}
                   listening={false}
-                  shadowColor={config.color}
+                  shadowColor={ghostColor}
                   shadowBlur={10}
                   shadowOpacity={0.5}
                 />
