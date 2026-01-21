@@ -431,4 +431,5 @@ export interface PaginatedOpportunitiesResult {
   opportunities: CapacityAwareReslottingOpportunity[];
   hasMore: boolean;
   totalAvailable: number;
+  totalSavingsFeet: number;  // Sum of ALL opportunity savings (not just paginated)
 }

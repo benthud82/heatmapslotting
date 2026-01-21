@@ -1449,7 +1449,7 @@ export function findItemReslottingOpportunities(
 ): PaginatedOpportunitiesResult {
   const { limit = 10, offset = 0 } = paginationOptions || {};
   if (!itemAnalysis.length || !elements.length || !cartParkingSpots.length) {
-    return { opportunities: [], hasMore: false, totalAvailable: 0 };
+    return { opportunities: [], hasMore: false, totalAvailable: 0, totalSavingsFeet: 0 };
   }
 
   // Calculate element capacities if item data is provided
@@ -1644,17 +1644,24 @@ export function findItemReslottingOpportunities(
     })));
   }
 
+  // Calculate total savings from ALL opportunities before pagination
+  const totalSavingsFeet = sortedOpportunities.reduce(
+    (sum, opp) => sum + opp.totalDailyWalkSavings,
+    0
+  );
+
   // Apply pagination
   const totalAvailable = sortedOpportunities.length;
   const paginatedOpportunities = sortedOpportunities.slice(offset, offset + limit);
   const hasMore = offset + limit < totalAvailable;
 
-  console.log('[RESLOT DEBUG] Pagination:', { offset, limit, totalAvailable, hasMore, returned: paginatedOpportunities.length });
+  console.log('[RESLOT DEBUG] Pagination:', { offset, limit, totalAvailable, hasMore, returned: paginatedOpportunities.length, totalSavingsFeet });
 
   return {
     opportunities: paginatedOpportunities,
     hasMore,
-    totalAvailable
+    totalAvailable,
+    totalSavingsFeet,
   };
 }
 

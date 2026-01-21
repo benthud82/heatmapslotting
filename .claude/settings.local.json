@@ -57,9 +57,12 @@
       "WebFetch(domain:www.hopstack.io)",
       "WebFetch(domain:jackpine.us)",
       "WebFetch(domain:www.easymetrics.com)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(npm run lint:*)",
+      "Skill(frontend-design)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "outputStyle": "default"
 }

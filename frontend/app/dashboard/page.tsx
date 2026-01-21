@@ -41,6 +41,7 @@ import ParetoChart from '@/components/dashboard/ParetoChart';
 import CongestionMap from '@/components/dashboard/CongestionMap';
 import TrendWatch from '@/components/dashboard/TrendWatch';
 import ElementDetailModal from '@/components/dashboard/ElementDetailModal';
+import ItemDetailModal from '@/components/dashboard/ItemDetailModal';
 import DashboardFilterBar from '@/components/dashboard/DashboardFilterBar';
 import ConfirmModal from '@/components/ConfirmModal';
 import { useJourney } from '@/lib/journey';
@@ -102,6 +103,7 @@ export default function Dashboard() {
 
     // Modal State
     const [selectedElement, setSelectedElement] = useState<VelocityAnalysis | null>(null);
+    const [selectedItem, setSelectedItem] = useState<ItemVelocityAnalysis | null>(null);
     const [showClearConfirm, setShowClearConfirm] = useState(false);
     const [isClearing, setIsClearing] = useState(false);
 
@@ -692,6 +694,7 @@ export default function Dashboard() {
                                     itemData={itemVelocityAnalysis}
                                     loading={loading}
                                     onRowClick={(item) => setSelectedElement(item)}
+                                    onItemRowClick={(item) => setSelectedItem(item)}
                                 />
                             </div>
                             <div className="xl:col-span-1">
@@ -785,6 +788,13 @@ export default function Dashboard() {
                 element={selectedElement}
                 layoutId={currentLayoutId}
                 onClose={() => setSelectedElement(null)}
+            />
+
+            {/* Item Detail Modal */}
+            <ItemDetailModal
+                item={selectedItem}
+                layoutId={currentLayoutId}
+                onClose={() => setSelectedItem(null)}
             />
         </div>
     );

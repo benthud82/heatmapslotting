@@ -193,6 +193,7 @@ export default function Heatmap() {
   const [loadedOpportunities, setLoadedOpportunities] = useState<CapacityAwareReslottingOpportunity[]>([]);
   const [hasMoreOpportunities, setHasMoreOpportunities] = useState(false);
   const [totalOpportunities, setTotalOpportunities] = useState(0);
+  const [totalSavingsFeet, setTotalSavingsFeet] = useState(0);
 
   // Swap suggestions toggle
   const [showSwapSuggestions, setShowSwapSuggestions] = useState(true);
@@ -564,6 +565,7 @@ export default function Heatmap() {
       setLoadedOpportunities([]);
       setHasMoreOpportunities(false);
       setTotalOpportunities(0);
+      setTotalSavingsFeet(0);
       return;
     }
 
@@ -583,6 +585,7 @@ export default function Heatmap() {
     setLoadedOpportunities(result.opportunities);
     setHasMoreOpportunities(result.hasMore);
     setTotalOpportunities(result.totalAvailable);
+    setTotalSavingsFeet(result.totalSavingsFeet);
     setReslotOffset(0);
     setActiveReslotIndex(0);
   }, [reslotAnalysisData, sameElementTypeOnly, capacityThreshold, itemData]);
@@ -610,15 +613,20 @@ export default function Heatmap() {
   }, [reslotAnalysisData, hasMoreOpportunities, loadedOpportunities.length, sameElementTypeOnly, itemData, capacityThreshold]);
 
   // Calculate item-level slotting recommendations (uses loaded opportunities)
-  const itemSlottingRecommendations = useMemo((): { opportunities: CapacityAwareReslottingOpportunity[]; totalDailySavingsFeet: number } => {
-    // Calculate total potential savings from loaded opportunities
-    const totalDailySavingsFeet = loadedOpportunities.reduce(
+  const itemSlottingRecommendations = useMemo(() => {
+    // Calculate savings from loaded (top N) opportunities
+    const loadedSavingsFeet = loadedOpportunities.reduce(
       (sum, opp) => sum + opp.totalDailyWalkSavings,
       0
     );
 
-    return { opportunities: loadedOpportunities, totalDailySavingsFeet };
-  }, [loadedOpportunities]);
+    return {
+      opportunities: loadedOpportunities,
+      loadedSavingsFeet,
+      totalSavingsFeet,
+      totalOpportunityCount: totalOpportunities,
+    };
+  }, [loadedOpportunities, totalSavingsFeet, totalOpportunities]);
 
   // Computed active reslot move for canvas visualization
   const activeReslotMove = useMemo(() => {
@@ -1042,9 +1050,10 @@ export default function Heatmap() {
           {itemSlottingRecommendations.opportunities.length > 0 && (
             <div className="absolute top-4 right-4 z-40">
               <OptimizationSummaryCard
-                totalDailySavingsFeet={itemSlottingRecommendations.totalDailySavingsFeet}
-                opportunityCount={itemSlottingRecommendations.opportunities.length}
-                timeSavingsMinutes={Math.round(itemSlottingRecommendations.totalDailySavingsFeet / 264)}
+                loadedSavingsFeet={itemSlottingRecommendations.loadedSavingsFeet}
+                loadedOpportunityCount={itemSlottingRecommendations.opportunities.length}
+                totalSavingsFeet={itemSlottingRecommendations.totalSavingsFeet}
+                totalOpportunityCount={itemSlottingRecommendations.totalOpportunityCount}
                 onStartTour={() => {
                   setShowReslotHUD(true);
                   setActiveReslotIndex(0);

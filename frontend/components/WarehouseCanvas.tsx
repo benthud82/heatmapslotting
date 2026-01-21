@@ -8,6 +8,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import type Konva from 'konva';
 import { WarehouseElement, ElementType, ELEMENT_CONFIGS, LabelDisplayMode, RouteMarker, RouteMarkerType, ROUTE_MARKER_CONFIGS } from '@/lib/types';
 import { findSnapPoints, snapRotation, SNAP_THRESHOLD, getElementEdges, checkElementCollision } from '@/lib/snapping';
+import { calculateDistanceMarkers, DistanceMarker } from '@/lib/distanceMarkers';
 import { getHeatmapColor } from '@/lib/heatmapColors';
 import { exportStageAsPNG, exportStageAsPDF } from '@/lib/canvasExport';
 import { calculateRouteDistance, type DistanceCalculationResult, getMarkerCenter, getElementCenter, pixelsToFeet, calculateManhattanDistance } from '@/lib/distanceCalculation';
@@ -344,6 +345,22 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [ghostHasCollision, setGhostHasCollision] = useState(false);
   const [hoveredParkingId, setHoveredParkingId] = useState<string | null>(null);
   const [parkingTooltipPos, setParkingTooltipPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Route Distance card drag state (PiP-style draggable)
+  const [routeCardDrag, setRouteCardDrag] = useState<{
+    isDragging: boolean;
+    position: { x: number; y: number } | null;
+    startPos: { x: number; y: number };
+    startMouse: { x: number; y: number };
+  }>({
+    isDragging: false,
+    position: null,
+    startPos: { x: 16, y: 16 },
+    startMouse: { x: 0, y: 0 }
+  });
+
+  // Route Distance card minimized state
+  const [isRouteCardMinimized, setIsRouteCardMinimized] = useState(false);
 
   // Zoom and pan state
   const [stageScale, setStageScale] = useState(1);
@@ -733,6 +750,48 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     };
   }, [isReadOnly]);
 
+  // Route Distance card drag handler (PiP-style dragging)
+  const handleRouteCardMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const currentX = routeCardDrag.position?.x ?? 16;
+    const currentY = routeCardDrag.position?.y ?? 16;
+    setRouteCardDrag({
+      isDragging: true,
+      position: routeCardDrag.position,
+      startPos: { x: currentX, y: currentY },
+      startMouse: { x: e.clientX, y: e.clientY }
+    });
+  }, [routeCardDrag.position]);
+
+  // Route Distance card drag effect - handles mouse move and up events
+  useEffect(() => {
+    if (!routeCardDrag.isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - routeCardDrag.startMouse.x;
+      const deltaY = e.clientY - routeCardDrag.startMouse.y;
+      setRouteCardDrag(prev => ({
+        ...prev,
+        position: {
+          x: Math.max(0, prev.startPos.x + deltaX),
+          y: Math.max(0, prev.startPos.y + deltaY)
+        }
+      }));
+    };
+
+    const handleMouseUp = () => {
+      setRouteCardDrag(prev => ({ ...prev, isDragging: false }));
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [routeCardDrag.isDragging, routeCardDrag.startMouse, routeCardDrag.startPos]);
+
   // Coordinate conversion utility: screen coordinates → canvas coordinates
   // Accounts for zoom (scale) and pan (position offset)
   const getRelativePointerPosition = () => {
@@ -792,10 +851,12 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             setCursorCanvasPos({ x: snappedX, y: snappedY });
             setSnapPreviewLines(snapResult.snapLines);
             setSnappedElementIds(snapResult.snappedElementIds);
+            setDistanceMarkers([]); // No distance markers for route markers
           } else {
             setCursorCanvasPos(pos);
             setSnapPreviewLines([]);
             setSnappedElementIds([]);
+            setDistanceMarkers([]);
           }
         } else {
           const config = ELEMENT_CONFIGS[selectedType as ElementType];
@@ -833,6 +894,18 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             };
             setGhostHasCollision(checkElementCollision(snappedGhostElement, elements));
 
+            // Calculate distance markers for the ghost element
+            const ghostBounds = {
+              left: snappedGhostElement.x,
+              right: snappedGhostElement.x + Number(ghostWidth),
+              top: snappedGhostElement.y,
+              bottom: snappedGhostElement.y + Number(ghostHeight),
+              centerX: snappedX,
+              centerY: snappedY
+            };
+            const markerResult = calculateDistanceMarkers(ghostBounds, elements, routeMarkers);
+            setDistanceMarkers(markerResult.markers);
+
             setCursorCanvasPos({ x: snappedX, y: snappedY });
             // For warehouse elements, findSnapPoints doesn't return snappedElementIds, so clear it
             setSnapPreviewLines([]);
@@ -842,6 +915,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             setGhostHasCollision(false);
             setSnapPreviewLines([]);
             setSnappedElementIds([]);
+            setDistanceMarkers([]);
           }
         }
       } else {
@@ -849,6 +923,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         setGhostHasCollision(false);
         setSnapPreviewLines([]);
         setSnappedElementIds([]);
+        setDistanceMarkers([]);
       }
 
       onCursorMove?.(pos.x, pos.y);
@@ -1167,6 +1242,21 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
     // Convert back to center coordinates for node position
     node.x(topLeftX + halfWidth);
     node.y(topLeftY + halfHeight);
+
+    // Calculate distance markers during single element drag
+    if (!isGroupDragging) {
+      const draggedBounds = {
+        left: topLeftX,
+        right: topLeftX + Number(element.width),
+        top: topLeftY,
+        bottom: topLeftY + Number(element.height),
+        centerX: topLeftX + halfWidth,
+        centerY: topLeftY + halfHeight
+      };
+      const otherElements = elements.filter(el => el.id !== element.id);
+      const markerResult = calculateDistanceMarkers(draggedBounds, otherElements, routeMarkers, element.id);
+      setDistanceMarkers(markerResult.markers);
+    }
   };
 
   const handleElementDragEnd = (element: WarehouseElement, e: KonvaEventObject<DragEvent>) => {
@@ -1212,6 +1302,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       // Reset group drag state
       setIsGroupDragging(false);
       setGroupDragStart(null);
+      setDistanceMarkers([]); // Clear distance markers
       return;
     }
 
@@ -1221,6 +1312,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
       x_coordinate: node.x() - Number(element.width) / 2,
       y_coordinate: node.y() - Number(element.height) / 2,
     });
+
+    // Clear distance markers
+    setDistanceMarkers([]);
   };
 
   const handleElementTransform = (element: WarehouseElement, e: KonvaEventObject<Event>) => {
@@ -1418,6 +1512,9 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
   const [snapPreviewLines, setSnapPreviewLines] = useState<Array<{ points: number[], orientation: 'horizontal' | 'vertical' }>>([]);
   const [snappedElementIds, setSnappedElementIds] = useState<string[]>([]);
 
+  // Distance markers for element placement/dragging
+  const [distanceMarkers, setDistanceMarkers] = useState<DistanceMarker[]>([]);
+
   return (
     <div className="relative w-full h-full">
       {/* Canvas Container with Blueprint Styling */}
@@ -1443,6 +1540,7 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
             setCursorCanvasPos(null);
             setSnapPreviewLines([]);
             setSnappedElementIds([]);
+            setDistanceMarkers([]);
           }}
           scaleY={stageScale}
           x={stagePosition.x}
@@ -1550,6 +1648,51 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
                 />
               );
             })}
+
+            {/* Distance Marker Lines and Labels */}
+            {distanceMarkers.map((marker, index) => (
+              <Group key={`distance-marker-${marker.direction}-${index}`} listening={false}>
+                {/* Dashed distance line */}
+                <Line
+                  points={[
+                    marker.lineStart.x,
+                    marker.lineStart.y,
+                    marker.lineEnd.x,
+                    marker.lineEnd.y
+                  ]}
+                  stroke="#ef4444"
+                  strokeWidth={1}
+                  dash={[3, 3]}
+                  opacity={0.7}
+                />
+                {/* Distance label at midpoint */}
+                <Group x={marker.labelPosition.x} y={marker.labelPosition.y}>
+                  {/* Background rectangle */}
+                  <Rect
+                    x={-22}
+                    y={-10}
+                    width={44}
+                    height={20}
+                    fill="#0f172a"
+                    stroke="#334155"
+                    strokeWidth={1}
+                    cornerRadius={3}
+                    opacity={0.95}
+                  />
+                  {/* Distance text */}
+                  <Text
+                    x={-22}
+                    y={-6}
+                    width={44}
+                    text={`${marker.distanceFeet.toFixed(1)}'`}
+                    fontSize={10}
+                    fontFamily="monospace"
+                    fill="#ef4444"
+                    align="center"
+                  />
+                </Group>
+              </Group>
+            ))}
 
             {/* Render all elements */}
             {elements.map((element) => {
@@ -2167,74 +2310,134 @@ const WarehouseCanvas = React.forwardRef<WarehouseCanvasRef, WarehouseCanvasProp
         </Stage>
 
         {showDistances && routeDistanceResult && (
-          <div className="absolute top-4 left-4 z-40 bg-slate-900/95 border border-slate-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] p-4 min-w-[240px] backdrop-blur-md">
-            {/* Accent Bar */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 rounded-t-xl opacity-80"></div>
-
-            <div className="flex flex-col gap-3 mt-1">
-              {/* Header */}
-              <div className="flex justify-between items-center">
-                <div className="text-[11px] font-mono font-bold text-blue-400 tracking-wider uppercase">
-                  Route Distance
-                </div>
-                <div className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400 border border-slate-700">
-                  Manhattan
-                </div>
+          <div
+            className={`absolute z-40 bg-slate-900/95 border border-slate-700 rounded-xl shadow-[0_0_20px_rgba(0,0,0,0.5)] backdrop-blur-md select-none transition-all duration-200 ${
+              isRouteCardMinimized ? 'p-2' : 'p-4 min-w-[240px]'
+            }`}
+            style={{
+              left: routeCardDrag.position?.x ?? 16,
+              top: routeCardDrag.position?.y ?? 16,
+            }}
+          >
+            {/* Drag Handle with Minimize/Expand Button */}
+            <div
+              className={`absolute top-0 left-0 right-0 h-6 flex items-center justify-between px-2 rounded-t-xl transition-colors ${
+                routeCardDrag.isDragging
+                  ? 'cursor-grabbing bg-slate-700/50'
+                  : 'cursor-grab hover:bg-slate-800/50'
+              }`}
+              onMouseDown={handleRouteCardMouseDown}
+              title="Drag to move"
+            >
+              {/* Drag dots */}
+              <div className="flex gap-1 flex-1 justify-center">
+                <div className="w-1 h-1 rounded-full bg-slate-500"></div>
+                <div className="w-1 h-1 rounded-full bg-slate-500"></div>
+                <div className="w-1 h-1 rounded-full bg-slate-500"></div>
               </div>
-
-              {/* Cart Route Distance - Main Metric */}
-              <div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-mono font-bold text-white">
-                    {routeDistanceResult.cartTravelFeet.toFixed(0)}
-                  </span>
-                  <span className="text-sm font-mono font-bold text-blue-400">FT</span>
-                </div>
-                <div className="text-[10px] font-mono text-slate-500 mt-0.5">
-                  Cart path: Start → {routeDistanceResult.parkingStopCount} stops → Stop
-                </div>
-              </div>
-
-              {/* Element Round-Trip Stats */}
-              {elementDistances.size > 0 && (() => {
-                const distances = Array.from(elementDistances.values()).map(d => d.distanceFeet);
-                const minDist = Math.min(...distances);
-                const maxDist = Math.max(...distances);
-                const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
-
-                return (
-                  <div className="border-t border-slate-700 pt-3">
-                    <div className="text-[10px] font-mono text-slate-400 mb-2 uppercase tracking-wide">
-                      Element Round-Trip Distances
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <div className="text-center">
-                        <div className="text-[10px] font-mono text-slate-500">Nearest</div>
-                        <div className="text-sm font-mono font-semibold text-emerald-400">{minDist.toFixed(0)} ft</div>
-                      </div>
-                      <div className="text-center border-x border-slate-700">
-                        <div className="text-[10px] font-mono text-slate-500">Average</div>
-                        <div className="text-sm font-mono font-semibold text-slate-300">{avgDist.toFixed(0)} ft</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-[10px] font-mono text-slate-500">Farthest</div>
-                        <div className="text-sm font-mono font-semibold text-rose-400">{maxDist.toFixed(0)} ft</div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Stats row */}
-              <div className="flex justify-between border-t border-slate-700 pt-2">
-                <div className="text-[10px] font-mono text-slate-500">
-                  <span className="text-slate-300 font-semibold">{routeDistanceResult.parkingStopCount}</span> stops
-                </div>
-                <div className="text-[10px] font-mono text-slate-500">
-                  <span className="text-slate-300 font-semibold">{elementDistances.size}</span> elements
-                </div>
-              </div>
+              {/* Minimize/Expand Button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsRouteCardMinimized(!isRouteCardMinimized);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                className="w-5 h-5 flex items-center justify-center rounded hover:bg-slate-600/50 transition-colors text-slate-400 hover:text-white"
+                title={isRouteCardMinimized ? 'Expand' : 'Minimize'}
+              >
+                {isRouteCardMinimized ? (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5v-4m0 4h-4m4 0l-5-5" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+                  </svg>
+                )}
+              </button>
             </div>
+
+            {/* Accent Bar - below drag handle */}
+            <div className="absolute top-5 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-cyan-500 to-blue-600 opacity-80"></div>
+
+            {/* Minimized View */}
+            {isRouteCardMinimized ? (
+              <div className="mt-5 flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                </svg>
+                <span className="text-lg font-mono font-bold text-white">
+                  {routeDistanceResult.cartTravelFeet.toFixed(0)}
+                </span>
+                <span className="text-xs font-mono font-bold text-blue-400">FT</span>
+              </div>
+            ) : (
+              /* Expanded View */
+              <div className="flex flex-col gap-3 mt-4">
+                {/* Header */}
+                <div className="flex justify-between items-center">
+                  <div className="text-[11px] font-mono font-bold text-blue-400 tracking-wider uppercase">
+                    Route Distance
+                  </div>
+                  <div className="px-2 py-0.5 bg-slate-800 rounded text-[9px] font-mono text-slate-400 border border-slate-700">
+                    Manhattan
+                  </div>
+                </div>
+
+                {/* Cart Route Distance - Main Metric */}
+                <div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-mono font-bold text-white">
+                      {routeDistanceResult.cartTravelFeet.toFixed(0)}
+                    </span>
+                    <span className="text-sm font-mono font-bold text-blue-400">FT</span>
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500 mt-0.5">
+                    Cart path: Start → {routeDistanceResult.parkingStopCount} stops → Stop
+                  </div>
+                </div>
+
+                {/* Element Round-Trip Stats */}
+                {elementDistances.size > 0 && (() => {
+                  const distances = Array.from(elementDistances.values()).map(d => d.distanceFeet);
+                  const minDist = Math.min(...distances);
+                  const maxDist = Math.max(...distances);
+                  const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+
+                  return (
+                    <div className="border-t border-slate-700 pt-3">
+                      <div className="text-[10px] font-mono text-slate-400 mb-2 uppercase tracking-wide">
+                        Element Round-Trip Distances
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="text-center">
+                          <div className="text-[10px] font-mono text-slate-500">Nearest</div>
+                          <div className="text-sm font-mono font-semibold text-emerald-400">{minDist.toFixed(0)} ft</div>
+                        </div>
+                        <div className="text-center border-x border-slate-700">
+                          <div className="text-[10px] font-mono text-slate-500">Average</div>
+                          <div className="text-sm font-mono font-semibold text-slate-300">{avgDist.toFixed(0)} ft</div>
+                        </div>
+                        <div className="text-center">
+                          <div className="text-[10px] font-mono text-slate-500">Farthest</div>
+                          <div className="text-sm font-mono font-semibold text-rose-400">{maxDist.toFixed(0)} ft</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Stats row */}
+                <div className="flex justify-between border-t border-slate-700 pt-2">
+                  <div className="text-[10px] font-mono text-slate-500">
+                    <span className="text-slate-300 font-semibold">{routeDistanceResult.parkingStopCount}</span> stops
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500">
+                    <span className="text-slate-300 font-semibold">{elementDistances.size}</span> elements
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
