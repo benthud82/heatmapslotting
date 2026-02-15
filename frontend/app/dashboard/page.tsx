@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi, routeMarkersApi } from '@/lib/api';
@@ -50,6 +51,9 @@ import { HintsContainer } from '@/components/journey';
 type ComparisonPeriod = 'week' | 'month' | 'quarter' | 'custom';
 
 export default function Dashboard() {
+    // Auth guard - redirects to /landing if not authenticated
+    const { loading: authLoading } = useAuthGuard();
+
     // URL Params for date sync
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -536,7 +540,7 @@ export default function Dashboard() {
 
     const periodLabels = getPeriodLabels();
 
-    if (loading && !layouts.length) {
+    if (authLoading || (loading && !layouts.length)) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-950">
                 <div className="text-center">

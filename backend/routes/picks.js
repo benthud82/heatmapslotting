@@ -856,4 +856,243 @@ router.delete('/by-date/:date', authMiddleware, auditLog('DELETE', 'picks'), asy
   }
 });
 
+// POST /api/picks/generate - Generate demo pick data from JSON (no CSV file)
+// Used by "Do It For Me" feature to auto-generate realistic pick data
+router.post('/generate', authMiddleware, auditLog('GENERATE', 'picks'), async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { layoutId, picks } = req.body;
+
+    if (!layoutId) {
+      return res.status(400).json({ error: 'Layout ID is required' });
+    }
+
+    if (!picks || !Array.isArray(picks) || picks.length === 0) {
+      return res.status(400).json({ error: 'Picks array is required and must not be empty' });
+    }
+
+    // Verify layout belongs to user
+    const layoutResult = await query(
+      'SELECT id FROM layouts WHERE id = $1 AND user_id = $2',
+      [layoutId, userId]
+    );
+
+    if (layoutResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Layout not found or access denied.' });
+    }
+
+    // Get all warehouse elements for this layout (for validation)
+    const elementsResult = await query(
+      'SELECT id, label FROM warehouse_elements WHERE layout_id = $1',
+      [layoutId]
+    );
+
+    // Create a map of label -> element_id for fast lookup
+    const elementMap = new Map();
+    elementsResult.rows.forEach(row => {
+      elementMap.set(row.label.trim().toLowerCase(), row.id);
+    });
+
+    // Validate picks data structure
+    const errors = [];
+    const validPicks = [];
+    const newLocations = new Set();
+    const newItems = new Set();
+    const unmatchedElements = new Set();
+
+    for (let i = 0; i < picks.length; i++) {
+      const pick = picks[i];
+
+      // Validate required fields
+      if (!pick.item_id || !pick.location_id || !pick.element_name || !pick.date || pick.pick_count === undefined) {
+        errors.push(`Row ${i + 1}: Missing required fields (item_id, location_id, element_name, date, pick_count)`);
+        continue;
+      }
+
+      const elementNameLower = pick.element_name.trim().toLowerCase();
+
+      // Validate date format
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(pick.date)) {
+        errors.push(`Row ${i + 1}: Invalid date format "${pick.date}". Expected YYYY-MM-DD`);
+        continue;
+      }
+
+      // Validate pick count
+      const pickCount = parseInt(pick.pick_count, 10);
+      if (isNaN(pickCount) || pickCount < 0) {
+        errors.push(`Row ${i + 1}: Invalid pick_count "${pick.pick_count}"`);
+        continue;
+      }
+
+      // Validate element exists
+      if (!elementMap.has(elementNameLower)) {
+        unmatchedElements.add(pick.element_name);
+        continue;
+      }
+
+      validPicks.push({
+        item_id: pick.item_id.trim(),
+        location_id: pick.location_id.trim(),
+        element_id: elementMap.get(elementNameLower),
+        element_name: pick.element_name.trim(),
+        pick_date: pick.date.trim(),
+        pick_count: pickCount,
+      });
+
+      newLocations.add(pick.location_id.trim());
+      newItems.add(pick.item_id.trim());
+    }
+
+    // Report validation errors (but only first 10)
+    if (errors.length > 0) {
+      return res.status(400).json({
+        error: 'Pick data validation failed',
+        details: errors.slice(0, 10),
+        totalErrors: errors.length,
+      });
+    }
+
+    if (validPicks.length === 0) {
+      return res.status(400).json({
+        error: 'No valid picks to process after validation',
+      });
+    }
+
+    // Clear existing data first (user confirmed this in the modal)
+    await query('DELETE FROM item_pick_transactions WHERE layout_id = $1', [layoutId]);
+    await query('DELETE FROM pick_transactions WHERE layout_id = $1', [layoutId]);
+    await query('DELETE FROM items WHERE layout_id = $1', [layoutId]);
+    await query('DELETE FROM locations WHERE layout_id = $1', [layoutId]);
+
+    // Bulk insert locations
+    const uniqueLocations = [...new Map(validPicks.map(row => [
+      row.location_id,
+      { location_id: row.location_id, element_id: row.element_id }
+    ])).values()];
+
+    if (uniqueLocations.length > 0) {
+      const locationValues = uniqueLocations.map((loc, i) =>
+        `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`
+      ).join(', ');
+
+      const locationParams = uniqueLocations.flatMap(loc => [
+        layoutId, loc.element_id, loc.location_id, loc.location_id
+      ]);
+
+      await query(
+        `INSERT INTO locations (layout_id, element_id, location_id, label)
+         VALUES ${locationValues}
+         ON CONFLICT (layout_id, location_id) DO UPDATE SET element_id = EXCLUDED.element_id`,
+        locationParams
+      );
+    }
+
+    // Get all location IDs
+    const locationResult = await query(
+      `SELECT id, location_id FROM locations WHERE layout_id = $1`,
+      [layoutId]
+    );
+    const locationIdMap = new Map(locationResult.rows.map(r => [r.location_id, r.id]));
+
+    // Bulk insert items
+    const uniqueItems = [...new Map(validPicks.map(row => [
+      row.item_id,
+      { item_id: row.item_id, location_id: locationIdMap.get(row.location_id) }
+    ])).values()];
+
+    if (uniqueItems.length > 0) {
+      const itemValues = uniqueItems.map((item, i) =>
+        `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`
+      ).join(', ');
+
+      const itemParams = uniqueItems.flatMap(item => [
+        layoutId, item.item_id, item.location_id
+      ]);
+
+      await query(
+        `INSERT INTO items (layout_id, item_id, current_location_id)
+         VALUES ${itemValues}
+         ON CONFLICT (layout_id, item_id) DO UPDATE SET current_location_id = EXCLUDED.current_location_id`,
+        itemParams
+      );
+    }
+
+    // Get all item IDs
+    const itemResult = await query(
+      `SELECT id, item_id FROM items WHERE layout_id = $1`,
+      [layoutId]
+    );
+    const itemIdMap = new Map(itemResult.rows.map(r => [r.item_id, r.id]));
+
+    // Bulk insert pick transactions in batches
+    const BATCH_SIZE = 1000;
+    for (let i = 0; i < validPicks.length; i += BATCH_SIZE) {
+      const batch = validPicks.slice(i, i + BATCH_SIZE);
+
+      const txnValues = batch.map((row, idx) =>
+        `($${idx * 6 + 1}, $${idx * 6 + 2}, $${idx * 6 + 3}, $${idx * 6 + 4}, $${idx * 6 + 5}, $${idx * 6 + 6})`
+      ).join(', ');
+
+      const txnParams = batch.flatMap(row => [
+        layoutId,
+        itemIdMap.get(row.item_id),
+        locationIdMap.get(row.location_id),
+        row.element_id,
+        row.pick_date,
+        row.pick_count
+      ]);
+
+      await query(
+        `INSERT INTO item_pick_transactions (layout_id, item_id, location_id, element_id, pick_date, pick_count)
+         VALUES ${txnValues}
+         ON CONFLICT (item_id, location_id, pick_date)
+         DO UPDATE SET pick_count = EXCLUDED.pick_count, created_at = NOW()`,
+        txnParams
+      );
+    }
+
+    // Increment successful uploads count
+    await query(
+      `INSERT INTO user_preferences (user_id, successful_uploads_count)
+       VALUES ($1, 1)
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         successful_uploads_count = user_preferences.successful_uploads_count + 1,
+         updated_at = NOW()`,
+      [userId]
+    );
+
+    // Calculate date range from picks
+    const dates = validPicks.map(p => p.pick_date).sort();
+    const dateRange = {
+      start: dates[0],
+      end: dates[dates.length - 1],
+    };
+
+    const response = {
+      message: 'Demo data generated successfully',
+      rowsProcessed: validPicks.length,
+      dataType: 'item-level',
+      stats: {
+        uniqueItems: newItems.size,
+        uniqueLocations: newLocations.size,
+        uniqueElements: new Set(validPicks.map(p => p.element_id)).size,
+        dateRange,
+      },
+    };
+
+    // Add warnings if there were unmatched elements
+    if (unmatchedElements.size > 0) {
+      response.warnings = {
+        unmatchedElements: Array.from(unmatchedElements).sort(),
+        message: 'Some element names in the picks do not exist in the layout and were skipped.',
+      };
+    }
+
+    res.status(201).json(response);
+  } catch (error) {
+    next(error);
+  }
+});
+
 module.exports = router;

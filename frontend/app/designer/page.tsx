@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import WarehouseCanvas, { WarehouseCanvasRef } from '@/components/WarehouseCanvas';
 import Sidebar from '@/components/designer/Sidebar';
 import PropertiesPanel from '@/components/designer/PropertiesPanel';
@@ -37,6 +38,9 @@ import { useJourney } from '@/lib/journey';
 import { nanoid } from 'nanoid';
 
 export default function DesignerPage() {
+  // Auth guard - redirects to /landing if not authenticated
+  const { loading: authLoading } = useAuthGuard();
+
   // Toast state
   const [toast, setToast] = useState<{
     message: string;
@@ -723,7 +727,7 @@ export default function DesignerPage() {
     selectedElementCount: selectedElementIds.length,
   });
 
-  if (layoutOps.loading) {
+  if (authLoading || layoutOps.loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">

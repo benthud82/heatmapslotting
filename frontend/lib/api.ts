@@ -289,6 +289,19 @@ export const picksApi = {
 
     return apiFetch<PickTransaction[]>(endpoint);
   },
+
+  // Upload generated pick data (from "Do It For Me" feature)
+  uploadGenerated: (layoutId: string, picks: Array<{
+    item_id: string;
+    location_id: string;
+    element_name: string;
+    date: string;
+    pick_count: number;
+  }>): Promise<UploadPicksResponse> =>
+    apiFetch<UploadPicksResponse>('/api/picks/generate', {
+      method: 'POST',
+      body: JSON.stringify({ layoutId, picks }),
+    }),
 };
 
 // Locations API

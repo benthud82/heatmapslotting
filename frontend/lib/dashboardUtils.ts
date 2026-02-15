@@ -993,13 +993,14 @@ export function getItemSlottingRecommendation(
   distancePercentile: number,
   walkSavingsPerPick: number
 ): SlottingRec {
-  // Hot items that are far from cart parking should move closer
-  if (velocityTier === 'hot' && distancePercentile >= 50) {
+  // Hot items that are NOT already in prime spots should move closer
+  // (only items in the closest 30% are considered "optimal")
+  if (velocityTier === 'hot' && distancePercentile >= 30) {
     return 'move-closer';
   }
 
-  // Hot items already close are optimal
-  if (velocityTier === 'hot' && distancePercentile < 30) {
+  // Hot items already in prime spots (closest 30%) are optimal
+  if (velocityTier === 'hot') {
     return 'optimal';
   }
 
@@ -1030,21 +1031,18 @@ export function getItemSlottingRecommendation(
 /**
  * Calculate priority score for reslotting recommendations
  * Higher score = higher priority for reslotting
+ *
+ * Uses totalPicks (not avgDailyPicks) so that within the same bay/distance,
+ * items with more picks in the selected date range rank higher.
  */
 export function calculatePriorityScore(
-  avgDailyPicks: number,
+  totalPicks: number,
   walkSavingsPerPick: number,
-  velocityTier: VelTier
+  _velocityTier: VelTier // kept for potential future use
 ): number {
-  const velocityMultiplier: Record<VelTier, number> = {
-    hot: 1.5,
-    warm: 1.0,
-    cold: 0.5,
-  };
-
-  return Math.round(
-    avgDailyPicks * walkSavingsPerPick * velocityMultiplier[velocityTier]
-  );
+  // Simple formula: total picks × walk savings per pick
+  // This ensures items in the same location rank by pick volume
+  return Math.round(totalPicks * walkSavingsPerPick);
 }
 
 /**
@@ -1112,7 +1110,9 @@ export function analyzeItemVelocity(
       ? (item.roundTripDistanceFeet * 12) / 2 // Convert feet back to one-way pixels
       : distances[index];
 
-    const distanceRank = sortedDistances.indexOf(currentDistance);
+    // Always use distances[index] for percentile lookup since sortedDistances is built from distances array
+    const distanceForPercentile = distances[index];
+    const distanceRank = sortedDistances.indexOf(distanceForPercentile);
     const distancePercentile = sortedDistances.length > 1
       ? ((distanceRank + 1) / sortedDistances.length) * 100
       : 50;
@@ -1137,6 +1137,10 @@ export function analyzeItemVelocity(
     }
 
     // Get recommendation
+    // DEBUG: Log for A1 items
+    if (item.external_item_id === 'SKU-221' || item.external_item_id === 'SKU-224' || item.external_item_id === 'SKU-226') {
+      console.log(`[DEBUG RECOMMENDATION] ${item.external_item_id}: velocityTier=${velocityTier}, distancePercentile=${distancePercentile.toFixed(1)}, walkSavingsPerPick=${walkSavings.savingsPerPick}`);
+    }
     const recommendation = getItemSlottingRecommendation(
       velocityTier,
       percentile,
@@ -1144,9 +1148,9 @@ export function analyzeItemVelocity(
       walkSavings.savingsPerPick
     );
 
-    // Calculate priority score
+    // Calculate priority score using totalPicks for the selected date range
     const priorityScore = calculatePriorityScore(
-      avgDailyPicks,
+      totalPicks,
       walkSavings.savingsPerPick,
       velocityTier
     );
@@ -1493,6 +1497,16 @@ export function findItemReslottingOpportunities(
   // DEBUG: Log filtering stats
   console.log('[RESLOT DEBUG] Total items in analysis:', itemAnalysis.length);
   console.log('[RESLOT DEBUG] Items with move-closer recommendation:', sortedItems.length);
+
+  // DEBUG: Find and log specific items (SKU-221, SKU-224, SKU-226) to see why they have different recommendations
+  const debugItems = itemAnalysis.filter(i =>
+    i.externalItemId === 'SKU-221' || i.externalItemId === 'SKU-224' || i.externalItemId === 'SKU-226'
+  );
+  console.log('[RESLOT DEBUG] A1 ITEMS COMPARISON:');
+  debugItems.forEach(item => {
+    console.log(`  ${item.externalItemId}: picks=${item.totalPicks} | tier=${item.velocityTier} | percentile=${item.percentile} | distancePercentile=${Math.round((item.currentDistance / Math.max(...itemAnalysis.map(i => i.currentDistance))) * 100)} | recommendation=${item.recommendation} | element=${item.elementName} | distance=${item.currentDistance}`);
+  });
+
   console.log('[RESLOT DEBUG] Velocity tier breakdown:', {
     hot: itemAnalysis.filter(i => i.velocityTier === 'hot').length,
     warm: itemAnalysis.filter(i => i.velocityTier === 'warm').length,
@@ -1537,7 +1551,8 @@ export function findItemReslottingOpportunities(
       .map(el => {
         const targetDist = elementDistances.get(el.id) || 0;
         const walkSavingsPerPickPixels = (currentDistance - targetDist) * 2; // Round trip
-        const walkSavingsFeetPerDay = Math.round((walkSavingsPerPickPixels * item.avgDailyPicks) / 12); // Convert to feet/day
+        // Use totalPicks so items in the same bay rank by pick volume for selected date range
+        const walkSavingsFeet = Math.round((walkSavingsPerPickPixels * item.totalPicks) / 12); // Convert to feet
 
         // Check REMAINING capacity for this element (not original capacity)
         const remaining = remainingSlots.get(el.id) ?? 0;
@@ -1570,7 +1585,7 @@ export function findItemReslottingOpportunities(
           name: el.label,
           type: el.element_type,
           distance: targetDist,
-          walkSavings: walkSavingsFeetPerDay,
+          walkSavings: walkSavingsFeet,
           hasEmptySlot,
           estimatedEmpty: remaining,
           swapSuggestion,
@@ -1621,6 +1636,12 @@ export function findItemReslottingOpportunities(
 
   // Sort by potential savings (highest first)
   const sortedOpportunities = opportunities.sort((a, b) => b.totalDailyWalkSavings - a.totalDailyWalkSavings);
+
+  // DEBUG: Log top 10 sorted opportunities with their key values
+  console.log('[RESLOT DEBUG] TOP 10 OPPORTUNITIES AFTER SORT:');
+  sortedOpportunities.slice(0, 10).forEach((opp, idx) => {
+    console.log(`  #${idx + 1}: ${opp.item.externalItemId} | picks=${opp.item.totalPicks} | walkSavings=${opp.totalDailyWalkSavings} | priorityScore=${opp.item.priorityScore} | element=${opp.currentElement.name} | distance=${opp.currentElement.distance}`);
+  });
 
   // DEBUG: Log final results
   console.log('[RESLOT DEBUG] Total opportunities created:', opportunities.length);

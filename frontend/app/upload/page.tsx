@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import Header from '@/components/Header';
 import StepIndicator from '@/components/upload/WizardStepIndicator';
 import IntroStep from '@/components/upload/IntroStep';
@@ -19,7 +19,9 @@ const STEPS = [
 ];
 
 export default function UploadPage() {
-    const router = useRouter();
+    // Auth guard - redirects to /landing if not authenticated
+    const { loading: authLoading } = useAuthGuard();
+
     const { preferences, loading: prefsLoading, updateSkipTutorial } = useUserPreferences();
     const [currentStep, setCurrentStep] = useState(1);
     const [skipTutorial, setSkipTutorial] = useState(false);
@@ -30,14 +32,6 @@ export default function UploadPage() {
     const [elementNames, setElementNames] = useState<string[]>([]); // For test CSV generation
     const [file, setFile] = useState<File | null>(null);
     const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
-
-    // Check auth
-    useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            router.push('/login?redirect=/upload');
-        }
-    }, [router]);
 
     // Initialize skip tutorial state from preferences and auto-advance if needed
     useEffect(() => {
@@ -86,12 +80,12 @@ export default function UploadPage() {
         // Could also redirect here, but ConfirmStep handles the success UI
     };
 
-    if (prefsLoading) {
+    if (authLoading || prefsLoading) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-950">
                 <div className="flex flex-col items-center gap-4">
                     <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-slate-400 font-medium">Loading preferences...</p>
+                    <p className="text-slate-400 font-medium">Loading...</p>
                 </div>
             </div>
         );

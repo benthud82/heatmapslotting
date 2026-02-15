@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import WarehouseCanvas from '@/components/WarehouseCanvas';
 import HeatmapSidebar from '@/components/HeatmapSidebar';
 import HeatmapGuide from '@/components/HeatmapGuide';
@@ -22,6 +23,9 @@ import { HintsContainer } from '@/components/journey';
 
 
 export default function Heatmap() {
+  // Auth guard - redirects to /landing if not authenticated
+  const { loading: authLoading } = useAuthGuard();
+
   const canvasRef = useRef<any>(null);
   // ... (existing state)
 
@@ -763,7 +767,7 @@ export default function Heatmap() {
     }
   }, [searchParams, itemSlottingRecommendations.opportunities, itemData, reslotDeepLinkProcessed, loading, itemDataLoading]);
 
-  if (loading && !layouts.length) {
+  if (authLoading || (loading && !layouts.length)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '@/lib/api';
+import { API_URL, routeMarkersApi } from '@/lib/api';
+import { WarehouseElement, RouteMarker } from '@/lib/types';
+import DoItForMeModal from './DoItForMeModal';
 
 interface Layout {
     id: string;
@@ -20,6 +22,12 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
     const [error, setError] = useState<string | null>(null);
     const [elementNames, setElementNames] = useState<string[]>([]);
     const [loadingElements, setLoadingElements] = useState(false);
+
+    // State for "Do It For Me" feature
+    const [fullElements, setFullElements] = useState<WarehouseElement[]>([]);
+    const [cartParkingSpots, setCartParkingSpots] = useState<RouteMarker[]>([]);
+    const [showDoItForMeModal, setShowDoItForMeModal] = useState(false);
+    const [selectedLayout, setSelectedLayout] = useState<Layout | null>(null);
 
     useEffect(() => {
         fetchLayouts();
@@ -71,6 +79,18 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
             const result = await response.json();
             // Handle paginated response format
             const data = result.data || result;
+
+            // Store full element data for "Do It For Me" feature
+            const normalizedElements: WarehouseElement[] = data.map((el: any) => ({
+                ...el,
+                x_coordinate: Number(el.x_coordinate),
+                y_coordinate: Number(el.y_coordinate),
+                width: Number(el.width),
+                height: Number(el.height),
+                rotation: Number(el.rotation),
+            }));
+            setFullElements(normalizedElements);
+
             // Filter out non-slottable elements (text, lines, arrows)
             const slottableElements = data.filter((el: any) =>
                 !['text', 'line', 'arrow'].includes(el.element_type)
@@ -79,6 +99,20 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
             // Extract just the labels/names
             const names = slottableElements.map((el: any) => el.label).sort();
             setElementNames(names);
+
+            // Store selected layout info
+            const layout = layouts.find(l => l.id === layoutId);
+            setSelectedLayout(layout || null);
+
+            // Fetch cart parking spots for "Do It For Me" feature
+            try {
+                const markers = await routeMarkersApi.getMarkers(layoutId);
+                const cartSpots = markers.filter(m => m.marker_type === 'cart_parking');
+                setCartParkingSpots(cartSpots);
+            } catch (markerErr) {
+                console.error('Failed to fetch route markers:', markerErr);
+                setCartParkingSpots([]);
+            }
         } catch (err) {
             console.error(err);
         } finally {
@@ -304,6 +338,34 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
                                     </div>
                                 </div>
                             </div>
+
+                            {/* "Do It For Me" Section */}
+                            <div className="mt-4 pt-4 border-t border-blue-800/50">
+                                <div className="bg-gradient-to-r from-purple-900/20 to-violet-900/20 border-2 border-purple-500/30 rounded-lg p-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex-shrink-0">
+                                            <svg className="w-6 h-6 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                            </svg>
+                                        </div>
+                                        <div className="flex-1">
+                                            <h5 className="font-semibold text-purple-400 mb-1">Just Want to See It Work?</h5>
+                                            <p className="text-sm text-purple-200/70 mb-3">
+                                                Skip the CSV - auto-generate realistic pick data based on your layout. Creates distance-weighted picks with optimization opportunities built in.
+                                            </p>
+                                            <button
+                                                onClick={() => setShowDoItForMeModal(true)}
+                                                className="inline-flex items-center px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:shadow-purple-500/20 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                                            >
+                                                <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                </svg>
+                                                Do It For Me
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     )}
                 </>
@@ -328,6 +390,17 @@ export default function LayoutSelectStep({ onNext, onBack }: LayoutSelectStepPro
                     Continue
                 </button>
             </div>
+
+            {/* "Do It For Me" Modal */}
+            <DoItForMeModal
+                isOpen={showDoItForMeModal}
+                onClose={() => setShowDoItForMeModal(false)}
+                layoutId={selectedLayoutId}
+                elements={fullElements}
+                cartParkingSpots={cartParkingSpots}
+                canvasWidth={selectedLayout?.canvas_width || 1200}
+                canvasHeight={selectedLayout?.canvas_height || 800}
+            />
         </div>
     );
 }

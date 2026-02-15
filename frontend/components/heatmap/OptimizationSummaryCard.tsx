@@ -56,7 +56,7 @@ export default function OptimizationSummaryCard({
             <div className="min-w-0">
               <span className="text-sm font-bold text-amber-400 uppercase tracking-wide block">Walk Optimization</span>
               <span className="font-mono text-xs text-emerald-400 block">
-                {totalSavingsFeet.toLocaleString()} ft/day potential
+                {totalSavingsFeet.toLocaleString()} ft potential
               </span>
             </div>
           </div>
@@ -153,7 +153,7 @@ export default function OptimizationSummaryCard({
               <span className="font-mono text-xl font-bold text-white">
                 {loadedSavingsFeet.toLocaleString()}
               </span>
-              <span className="text-sm text-slate-400 ml-1">ft/day</span>
+              <span className="text-sm text-slate-400 ml-1">ft</span>
             </div>
             <span className="text-xs text-slate-500 font-mono">
               ≈ {formatTime(loadedMinutes)}

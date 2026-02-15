@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import Header from '@/components/Header';
 import Modal from '@/components/Modal';
 import { useUserPreferences } from '@/hooks/useUserPreferences';
@@ -11,9 +11,9 @@ import { API_URL } from '@/lib/api';
 export default function ProfilePage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [loading, setLoading] = useState(true);
+    // Auth guard - redirects to /landing if not authenticated
+    const { user, loading } = useAuthGuard();
     const [upgrading, setUpgrading] = useState(false);
-    const [user, setUser] = useState<any>(null);
     const { preferences, updateSkipTutorial, refresh } = useUserPreferences();
     const [alertMessage, setAlertMessage] = useState<string | null>(null);
 
@@ -61,19 +61,6 @@ export default function ProfilePage() {
             setUpgrading(false);
         }
     };
-
-    useEffect(() => {
-        const checkUser = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                router.push('/login');
-            } else {
-                setUser(session.user);
-                setLoading(false);
-            }
-        };
-        checkUser();
-    }, [router]);
 
     if (loading) {
         return (

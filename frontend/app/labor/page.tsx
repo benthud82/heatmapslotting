@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import Header from '@/components/Header';
 import LayoutManager from '@/components/designer/LayoutManager';
 import { layoutApi, picksApi } from '@/lib/api';
@@ -30,6 +31,9 @@ import ROISimulatorCard from '@/components/labor/ROISimulatorCard';
 import ROIDetailModal from '@/components/labor/ROIDetailModal';
 
 export default function LaborPage() {
+  // Auth guard - redirects to /landing if not authenticated
+  const { loading: authLoading } = useAuthGuard();
+
   const router = useRouter();
 
   // Layout state
@@ -191,7 +195,7 @@ export default function LaborPage() {
   const hasData = aggregatedData.length > 0;
 
   // Loading state
-  if (loading && !layouts.length) {
+  if (authLoading || (loading && !layouts.length)) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-950">
         <div className="text-center">

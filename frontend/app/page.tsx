@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
 import { layoutApi, picksApi } from '@/lib/api';
 import { Layout, AggregatedPickData } from '@/lib/types';
 import Header from '@/components/Header';
@@ -23,14 +23,24 @@ interface LayoutWithStats extends Layout {
 
 export default function Home() {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState<string | undefined>();
+  // Auth guard - redirects to /landing if not authenticated
+  const { user, loading: authLoading } = useAuthGuard();
+  const [dataLoading, setDataLoading] = useState(true);
   const [layouts, setLayouts] = useState<LayoutWithStats[]>([]);
   const [aggregatedData, setAggregatedData] = useState<AggregatedPickData[]>([]);
   const [pickDataByLayout, setPickDataByLayout] = useState<
     Record<string, { totalPicks: number; lastUpload?: string }>
   >({});
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
+
+  // User name from auth guard user
+  const userName = useMemo(() => {
+    if (!user) return undefined;
+    return user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email?.split('@')[0] ||
+      undefined;
+  }, [user]);
 
   // Computed values
   const totalPicks = useMemo(() => {
@@ -47,25 +57,15 @@ export default function Home() {
     return new Date(Math.max(...dates)).toISOString();
   }, [layouts]);
 
-  // Auth check and data loading
+  // Combined loading state
+  const loading = authLoading || dataLoading;
+
+  // Data loading (only after auth is confirmed)
   useEffect(() => {
-    const init = async () => {
+    const loadData = async () => {
+      if (authLoading || !user) return;
+
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (!session) {
-          router.push('/landing');
-          return;
-        }
-
-        // Get user name from metadata or email
-        const user = session.user;
-        const name = user.user_metadata?.full_name ||
-          user.user_metadata?.name ||
-          user.email?.split('@')[0] ||
-          undefined;
-        setUserName(name);
-
         // Load layouts
         const layoutsData = await layoutApi.getLayouts();
 
@@ -109,14 +109,14 @@ export default function Home() {
         setPickDataByLayout(pickDataMap);
         setAggregatedData(allAggregated);
       } catch (err) {
-        console.error('Failed to initialize homepage:', err);
+        console.error('Failed to load homepage data:', err);
       } finally {
-        setLoading(false);
+        setDataLoading(false);
       }
     };
 
-    init();
-  }, [router]);
+    loadData();
+  }, [authLoading, user]);
 
   // Initial loading state
   if (loading) {
