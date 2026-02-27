@@ -178,7 +178,7 @@ export default function HowItWorks() {
             </div>
             <div className="w-px h-6 bg-slate-700" />
             <div className="text-slate-300">
-              <span className="font-semibold text-white">Launching Q1 2025</span>
+              <span className="font-semibold text-white">Now accepting early access teams</span>
               <span className="text-slate-500 ml-2 hidden sm:inline">Join the waitlist for early access</span>
             </div>
           </div>

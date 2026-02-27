@@ -1,6 +1,6 @@
 module.exports = {
     apps: [{
-        name: 'heatmap-backend',
+        name: 'slotwise-backend',
         script: 'server.js',
         instances: 1,
         autorestart: true,

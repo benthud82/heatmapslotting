@@ -16,7 +16,7 @@ const resend = process.env.RESEND_API_KEY
   : null;
 
 // Default sender - update domain after verification
-const DEFAULT_FROM = process.env.EMAIL_FROM || 'HeatmapSlotting <onboarding@resend.dev>';
+const DEFAULT_FROM = process.env.EMAIL_FROM || 'SlotWise <onboarding@resend.dev>';
 
 /**
  * Send waitlist confirmation email
@@ -137,7 +137,7 @@ async function sendWaitlistConfirmationEmail({
   <body>
     <div class="container">
       <div class="header">
-        <div class="logo">HeatmapSlotting</div>
+        <div class="logo">SlotWise</div>
       </div>
 
       <h1 style="text-align: center; margin-bottom: 8px;">Welcome, ${firstName}!</h1>
@@ -178,12 +178,12 @@ async function sendWaitlistConfirmationEmail({
 
       <p style="margin-top: 32px;">
         Cheers,<br>
-        <strong>The HeatmapSlotting Team</strong>
+        <strong>The SlotWise Team</strong>
       </p>
 
       <div class="footer">
         <p>
-          You're receiving this because you signed up for the HeatmapSlotting waitlist.<br>
+          You're receiving this because you signed up for the SlotWise waitlist.<br>
           <a href="${baseUrl}" style="color: #64748b;">Visit our website</a>
         </p>
       </div>
@@ -196,7 +196,7 @@ async function sendWaitlistConfirmationEmail({
   if (!resend) {
     console.log('=== EMAIL NOT SENT (No RESEND_API_KEY) ===');
     console.log('To:', email);
-    console.log('Subject:', `You're #${position} on the HeatmapSlotting waitlist!`);
+    console.log('Subject:', `You're #${position} on the SlotWise waitlist!`);
     console.log('Confirm URL:', confirmUrl);
     console.log('Referral Code:', referralCode);
     console.log('==========================================');
@@ -207,7 +207,7 @@ async function sendWaitlistConfirmationEmail({
     const result = await resend.emails.send({
       from: DEFAULT_FROM,
       to: email,
-      subject: `You're #${position} on the HeatmapSlotting waitlist!`,
+      subject: `You're #${position} on the SlotWise waitlist!`,
       html,
     });
 

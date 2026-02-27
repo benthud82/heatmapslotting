@@ -671,7 +671,7 @@ export default function DesignerPage() {
         setShowShortcutsModal(true);
         break;
       case 'help_about':
-        showToast('HeatmapSlotting v1.0 - Warehouse Heatmap Designer', 'info', 3000);
+        showToast('SlotWise v1.0 - Warehouse Heatmap Designer', 'info', 3000);
         break;
       case 'generate_pattern':
         if (selectedElementIds.length >= 1) {

@@ -37,7 +37,7 @@ export default function HeroSection({ totalSignups }: HeroSectionProps) {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
               </span>
               <span className="text-sm text-white/90 font-medium">
-                Launching Q1 2025
+                Now accepting early access teams
               </span>
             </div>
 
@@ -88,7 +88,7 @@ export default function HeroSection({ totalSignups }: HeroSectionProps) {
                   <div className="w-3 h-3 rounded-full bg-green-500" />
                 </div>
                 <div className="flex-1 text-center">
-                  <span className="text-xs text-slate-400">slottingpro.com/dashboard</span>
+                  <span className="text-xs text-slate-400">slotwise.co/dashboard</span>
                 </div>
               </div>
               {/* Product screenshot */}

@@ -69,7 +69,7 @@ export default function AuthForm() {
                     <p className="mt-2 text-sm text-slate-400">
                         {view === 'sign_in'
                             ? 'Sign in to access your warehouse layouts'
-                            : 'Get started with heatmap slotting optimization'}
+                            : 'Get started with SlotWise warehouse optimization'}
                     </p>
                 </div>
 

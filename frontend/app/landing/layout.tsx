@@ -14,9 +14,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Join the Waitlist | HeatmapSlotting - Visual Warehouse Optimization',
+  title: 'Join the Waitlist | SlotWise - Visual Warehouse Optimization',
   description:
-    "Be first to access HeatmapSlotting's heatmap technology. Reduce pick times by up to 40% with visual warehouse optimization. Join operations leaders on our waitlist.",
+    "Be first to access SlotWise's heatmap technology. Reduce pick times by up to 40% with visual warehouse optimization. Join operations leaders on our waitlist.",
   keywords: [
     'warehouse optimization',
     'slotting software',
@@ -26,17 +26,17 @@ export const metadata: Metadata = {
     'supply chain software',
   ],
   openGraph: {
-    title: 'HeatmapSlotting - Transform Your Warehouse Operations',
+    title: 'SlotWise - Transform Your Warehouse Operations',
     description:
       'Visual heatmaps that help reduce pick times by up to 40%. Join the waitlist for early access.',
-    url: 'https://heatmapslotting.com/landing',
-    siteName: 'HeatmapSlotting',
+    url: 'https://slotwise.co/landing',
+    siteName: 'SlotWise',
     images: [
       {
         url: '/og-waitlist.png',
         width: 1200,
         height: 630,
-        alt: 'HeatmapSlotting Waitlist',
+        alt: 'SlotWise Waitlist',
       },
     ],
     locale: 'en_US',
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'HeatmapSlotting - Join the Waitlist',
+    title: 'SlotWise - Join the Waitlist',
     description: 'Visual warehouse optimization with heatmaps. Be first in line.',
     images: ['/og-waitlist.png'],
   },

@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -60,7 +62,7 @@ export default function LandingPage() {
                 />
               </svg>
             </div>
-            <span className="text-xl font-bold text-white">HeatmapSlotting</span>
+            <span className="text-xl font-bold text-white">SlotWise</span>
           </div>
 
           <nav className="hidden md:flex items-center gap-6">
@@ -137,7 +139,7 @@ export default function LandingPage() {
                   />
                 </svg>
               </div>
-              <span className="text-lg font-bold text-white">HeatmapSlotting</span>
+              <span className="text-lg font-bold text-white">SlotWise</span>
             </div>
 
             <div className="flex items-center gap-6 text-sm text-slate-400">
@@ -148,7 +150,7 @@ export default function LandingPage() {
                 Terms of Service
               </a>
               <a
-                href="mailto:hello@slottingpro.com"
+                href="mailto:hello@slotwise.co"
                 className="hover:text-white transition-colors"
               >
                 Contact
@@ -156,7 +158,7 @@ export default function LandingPage() {
             </div>
 
             <p className="text-sm text-slate-500">
-              &copy; {new Date().getFullYear()} HeatmapSlotting. All rights reserved.
+              &copy; {new Date().getFullYear()} SlotWise. All rights reserved.
             </p>
           </div>
         </div>
@@ -169,7 +171,7 @@ export default function LandingPage() {
           __html: JSON.stringify({
             '@context': 'https://schema.org',
             '@type': 'SoftwareApplication',
-            name: 'HeatmapSlotting',
+            name: 'SlotWise',
             applicationCategory: 'BusinessApplication',
             operatingSystem: 'Web',
             description:

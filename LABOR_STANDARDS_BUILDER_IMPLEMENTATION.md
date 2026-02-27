@@ -1,6 +1,6 @@
 # Engineered Labor Standards Builder - Technical Implementation Specification
 
-> **Document Purpose:** This is a detailed coding specification for an AI coding agent to implement the Engineered Labor Standards Builder feature in the HeatmapSlotting application.
+> **Document Purpose:** This is a detailed coding specification for an AI coding agent to implement the Engineered Labor Standards Builder feature in the SlotWise application.
 > 
 > **Codebase Context:** The application uses Next.js 14 (frontend), Express.js (backend), PostgreSQL (Supabase), and react-konva for canvas rendering. Review `CLAUDE.md` in the project root for architecture details.
 

@@ -1,15 +1,15 @@
 # Engineered Labor Standards Builder
-## Product Specification Document for HeatmapSlotting
+## Product Specification Document for SlotWise
 
 **Version:** 1.0  
 **Date:** January 2026  
-**Author:** HeatmapSlotting Product Team
+**Author:** SlotWise Product Team
 
 ---
 
 ## Executive Summary
 
-The Engineered Labor Standards Builder democratizes industrial engineering for warehouses that can't afford $50K-$150K consulting engagements. Using an intuitive drag-and-drop "playlist" interface, operations managers can build accurate time standards for picking processes without IE expertise. The system integrates with HeatmapSlotting's existing walk burden calculations to automatically compute travel times based on actual warehouse layouts.
+The Engineered Labor Standards Builder democratizes industrial engineering for warehouses that can't afford $50K-$150K consulting engagements. Using an intuitive drag-and-drop "playlist" interface, operations managers can build accurate time standards for picking processes without IE expertise. The system integrates with SlotWise's existing walk burden calculations to automatically compute travel times based on actual warehouse layouts.
 
 **Core Value Proposition:** "Build professional-grade labor standards in minutes, not months."
 

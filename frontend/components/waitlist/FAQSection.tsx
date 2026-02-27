@@ -5,8 +5,8 @@ import { ChevronDownIcon } from './icons';
 
 const FAQS = [
   {
-    question: 'When will HeatmapSlotting launch?',
-    answer: "We're targeting Q1 2025 for our public launch. Waitlist members will get early access before the general public.",
+    question: 'When will SlotWise launch?',
+    answer: "We're onboarding early access teams now. Waitlist members get first priority before broad public release.",
   },
   {
     question: 'How much will it cost?',
@@ -66,7 +66,7 @@ export default function FAQSection() {
           </h2>
           <p className="text-slate-400">
             Can&apos;t find what you&apos;re looking for?{' '}
-            <a href="mailto:hello@heatmapslotting.com" className="text-blue-400 hover:underline">
+            <a href="mailto:hello@slotwise.co" className="text-blue-400 hover:underline">
               Contact us
             </a>
           </p>

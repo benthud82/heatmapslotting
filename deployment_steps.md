@@ -1,8 +1,8 @@
-# HeatmapSlotting Go-Live Audit and Deployment Steps
+# SlotWise Go-Live Audit and Deployment Steps
 
 Last updated: 2026-02-15  
 Owner: Codex + Product Team  
-Scope: full-stack app in `C:\xampp\htdocs\heatmapslotting`
+Scope: full-stack app in `C:\xampp\htdocs\slotwise`
 
 ## Purpose
 This document is the single source of truth for taking the app from current state to production readiness in controlled phases.
@@ -213,7 +213,7 @@ The product has strong core value (layout designer + heatmap + item-level slotti
 
 ### M3. Waitlist copy/date stale
 - Evidence:
-  - `frontend/components/waitlist/HeroSection.tsx:40` says “Launching Q1 2025”.
+  - `frontend/components/waitlist/HeroSection.tsx` has legacy launch-timing copy that should be updated.
 - Risk:
   - credibility hit.
 
